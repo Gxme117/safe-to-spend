@@ -12,7 +12,7 @@
   --bg:#FFFFFF; --surface:#FFFFFF; --ink:#000000; --muted:#5E5E5E; --line:#D4D4D4;
   --green:#000000; --green-soft:#D9D9D9; --amber:#8C8C8C; --amber-soft:#E6E6E6;
   --red:#000000; --red-soft:#E0E0E0; --focus:#000000;
-  --good:#8A6A00; --good-fill:#FFE27A; --good-soft:#FFF8D9; --on-good:#000000;
+  --good:#000000; --good-fill:#FFFFFF; --good-soft:#FFFFFF; --on-good:#000000;
   --glass:rgba(255,255,255,.62); --glass-line:rgba(0,0,0,.07); --glass-hi:rgba(255,255,255,.95); --glass-shadow:0 10px 30px rgba(0,0,0,.06); --blob:.20; --ring:.35;
   color-scheme:light;
   --display:-apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", system-ui, sans-serif;
@@ -25,7 +25,7 @@
   --bg:#000000; --surface:#1C1C1E; --ink:#FFFFFF; --muted:#98989F; --line:#38383A;
   --green:#FFFFFF; --green-soft:#3A3A3C; --amber:#8E8E93; --amber-soft:#2C2C2E;
   --red:#FFFFFF; --red-soft:#3A3A3C; --focus:#FFFFFF;
-  --good:#FFE27A; --good-fill:#FFE27A; --good-soft:#3A3312; --on-good:#000000;
+  --good:#FFFFFF; --good-fill:#FFFFFF; --good-soft:#1C1C1E; --on-good:#000000;
   --glass:rgba(28,28,30,.74); --glass-line:rgba(255,255,255,.08); --glass-hi:rgba(255,255,255,.14); --glass-shadow:0 10px 30px rgba(0,0,0,.5); --blob:.34; --ring:.45;
   color-scheme:dark;
 }
@@ -251,6 +251,19 @@ body{background:transparent}
 .check{display:flex;gap:8px;align-items:center;font-size:.93rem}
 .dlg-foot.split{justify-content:space-between}
 .inc .soon{font-size:.75rem;color:var(--muted);font-weight:400;display:block;text-align:right}
+/* accent = white with chromatic aberration */
+:root{--ca-r:rgba(255,0,90,.8);--ca-b:rgba(0,190,255,.8)}
+.good-txt,.big.pos,.goal-fig,.sheet td.gain,.tile b.gain,.inc .iamt,.cat.under .left,.cat.paid .left,.tx .amt.in,.cycle-ends .pay b,.dow span.payday,.inc-sum b,.month-sum .good-txt{
+  text-shadow:-1px 0 var(--ca-r),1px 0 var(--ca-b)}
+.big.pos{text-shadow:-3px 0 var(--ca-r),3px 0 var(--ca-b)}
+.days i.under,.runway .free,.dot.free,.bar i,.btn.good,#toast.good,.days i.payday,.key .a,.cycle-key i.ca{
+  box-shadow:-2px 0 0 var(--ca-r),2px 0 0 var(--ca-b),inset 0 0 0 1px rgba(0,0,0,.12)}
+.cat.fixed:not(.paid) .bar i,.cat.over .bar i{box-shadow:none}
+.days i.payday{box-shadow:-2px 0 0 var(--ca-r),2px 0 0 var(--ca-b),inset 0 0 0 2px var(--ink)}
+.big small{text-shadow:none}
+.runway .free{box-shadow:inset 2px 0 0 var(--ca-r),inset -2px 0 0 var(--ca-b),inset 0 0 0 1px rgba(0,0,0,.18)}
+.days i.today.under{box-shadow:-2px 0 0 var(--ca-r),2px 0 0 var(--ca-b),inset 0 0 0 1px rgba(0,0,0,.12)}
+svg rect.gainbar{filter:drop-shadow(-2px 0 0 var(--ca-r)) drop-shadow(2px 0 0 var(--ca-b))}
 /* bold numbers */
 .num,.cat-top .left,.tx .amt,.big,.goal-fig,.tile b,.legend,.sheet tbody td:not(:first-child){font-weight:700}
 .big small,.goal-fig .muted,.month-sum .muted,.sheet td small{font-weight:400}
@@ -744,7 +757,7 @@ body{background:transparent}
         <div class="cycle-ends"><span>${start < c.t ? `Paid <b>${niceDate(start)}</b>` : `<b>Today</b>`}</span><span class="pay">Payday <b>${niceDate(c.payday)}</b></span></div>
         <div class="days" role="img" aria-label="Day ${dayNo} of ${total} until payday">${ticks}</div>
         <div class="dow" aria-hidden="true">${dows}</div>
-        <div class="cycle-key"><span><i style="background:var(--good-fill)"></i>Under your daily amount</span><span><i style="background:var(--ink)"></i>Over</span><span><i style="background:var(--line)"></i>Still to come</span></div>
+        <div class="cycle-key"><span><i class="ca" style="background:var(--good-fill)"></i>Under your daily amount</span><span><i style="background:var(--ink)"></i>Over</span><span><i style="background:var(--line)"></i>Still to come</span></div>
         <p class="days-cap muted">${cap}</p>
       </div>`;
   }
@@ -954,7 +967,7 @@ body{background:transparent}
       const planned = figs[k].kind === "plan" || k > cur;
       if (v != null) {
         const hgt = Math.max(1, Math.abs(v) * scale), y = v >= 0 ? zero - hgt : zero;
-        bars += `<rect x="${x}" y="${y}" width="${w}" height="${hgt}" rx="3" fill="${v >= 0 ? (planned ? "url(#hatchG)" : "var(--good-fill)") : (planned ? "url(#hatch)" : "var(--ink)")}" stroke="${v >= 0 ? "var(--good)" : "var(--ink)"}" stroke-width="${planned ? 1 : 0}"><title>${MON[i]}: ${money(v)}</title></rect>`;
+        bars += `<rect class="${v >= 0 ? "gainbar" : ""}" x="${x}" y="${y}" width="${w}" height="${hgt}" rx="3" fill="${v >= 0 ? (planned ? "url(#hatchG)" : "var(--good-fill)") : (planned ? "url(#hatch)" : "var(--ink)")}" stroke="${v >= 0 ? "var(--good)" : "var(--ink)"}" stroke-width="${planned ? 1 : 0}"><title>${MON[i]}: ${money(v)}</title></rect>`;
       }
       bars += `<text x="${i * bw + bw / 2}" y="${H - 8}" text-anchor="middle" ${k === cur ? 'style="fill:var(--ink);font-weight:600"' : ""}>${MON[i]}</text>`;
     });
