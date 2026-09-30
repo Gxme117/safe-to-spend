@@ -210,6 +210,28 @@ body{background:transparent}
   box-shadow:inset 0 1px 0 var(--glass-hi), var(--glass-shadow)}
 .sheet th:first-child,.sheet td:first-child,.sheet thead th{background:var(--glass);-webkit-backdrop-filter:blur(26px);backdrop-filter:blur(26px)}
 
+/* income */
+#checkin:empty{display:none}
+.inc{list-style:none;margin:0;padding:0}
+.inc li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--line);cursor:pointer}
+.inc li:first-child{border-top:0}
+.inc li:hover .iname{text-decoration:underline;text-underline-offset:3px}
+.inc .iname{font-weight:600;display:block}
+.inc .imeta{font-size:.85rem;color:var(--muted)}
+.inc .iamt{color:var(--good);font-weight:700;white-space:nowrap}
+.inc-sum{font-size:.93rem;margin:-6px 0 10px}
+.note{font-size:.85rem;color:var(--muted);border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-top:4px;list-style:none}
+.checkin .lead{margin:0 0 4px;color:var(--muted);font-size:.93rem}
+.checkin h2{margin-bottom:6px}
+.checkin p{margin:0 0 14px}
+.ci-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.ci-row .money{width:150px}
+.ci-row .money input{width:100%;height:42px;border:1px solid var(--line);border-radius:9px;background:var(--bg);padding:0 12px 0 26px}
+.radios{display:flex;gap:18px;flex-wrap:wrap;font-size:.93rem}
+.radios label{display:flex;gap:6px;align-items:center}
+.check{display:flex;gap:8px;align-items:center;font-size:.93rem}
+.dlg-foot.split{justify-content:space-between}
+.inc .soon{font-size:.85rem;color:var(--muted);font-weight:400;display:block;text-align:right}
 /* bold numbers */
 .num,.cat-top .left,.tx .amt,.big,.goal-fig,.tile b,.legend,.sheet tbody td:not(:first-child){font-weight:700}
 .big small,.goal-fig .muted,.month-sum .muted,.sheet td small{font-weight:400}
@@ -256,6 +278,7 @@ body{background:transparent}
 
 <main class="grid" id="monthView">
   <section class="col">
+    <div id="checkin"></div>
     <div class="hero-wrap"><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
 
     <form id="addForm" class="panel" autocomplete="off">
@@ -283,6 +306,12 @@ body{background:transparent}
   </section>
 
   <section class="col">
+    <div class="panel" id="incomePanel">
+      <div class="panel-head"><h2>Income</h2><div style="display:flex;gap:8px"><button id="addOneOff" class="btn ghost small" type="button">Add one-off</button><button id="addIncome" class="btn ghost small" type="button">Add regular</button></div></div>
+      <p id="incomeSum" class="inc-sum muted num"></p>
+      <ul id="incomeList" class="inc"></ul>
+      <div id="oneOffWrap" hidden><h2 style="margin:18px 0 6px">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
+    </div>
     <div class="panel">
       <div class="panel-head"><h2>Budgets</h2><span id="budgetSum" class="muted num"></span></div>
       <ul id="cats" class="cats"></ul>
@@ -338,6 +367,54 @@ body{background:transparent}
     <div class="dlg-foot">
       <button class="btn ghost" type="button" id="cancelSet">Cancel</button>
       <button class="btn primary" type="submit" id="saveSet">Save settings</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="incomeDlg" aria-labelledby="incTitle">
+  <form id="incForm" class="dlg">
+    <h2 id="incTitle">Add income</h2>
+    <div class="two">
+      <label class="field"><span>Name</span><input id="iName" placeholder="e.g. Pharmacy" required></label>
+      <label class="field"><span>Where it comes from</span><select id="iType">
+        <option value="work">Work</option><option value="business">Side business</option><option value="student">Student Finance</option>
+        <option value="benefits">Benefits</option><option value="family">Family or friends</option><option value="other">Other</option></select></label>
+    </div>
+    <div class="two">
+      <label class="field"><span>How often</span><select id="iFreq">
+        <option value="monthly-lastworking">Monthly, last working day</option><option value="monthly-date">Monthly on a date</option>
+        <option value="monthly-lastfri">Monthly, last Friday</option><option value="fourweekly">Every 4 weeks</option>
+        <option value="fortnightly">Every 2 weeks</option><option value="weekly">Every week</option><option value="oneoff">Just once</option></select></label>
+      <label class="field" id="iDateWrap"><span id="iDateLbl">Next pay date</span><input id="iDate" type="date"></label>
+    </div>
+    <div>
+      <p class="hint muted" style="margin:0 0 8px" id="iVarQ">Is it the same amount every time?</p>
+      <div class="radios"><label><input type="radio" name="iVar" value="fixed" checked> <span id="iVarA">Same every time</span></label><label><input type="radio" name="iVar" value="varies"> <span id="iVarB">It changes</span></label></div>
+    </div>
+    <div class="two" id="iFixedWrap">
+      <label class="field"><span id="iAmtLbl">Amount after tax</span><div class="money"><em>£</em><input id="iAmt" inputmode="decimal" placeholder="0.00"></div></label>
+    </div>
+    <div class="two" id="iVarWrap" hidden>
+      <label class="field"><span>Lowest you'd expect</span><div class="money"><em>£</em><input id="iLow" inputmode="decimal" placeholder="0.00"></div></label>
+      <label class="field"><span>Usual amount</span><div class="money"><em>£</em><input id="iTyp" inputmode="decimal" placeholder="0.00"></div></label>
+    </div>
+    <p class="hint muted" id="iVarHint" hidden style="margin-top:-8px">Your forecast uses the lowest amount, so a good month is a bonus rather than a shortfall.</p>
+    <label class="check" id="iMainWrap"><input type="checkbox" id="iMain"> This is my main pay. It sets your payday countdown.</label>
+    <div class="dlg-foot split">
+      <button class="btn ghost" type="button" id="iDelete">Remove</button>
+      <div style="display:flex;gap:10px;margin-left:auto"><button class="btn ghost" type="button" id="iCancel">Cancel</button><button class="btn primary" type="submit">Save income</button></div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="jobDlg" aria-labelledby="jobTitle">
+  <form id="jobForm" class="dlg">
+    <h2 id="jobTitle">Give this money a job</h2>
+    <p id="jobText" class="muted" style="margin:0"></p>
+    <label class="field"><span id="jobLbl">Put towards your savings goal</span><div class="money"><em>£</em><input id="jobAmt" inputmode="decimal"></div></label>
+    <div class="dlg-foot">
+      <button class="btn ghost" type="button" id="jobKeep">Keep it to spend</button>
+      <button class="btn good" type="submit" id="jobSave">Save it</button>
     </div>
   </form>
 </dialog>
@@ -426,6 +503,87 @@ body{background:transparent}
     }).catch(failed);
   }
 
+
+  /* ---------- income engine ---------- */
+  const BANK_HOLIDAYS = new Set(["2026-01-01","2026-04-03","2026-04-06","2026-05-04","2026-05-25","2026-08-31","2026-12-25","2026-12-28",
+    "2027-01-01","2027-03-26","2027-03-29","2027-05-03","2027-05-31","2027-08-30","2027-12-27","2027-12-28"]);
+  const isoD = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const FREQ = {"monthly-lastworking":"Monthly, last working day","monthly-date":"Monthly","monthly-lastfri":"Monthly, last Friday",
+    fourweekly:"Every 4 weeks", fortnightly:"Every 2 weeks", weekly:"Every week", oneoff:"Just once"};
+  const incomes = () => (state && state.incomes) || [];
+  function workingBefore(d) {
+    const x = new Date(d);
+    while (x.getDay() === 0 || x.getDay() === 6 || BANK_HOLIDAYS.has(isoD(x))) x.setDate(x.getDate() - 1);
+    return x;
+  }
+  function occurrences(src, from, to) {
+    const out = [], F = parseD(from), T = parseD(to);
+    if (src.freq === "oneoff") { if (src.date && src.date >= from && src.date <= to) out.push(src.date); return out; }
+    const step = {weekly: 7, fortnightly: 14, fourweekly: 28}[src.freq];
+    if (step) {
+      if (!src.date) return out;
+      const a = parseD(src.date);
+      const n = Math.floor((F - a) / 864e5 / step) - 1;
+      for (let i = n; i < n + 400; i++) {
+        const d = new Date(a); d.setDate(d.getDate() + i * step);
+        const adj = workingBefore(d);
+        if (adj > T) break;
+        if (adj >= F) out.push(isoD(adj));
+      }
+      return out;
+    }
+    for (let i = -1; i < 40; i++) {
+      const base = new Date(F.getFullYear(), F.getMonth() + i, 1);
+      const last = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+      let d;
+      if (src.freq === "monthly-lastworking") d = last;
+      else if (src.freq === "monthly-lastfri") { d = new Date(last); while (d.getDay() !== 5) d.setDate(d.getDate() - 1); }
+      else d = new Date(base.getFullYear(), base.getMonth(), Math.min(src.day || 1, last.getDate()));
+      const adj = workingBefore(d);
+      if (adj > T) break;
+      if (adj >= F) out.push(isoD(adj));
+    }
+    return out;
+  }
+  const lowAmt = s => s.varies ? (s.low || 0) : (s.amount || 0);
+  const usualAmt = s => s.varies ? (s.typical || s.low || 0) : (s.amount || 0);
+  const perMonth = s => lowAmt(s) * ({weekly: 52/12, fortnightly: 26/12, fourweekly: 13/12, oneoff: 0}[s.freq] ?? 1);
+  const addDays = (s, n) => { const d = parseD(s); d.setDate(d.getDate() + n); return isoD(d); };
+  const ciKey = (id, d) => `${id}_${d}`;
+  function isReceived(srcId, d) {
+    for (const k in months) for (const it of months[k]) if (it.srcId === srcId && it.forDate === d) return true;
+    return false;
+  }
+  function pendingCheckins() {
+    const t = today(), res = [], skip = (state && state.skipped) || {}, snooze = (state && state.snoozed) || {};
+    for (const s of incomes()) for (const d of occurrences(s, addDays(t, -40), t)) {
+      if (s.since && d < s.since) continue;
+      const k = ciKey(s.id, d);
+      if (skip[k] || snooze[k] === t || isReceived(s.id, d)) continue;
+      res.push({src: s, date: d, key: k});
+    }
+    return res.sort((a, b) => a.date.localeCompare(b.date));
+  }
+  function nextPaydayCalc() {
+    const list = incomes().filter(s => s.freq !== "oneoff");
+    if (!list.length) return null;
+    const mains = list.filter(s => s.main);
+    const use = mains.length ? mains : list, t = today(), skip = (state && state.skipped) || {};
+    let best = null;
+    for (const s of use) for (const d of occurrences(s, t, addDays(t, 70))) {
+      if (isReceived(s.id, d) || skip[ciKey(s.id, d)]) continue;
+      if (!best || d < best) best = d;
+      break;
+    }
+    return best;
+  }
+  function incomeForMonth(k) {
+    const from = k + "-01", to = isoD(new Date(+k.slice(0, 4), +k.slice(5), 0));
+    let sum = 0;
+    for (const s of incomes()) sum += occurrences(s, from, to).length * lowAmt(s);
+    return sum;
+  }
+
   /* ---------- derived ---------- */
   function calc() {
     const t = today(), cur = t.slice(0, 7);
@@ -448,8 +606,9 @@ body{background:transparent}
     }
     let billsLeft = 0;
     for (const c of cats) if (c.fixed) billsLeft += Math.max(0, (c.budget || 0) - (spent[c.id] || 0));
-    const daysLeft = state && state.nextPayday ? dayDiff(t, state.nextPayday) : null;
-    return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, daysLeft};
+    const payday = incomes().length ? nextPaydayCalc() : (state && state.nextPayday) || null;
+    const daysLeft = payday ? dayDiff(t, payday) : null;
+    return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, daysLeft, payday};
   }
 
   /* ---------- render ---------- */
@@ -457,7 +616,7 @@ body{background:transparent}
     const c = calc();
     $("#monthTitle").textContent = monthName(c.cur);
     $("#balanceLine").textContent = c.balance == null ? "" : `Balance ${money(c.balance)}`;
-    renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
+    renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
   function renderHero(c) {
@@ -469,7 +628,6 @@ body{background:transparent}
         <form id="setupForm" class="setup">
           <label class="field"><span>How much is in your account right now?</span>
             <div class="money"><em>£</em><input id="uBal" inputmode="decimal" placeholder="0.00" required></div></label>
-          <label class="field"><span>When is your next payday?</span><input id="uPay" type="date" required></label>
           <div><button class="btn primary" type="submit">Start tracking</button></div>
         </form>`;
       $("#setupForm").onsubmit = e => {
@@ -477,7 +635,7 @@ body{background:transparent}
         const b = num($("#uBal").value);
         if (Number.isNaN(b)) return toast("Enter your balance as a number, e.g. 1250.50");
         saveState({
-          balance: r2(b), balanceSetAt: Date.now(), balanceAsOf: today(), nextPayday: $("#uPay").value,
+          balance: r2(b), balanceSetAt: Date.now(), balanceAsOf: today(), nextPayday: null, incomes: [],
           categories: [
             {id:"rent", name:"Rent", budget:0, fixed:true},
             {id:"groceries", name:"Groceries", budget:0, fixed:false},
@@ -491,18 +649,25 @@ body{background:transparent}
       };
       return;
     }
-    if (c.balance == null || c.daysLeft == null) {
+    if (!incomes().length && !state.nextPayday) {
       h.innerHTML = `
-        <p class="lead">Safe to spend until payday</p>
-        <p class="sub">Add your current balance and next payday, and this will show how much you can spend each day without running short.</p>
-        <button class="btn primary" type="button" data-open-settings>Add balance and payday</button>`;
+        <p class="lead">Start with your income</p>
+        <p class="sub">You can only spend what comes in, so add where your money comes from first: your job, Student Finance, family, anything. Your payday and daily spending figure are worked out from it.</p>
+        <button class="btn primary" type="button" data-add-income>Add your income</button>`;
       return;
     }
-    if (c.daysLeft <= 0) {
+    if (c.balance == null) {
       h.innerHTML = `
-        <p class="lead">Payday was ${c.daysLeft === 0 ? "today" : niceDate(state.nextPayday)}</p>
-        <p class="sub">Log your pay below, then set your next payday so the daily figure starts counting again.</p>
-        <button class="btn primary" type="button" data-open-settings>Set next payday</button>`;
+        <p class="lead">Safe to spend until payday</p>
+        <p class="sub">Add the balance your bank app shows right now, and this will show how much you can spend each day without running short.</p>
+        <button class="btn primary" type="button" data-open-settings>Add your balance</button>`;
+      return;
+    }
+    if (c.daysLeft == null || c.daysLeft <= 0) {
+      h.innerHTML = `
+        <p class="lead">${c.daysLeft === 0 ? "Payday is today" : "No payday coming up"}</p>
+        <p class="sub">${c.daysLeft === 0 ? "Confirm your pay above and the daily figure will count down to your next payday." : "Add a regular income source so there's a payday to count down to."}</p>
+        ${c.daysLeft === 0 ? "" : '<button class="btn primary" type="button" data-add-income>Add income</button>'}`;
       return;
     }
     const free = c.balance - c.billsLeft;
@@ -521,8 +686,8 @@ body{background:transparent}
       <p class="lead">Safe to spend until payday</p>
       <p class="big num ${perDay < 0 ? "neg" : "pos"}">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}<span class="pence">.${pad(pence)}</span><small>a day</small></p>
       <p class="sub">${free >= 0
-        ? `You have ${money(free)} free across ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"}. Payday is ${niceDate(state.nextPayday)}.`
-        : `Your bills still to pay are ${money(-free)} more than your balance. Payday is ${niceDate(state.nextPayday)}.`}</p>
+        ? `You have ${money(free)} free across ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"}. Payday is ${niceDate(c.payday)}.`
+        : `Your bills still to pay are ${money(-free)} more than your balance. Payday is ${niceDate(c.payday)}.`}</p>
       <div class="runway" role="img" aria-label="Balance split: ${money(billsW)} for bills, ${money(freeW)} free">
         ${billsW ? `<i class="bills" style="flex:${billsW}"></i>` : ""}${freeW ? `<i class="free" style="flex:${freeW}"></i>` : ""}
       </div>
@@ -537,7 +702,7 @@ body{background:transparent}
   function renderCatSelect(c) {
     const kind = document.querySelector('input[name="kind"]:checked').value;
     const opts = kind === "income"
-      ? [["paycheck","Paycheck"],["other-income","Other income"]]
+      ? [...incomes().map(s => [s.id, s.name]), ["gift","Gift from family or friends"], ["other-income","Other income"]]
       : c.cats.map(x => [x.id, x.name]);
     const sig = kind + JSON.stringify(opts);
     if (sig === catSig) return;
@@ -572,11 +737,16 @@ body{background:transparent}
     });
     const orphan = Object.keys(c.spent).filter(k => !known.has(k)).reduce((s, k) => s + c.spent[k], 0);
     if (orphan) rows.push(`<li class="cat"><div class="cat-top"><span class="name">Removed categories</span><span class="left">${money(orphan)} spent</span></div></li>`);
+    const baseIncome = incomes().reduce((s, x) => s + perMonth(x), 0);
+    if (incomes().length && total > baseIncome) rows.push(`<li class="note">Your budgets add up to ${money(total - baseIncome)} more than the ${money(baseIncome)} a month you can count on. Trim a budget or add missing income.</li>`);
     list.innerHTML = rows.join("") || `<li class="empty">No categories yet. Add some in Settings.</li>`;
   }
 
   function catLabel(it, c) {
-    if (it.type === "income") return it.cat === "paycheck" ? "Paycheck" : "Other income";
+    if (it.type === "income") {
+      const s = incomes().find(x => x.id === it.cat);
+      return s ? s.name : it.cat === "paycheck" ? "Paycheck" : it.cat === "gift" ? "Gift" : "Other income";
+    }
     if (it.type === "save") return "Moved to savings";
     const f = c.cats.find(x => x.id === it.cat);
     return f ? f.name : "Removed category";
@@ -635,6 +805,7 @@ body{background:transparent}
   function planIncome(k) {
     const p = planOf(k);
     if (typeof p.income === "number") return p.income;
+    if (planOn(k) && incomes().length) return incomeForMonth(k);
     if (planOn(k) && typeof state.usualPay === "number") return state.usualPay;
     return null;
   }
@@ -699,6 +870,7 @@ body{background:transparent}
     const keys = MON.map((_, i) => `${Y}-${pad(i + 1)}`);
     for (const k of keys) if (k <= cur) subscribeMonth(k);
     $("#yrLabel").textContent = Y;
+    $("#usualForm").hidden = incomes().length > 0;
     const up = $("#usualPay");
     if (document.activeElement !== up) up.value = typeof state.usualPay === "number" ? state.usualPay : "";
 
@@ -836,6 +1008,206 @@ body{background:transparent}
   $("#tabMonth").onclick = () => setView("month");
   $("#tabYear").onclick = () => setView("year");
 
+
+  /* ---------- income UI ---------- */
+  function renderIncome(c) {
+    const list = $("#incomeList");
+    if (!state) { list.innerHTML = ""; $("#incomeSum").textContent = ""; return; }
+    const inc = incomes();
+    if (!inc.length) {
+      $("#incomeSum").textContent = ""; $("#oneOffWrap").hidden = true;
+      list.innerHTML = `<li class="note" style="cursor:default">Add every way money reaches you: work, Student Finance, family or friends, side projects. Everything else is planned around it.</li>`;
+      return;
+    }
+    const t0 = today(), skip0 = state.skipped || {};
+    const regular = inc.filter(x => x.freq !== "oneoff");
+    const oneoffs = inc.filter(x => x.freq === "oneoff" && x.date && !isReceived(x.id, x.date) && !skip0[ciKey(x.id, x.date)])
+      .sort((a, b) => a.date.localeCompare(b.date));
+    $("#oneOffWrap").hidden = !oneoffs.length;
+    $("#oneOffList").innerHTML = oneoffs.map(s => {
+      const d = dayDiff(t0, s.date);
+      const when = d === 0 ? "Today" : d === 1 ? "Tomorrow" : d < 0 ? `Was due ${niceDate(s.date)}` : `${niceDate(s.date)}, in ${d} days`;
+      const amt = s.varies ? `${money(s.low || 0)} to ${money(s.typical || s.low || 0)}` : money(s.amount || 0);
+      const kind = {family: "From family or friends", business: "Side hustle", work: "Work", student: "Student Finance", benefits: "Benefits", other: "Other"}[s.type];
+      return `<li data-edit-income="${esc(s.id)}" tabindex="0" role="button">
+        <div><span class="iname">${esc(s.name)}</span><span class="imeta">${kind}</span></div>
+        <div><span class="iamt num">${amt}</span><span class="soon">${when}</span></div></li>`;
+    }).join("");
+    if (!regular.length) {
+      $("#incomeSum").textContent = "";
+      $("#incomeList").innerHTML = `<li class="note" style="cursor:default">Add your regular pay too, so there's a payday to count down to.</li>`;
+      return;
+    }
+    const monthly = inc.reduce((s, x) => s + perMonth(x), 0);
+    $("#incomeSum").innerHTML = `About <b class="good-txt">${money(monthly)}</b> a month you can count on`;
+    const t = today();
+    list.innerHTML = regular.map(s => {
+      const nxt = occurrences(s, t, addDays(t, 400)).find(d => !isReceived(s.id, d));
+      const amt = s.varies ? `${money(s.low || 0)} to ${money(s.typical || s.low || 0)}` : money(s.amount || 0);
+      const when = s.freq === "monthly-date" ? `Monthly on the ${s.day}${[,"st","nd","rd"][s.day % 10 * (s.day < 11 || s.day > 13)] || "th"}` : FREQ[s.freq];
+      return `<li data-edit-income="${esc(s.id)}" tabindex="0" role="button">
+        <div><span class="iname">${esc(s.name)}${s.main ? '<span class="tag">Main pay</span>' : ""}</span>
+        <span class="imeta">${when}${nxt ? `, next ${niceDate(nxt)}` : ""}</span></div>
+        <span class="iamt num">${amt}</span></li>`;
+    }).join("");
+  }
+
+  function renderCheckin(c) {
+    const box = $("#checkin");
+    if (!state || !db) { box.innerHTML = ""; return; }
+    const pend = pendingCheckins();
+    if (!pend.length) { box.innerHTML = ""; return; }
+    const p = pend[0], s = p.src;
+    if (box.dataset.key === p.key && box.innerHTML) return;
+    box.dataset.key = p.key;
+    const expect = s.varies ? `Usually ${money(usualAmt(s))}, at least ${money(lowAmt(s))}.` : `Expected ${money(s.amount || 0)}.`;
+    box.innerHTML = `<div class="panel checkin">
+      <p class="lead">${p.date === today() ? "Payday check" : "Missed payday check"}</p>
+      <h2>Did your ${esc(s.name)} ${s.type === "work" ? "pay" : "money"} arrive?</h2>
+      <p class="muted">Due ${p.date === today() ? "today" : niceDate(p.date)}. ${expect} Confirm the amount that actually landed so your balance stays real.</p>
+      <form class="ci-row" id="ciForm">
+        <div class="money"><em>£</em><input id="ciAmt" inputmode="decimal" value="${s.varies ? "" : (s.amount || "")}" placeholder="${usualAmt(s)}" aria-label="Amount that arrived"></div>
+        <button class="btn good" type="submit">It arrived</button>
+        <button class="btn ghost" type="button" id="ciLater">Not yet</button>
+        <button class="btn ghost" type="button" id="ciSkip">It's not coming</button>
+      </form>
+      ${pend.length > 1 ? `<p class="hint muted" style="margin:10px 0 0">${pend.length - 1} more to check after this.</p>` : ""}
+    </div>`;
+    $("#ciForm").onsubmit = e => {
+      e.preventDefault();
+      const raw = $("#ciAmt").value.trim(), a = num(raw || String(usualAmt(s)));
+      if (!(a > 0)) return toast("Enter the amount that arrived, e.g. 1850");
+      const tx = {id: uid6(), type: "income", amount: r2(a), cat: s.id, srcId: s.id, forDate: p.date, note: "", date: p.date, created: Date.now()};
+      box.dataset.key = "";
+      writeMonth(p.date.slice(0, 7), items => { items.push(tx); return items; });
+      toast(`${money(a)} from ${s.name} landed. Your balance just went up`, true);
+      const bl = $("#balanceLine"); bl.classList.add("up"); setTimeout(() => bl.classList.remove("up"), 1600);
+      if (s.type === "family" || s.freq === "oneoff") setTimeout(() => offerJob(a, "gift"), 700);
+      else if (a > usualAmt(s) + 1) setTimeout(() => offerJob(a - usualAmt(s), "extra"), 700);
+    };
+    $("#ciLater").onclick = () => { box.dataset.key = ""; saveState({...state, snoozed: {...(state.snoozed || {}), [p.key]: today()}}); };
+    $("#ciSkip").onclick = () => {
+      if (!confirm(`Mark this ${s.name} payment as not coming?`)) return;
+      box.dataset.key = ""; saveState({...state, skipped: {...(state.skipped || {}), [p.key]: true}});
+    };
+  }
+
+  // windfalls: give surprise money a job before it becomes spending money
+  let jobAmount = 0;
+  function offerJob(amount, why) {
+    const g = state && state.goal;
+    if (!g || !g.name || !g.target) return;
+    jobAmount = r2(amount);
+    $("#jobTitle").textContent = why === "gift" ? "Give this money a job" : "You got paid more than usual";
+    $("#jobText").textContent = why === "gift"
+      ? `Money that arrives as a gift or one-off is the easiest to spend without noticing. Decide now how much of this ${money(amount)} goes to ${g.name}.`
+      : `That's ${money(amount)} above your usual pay. Extra money is the easiest to lose track of, so decide now how much goes to ${g.name}.`;
+    $("#jobLbl").textContent = `Put towards ${g.name}`;
+    $("#jobAmt").value = r2(Math.round(amount / 2));
+    $("#jobDlg").showModal();
+  }
+  function saveToGoal(a) {
+    const goal = state.goal, t = today();
+    const tx = {id: uid6(), type: "save", amount: r2(a), cat: "savings", note: "", date: t, created: Date.now()};
+    writeMonth(t.slice(0, 7), items => { items.push(tx); return items; });
+    saveState({...state, goal: {...goal, saved: r2((goal.saved || 0) + a)}});
+    const pctNow = Math.min(100, Math.round(((goal.saved || 0) + a) / goal.target * 100));
+    toast(`Nice. ${money(a)} saved, you're ${pctNow}% of the way to ${goal.name}`, true);
+  }
+  $("#jobForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const a = num($("#jobAmt").value);
+    if (!(a > 0)) return toast("Enter an amount to save, or choose Keep it to spend");
+    $("#jobDlg").close(); saveToGoal(Math.min(a, jobAmount));
+  });
+  $("#jobKeep").onclick = () => $("#jobDlg").close();
+
+  // add / edit income sources
+  let editingIncome = null;
+  function syncIncomeForm() {
+    const f = $("#iFreq").value, varies = document.querySelector('input[name="iVar"]:checked').value === "varies";
+    const needDate = !["monthly-lastworking", "monthly-lastfri"].includes(f);
+    $("#iDateWrap").hidden = !needDate;
+    $("#iDateLbl").textContent = f === "oneoff" ? "When do you expect it?" : f === "monthly-date" ? "Next pay date (sets the day of the month)" : "Next pay date";
+    $("#iFixedWrap").hidden = varies; $("#iVarWrap").hidden = !varies; $("#iVarHint").hidden = !varies;
+    $("#iMainWrap").hidden = f === "oneoff";
+  }
+  let incomeMode = "regular";
+  function openIncome(id, mode) {
+    if (!db) return toast("Open this page in Claude to add income.");
+    if (!state) return toast("Finish setting up first.");
+    const s = incomes().find(x => x.id === id);
+    editingIncome = s ? s.id : null;
+    incomeMode = s ? (s.freq === "oneoff" ? "oneoff" : "regular") : (mode || "regular");
+    const one = incomeMode === "oneoff";
+    $("#incTitle").textContent = s ? (one ? "Edit expected money" : "Edit income") : (one ? "Add expected one-off money" : "Add regular income");
+    $("#iName").placeholder = one ? "e.g. Sam paying me back" : "e.g. Pharmacy";
+    $("#iName").value = s ? s.name : "";
+    $("#iType").value = s ? s.type : (one ? "family" : "work");
+    $("#iFreq").value = s ? s.freq : (one ? "oneoff" : "monthly-lastworking");
+    $("#iDate").value = s ? (s.date || (s.day ? isoD(new Date(+today().slice(0, 4), +today().slice(5, 7) - 1, s.day)) : "")) : "";
+    document.querySelector(`input[name="iVar"][value="${s && s.varies ? "varies" : "fixed"}"]`).checked = true;
+    $("#iAmt").value = s && !s.varies ? s.amount : "";
+    $("#iLow").value = s && s.varies ? s.low : "";
+    $("#iTyp").value = s && s.varies ? (s.typical || "") : "";
+    $("#iMain").checked = s ? !!s.main : !incomes().some(x => x.main);
+    $("#iFreq").closest(".field").hidden = one;
+    $("#iVarQ").textContent = one ? "Do you know the exact amount?" : "Is it the same amount every time?";
+    $("#iVarA").textContent = one ? "Yes, exactly" : "Same every time";
+    $("#iVarB").textContent = one ? "Roughly" : "It changes";
+    $("#iAmtLbl").textContent = one ? "Amount" : "Amount after tax";
+    $("#iDate").min = one && !s ? today() : "";
+    $("#iDelete").hidden = !s;
+    syncIncomeForm();
+    $("#incomeDlg").showModal();
+  }
+  $("#iFreq").onchange = syncIncomeForm;
+  document.querySelectorAll('input[name="iVar"]').forEach(r => r.onchange = syncIncomeForm);
+  $("#addIncome").onclick = () => openIncome(null, "regular");
+  $("#addOneOff").onclick = () => openIncome(null, "oneoff");
+  document.addEventListener("click", e => { if (e.target.closest("[data-add-income]")) openIncome(null); });
+  $("#incomeList").addEventListener("click", e => { const li = e.target.closest("[data-edit-income]"); if (li) openIncome(li.dataset.editIncome); });
+  $("#oneOffList").addEventListener("click", e => { const li = e.target.closest("[data-edit-income]"); if (li) openIncome(li.dataset.editIncome); });
+  $("#incomeList").addEventListener("keydown", e => { const li = e.target.closest("[data-edit-income]"); if (li && e.key === "Enter") openIncome(li.dataset.editIncome); });
+  $("#iCancel").onclick = () => $("#incomeDlg").close();
+  $("#iDelete").onclick = () => {
+    if (!editingIncome || !confirm("Remove this income source? Money you've already logged from it stays.")) return;
+    saveState({...state, incomes: incomes().filter(x => x.id !== editingIncome)});
+    $("#incomeDlg").close(); toast("Income removed");
+  };
+  $("#incForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const name = $("#iName").value.trim();
+    if (!name) return toast("Give this income a name, e.g. Pharmacy");
+    const freq = $("#iFreq").value, varies = document.querySelector('input[name="iVar"]:checked').value === "varies";
+    const date = $("#iDate").value;
+    if (!["monthly-lastworking", "monthly-lastfri"].includes(freq) && !date) return toast("Add the next date this money arrives");
+    const old = incomes().find(x => x.id === editingIncome);
+    const src = {id: editingIncome || "i" + uid6(), name: name.slice(0, 40), type: $("#iType").value, freq, varies, since: (old && old.since) || today()};
+    if (freq === "oneoff" && date && date < src.since) src.since = date;
+    if (["weekly", "fortnightly", "fourweekly", "oneoff"].includes(freq)) src.date = date;
+    if (freq === "monthly-date") src.day = parseD(date).getDate();
+    if (varies) {
+      const lo = num($("#iLow").value), ty = num($("#iTyp").value);
+      if (!(lo >= 0) || Number.isNaN(lo)) return toast("Enter the lowest amount you'd expect");
+      src.low = r2(lo); src.typical = Number.isNaN(ty) ? r2(lo) : r2(Math.max(ty, lo));
+    } else {
+      const a = num($("#iAmt").value);
+      if (!(a > 0)) return toast("Enter how much arrives each time, after tax");
+      src.amount = r2(a);
+    }
+    src.main = freq !== "oneoff" && $("#iMain").checked;
+    let list = incomes().filter(x => x.id !== src.id);
+    if (src.main) list = list.map(x => ({...x, main: false}));
+    const idx = incomes().findIndex(x => x.id === src.id);
+    if (idx >= 0) list.splice(idx, 0, src); else list.push(src);
+    const next = {...state, incomes: list};
+    if (!next.planStart) next.planStart = today().slice(0, 7);
+    saveState(next);
+    $("#incomeDlg").close();
+    toast(idx >= 0 ? "Income updated" : freq === "oneoff" ? `${name} added. We'll ask on ${niceDate(date)} whether it arrived` : `${name} added. Your payday is worked out from it now`, idx < 0);
+  });
+
   /* ---------- events ---------- */
   document.addEventListener("change", e => { if (e.target.name === "kind") render(); });
 
@@ -852,6 +1224,9 @@ body{background:transparent}
     $("#fAmt").value = ""; $("#fNote").value = ""; $("#fAmt").focus();
     if (kind === "income") {
       toast(`${money(a)} received. Your balance just went up`, true);
+      const src = incomes().find(x => x.id === tx.cat);
+      if (tx.cat === "gift" || (src && (src.type === "family" || src.freq === "oneoff"))) setTimeout(() => offerJob(a, "gift"), 700);
+      else if (src && a > usualAmt(src) + 1) setTimeout(() => offerJob(a - usualAmt(src), "extra"), 700);
       const bl = $("#balanceLine"); bl.classList.add("up"); setTimeout(() => bl.classList.remove("up"), 1600);
     } else {
       const cc = calc(), ct = cc.cats.find(x => x.id === tx.cat);
@@ -885,7 +1260,10 @@ body{background:transparent}
     if (!state) return toast("Finish setting up first.");
     const c = calc();
     $("#sBal").value = c.balance == null ? "" : r2(c.balance);
-    $("#sPay").value = state.nextPayday || "";
+    const auto = incomes().length > 0;
+    $("#sPay").disabled = auto;
+    $("#sPay").value = auto ? (c.payday || "") : (state.nextPayday || "");
+    $("#sPay").title = auto ? "Worked out from your income" : "";
     $("#sGoalName").value = (state.goal && state.goal.name) || "";
     $("#sGoalTarget").value = (state.goal && state.goal.target) || "";
     $("#catRows").innerHTML = (state.categories || []).map(catRow).join("");
@@ -909,7 +1287,7 @@ body{background:transparent}
       if (Number.isNaN(b)) return toast("Enter your balance as a number, e.g. 1250.50");
       if (c.balance == null || r2(b) !== r2(c.balance)) { next.balance = r2(b); next.balanceSetAt = Date.now(); next.balanceAsOf = today(); }
     }
-    next.nextPayday = $("#sPay").value || null;
+    if (!$("#sPay").disabled) next.nextPayday = $("#sPay").value || null;
     const gt = num($("#sGoalTarget").value);
     next.goal = {...(state.goal || {saved:0}), name: $("#sGoalName").value.trim(), target: Number.isNaN(gt) ? 0 : r2(gt)};
     next.categories = [...document.querySelectorAll(".catrow")].map(r => ({
