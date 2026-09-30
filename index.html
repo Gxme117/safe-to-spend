@@ -251,19 +251,28 @@ body{background:transparent}
 .check{display:flex;gap:8px;align-items:center;font-size:.93rem}
 .dlg-foot.split{justify-content:space-between}
 .inc .soon{font-size:.75rem;color:var(--muted);font-weight:400;display:block;text-align:right}
-/* accent = white with chromatic aberration */
-:root{--ca-r:rgba(255,0,90,.8);--ca-b:rgba(0,190,255,.8)}
-.good-txt,.big.pos,.goal-fig,.sheet td.gain,.tile b.gain,.inc .iamt,.cat.under .left,.cat.paid .left,.tx .amt.in,.cycle-ends .pay b,.dow span.payday,.inc-sum b,.month-sum .good-txt{
-  text-shadow:-1px 0 var(--ca-r),1px 0 var(--ca-b)}
-.big.pos{text-shadow:-3px 0 var(--ca-r),3px 0 var(--ca-b)}
-.days i.under,.runway .free,.dot.free,.bar i,.btn.good,#toast.good,.days i.payday,.key .a,.cycle-key i.ca{
-  box-shadow:-2px 0 0 var(--ca-r),2px 0 0 var(--ca-b),inset 0 0 0 1px rgba(0,0,0,.12)}
-.cat.fixed:not(.paid) .bar i,.cat.over .bar i{box-shadow:none}
-.days i.payday{box-shadow:-2px 0 0 var(--ca-r),2px 0 0 var(--ca-b),inset 0 0 0 2px var(--ink)}
+/* accent = white, glowing, with prismatic edges */
+:root{
+  --prism:conic-gradient(from 210deg,#ff7ac6,#ffcf6e,#8dffb8,#6ecbff,#b18cff,#ff7ac6);
+  --shine-bg:linear-gradient(135deg,#ffffff 0%,#eef4ff 38%,#ffffff 52%,#f6eeff 100%);
+  --glow-box:0 0 8px rgba(255,130,210,.35),0 0 16px rgba(110,200,255,.35);
+  --glow-txt:0 0 10px rgba(170,120,255,.35),0 0 3px rgba(110,200,255,.45);
+}
+:root[data-mode="dark"]{
+  --glow-box:0 0 10px rgba(255,255,255,.55),0 0 22px rgba(170,140,255,.5),0 0 34px rgba(110,200,255,.3);
+  --glow-txt:0 0 8px rgba(255,255,255,.75),0 0 22px rgba(170,140,255,.55),-1px 0 rgba(255,130,210,.45),1px 0 rgba(110,200,255,.45);
+}
+.good-txt,.big.pos,.goal-fig,.sheet td.gain,.tile b.gain,.inc .iamt,.cat.under .left,.cat.paid .left,.tx .amt.in,.cycle-ends .pay b,.dow span.payday,.inc-sum b{text-shadow:var(--glow-txt)}
 .big small{text-shadow:none}
-.runway .free{box-shadow:inset 2px 0 0 var(--ca-r),inset -2px 0 0 var(--ca-b),inset 0 0 0 1px rgba(0,0,0,.18)}
-.days i.today.under{box-shadow:-2px 0 0 var(--ca-r),2px 0 0 var(--ca-b),inset 0 0 0 1px rgba(0,0,0,.12)}
-svg rect.gainbar{filter:drop-shadow(-2px 0 0 var(--ca-r)) drop-shadow(2px 0 0 var(--ca-b))}
+.days i.under,.days i.today.under,.days i.payday,.bar i,.btn.good,#toast.good,.key .a,.cycle-key i.ca,.dot.free{
+  background:var(--shine-bg) padding-box,var(--prism) border-box!important;border:1.5px solid transparent;box-shadow:var(--glow-box)}
+.runway .free{background:var(--shine-bg) padding-box,var(--prism) border-box!important;border:1.5px solid transparent;border-radius:7px}
+.cat.fixed:not(.paid) .bar i,.cat.over .bar i{border:0;box-shadow:none}
+.cat.fixed:not(.paid) .bar i{background:var(--amber)!important}
+.cat.over .bar i{background:repeating-linear-gradient(45deg,var(--ink) 0 3px,transparent 3px 6px)!important}
+.btn.good,#toast.good{color:#000}
+:root[data-mode="dark"] .days i.over,:root[data-mode="dark"] .days i.today.over,:root[data-mode="dark"] .cycle-key i.ov{background:repeating-linear-gradient(45deg,#8E8E93 0 2px,transparent 2px 5px)!important;box-shadow:inset 0 0 0 1px #8E8E93}
+svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0 0 8px rgba(110,200,255,.55))}
 /* bold numbers */
 .num,.cat-top .left,.tx .amt,.big,.goal-fig,.tile b,.legend,.sheet tbody td:not(:first-child){font-weight:700}
 .big small,.goal-fig .muted,.month-sum .muted,.sheet td small{font-weight:400}
@@ -757,7 +766,7 @@ svg rect.gainbar{filter:drop-shadow(-2px 0 0 var(--ca-r)) drop-shadow(2px 0 0 va
         <div class="cycle-ends"><span>${start < c.t ? `Paid <b>${niceDate(start)}</b>` : `<b>Today</b>`}</span><span class="pay">Payday <b>${niceDate(c.payday)}</b></span></div>
         <div class="days" role="img" aria-label="Day ${dayNo} of ${total} until payday">${ticks}</div>
         <div class="dow" aria-hidden="true">${dows}</div>
-        <div class="cycle-key"><span><i class="ca" style="background:var(--good-fill)"></i>Under your daily amount</span><span><i style="background:var(--ink)"></i>Over</span><span><i style="background:var(--line)"></i>Still to come</span></div>
+        <div class="cycle-key"><span><i class="ca" style="background:var(--good-fill)"></i>Under your daily amount</span><span><i class="ov" style="background:var(--ink)"></i>Over</span><span><i style="background:var(--line)"></i>Still to come</span></div>
         <p class="days-cap muted">${cap}</p>
       </div>`;
   }
