@@ -259,6 +259,7 @@ body{background:transparent}
 .pots .pamt{font-weight:700;white-space:nowrap}
 .pots li.total .pname{font-weight:700}
 .pots li.note{display:block;border:1px dashed var(--line);margin-top:8px;padding:10px 12px}
+.pot-when{font-size:.75rem;margin:2px 0 8px}
 .pot-group{font-size:.75rem;color:var(--muted);margin:16px 0 0}
 .inc{list-style:none;margin:0;padding:0}
 .inc li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--line);cursor:pointer}
@@ -410,7 +411,8 @@ body{background:transparent}
       <div id="oneOffWrap" hidden><h2 style="margin:18px 0 6px">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
     </div>
     <div class="panel" id="potsPanel" hidden>
-      <div class="panel-head"><h2>Your pots</h2><span id="potsWhen" class="muted"></span></div>
+      <div class="panel-head"><h2>Your pots</h2><button class="btn ghost small" type="button" id="refreshBank">Refresh</button></div>
+      <p id="potsWhen" class="muted pot-when"></p>
       <div id="potsBody"></div>
     </div>
     <div class="panel" id="billsPanel">
@@ -750,9 +752,9 @@ body{background:transparent}
     const spend = b.pots.filter(x => x.role === "spend" && has(x)), aside = b.pots.filter(x => x.role !== "spend" && has(x));
     const empty = b.pots.filter(x => !has(x)).length;
     const at = new Date(b.asOf);
-    $("#potsWhen").textContent = isoD(at) === today()
-      ? `From ${b.source || "your bank"} at ${at.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`
-      : `From ${b.source || "your bank"} on ${niceDate(isoD(at))}`;
+    if (!refreshing) $("#potsWhen").textContent = isoD(at) === today()
+      ? `Updated from ${b.source || "your bank"} at ${at.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`
+      : `Updated from ${b.source || "your bank"} on ${niceDate(isoD(at))}`;
     const catName = id => ((state.categories || []).find(c => c.id === id) || {}).name;
     const row = (name, amt, meta, cls) => `<li${cls ? ` class="${cls}"` : ""}><div><span class="pname">${esc(name)}</span>${meta ? `<span class="pmeta">${esc(meta)}</span>` : ""}</div><span class="pamt num">${money(amt)}</span></li>`;
     const plain = t => String(t).toLowerCase().replace(/[^a-z ]/g, "").trim();
@@ -776,10 +778,105 @@ body{background:transparent}
     $("#potsBody").innerHTML = html;
   }
 
+  /* ---------- refresh from Monzo (local connector, Claude desktop app only) ---------- */
+  const MONZO = "host:monzo";
+  let mcp = null, refreshing = false;
+  const MONZO_CAT = {eating_out: "eating", groceries: "groceries", transport: "transport", personal_care: "personal", family: "family"};
+  function payloadOf(r) {
+    let p = r && r.payload;
+    if (typeof p === "string") { try { p = JSON.parse(p); } catch (e) { /* plain text */ } }
+    return p;
+  }
+  function needsAction(p) {
+    if (p && typeof p === "object" && !Array.isArray(p)) {
+      const st = String(p.status || p.state || "").toLowerCase();
+      if (st.includes("sca") || p.waiting_for_sca) return "Approve the request in your Monzo app, then tap Refresh again.";
+      if (st.includes("login") || p.needs_login) return "Monzo needs you to log in again. Ask Claude in chat to reconnect Monzo.";
+      if (p.error) return String(p.error);
+    }
+    if (typeof p === "string") return p.slice(0, 160);
+    return null;
+  }
+  function refreshError(e) {
+    const code = e && e.code;
+    if (code === "server_not_connected" || code === "not_granted" || code === "capability_disabled" || code === "capability_removed")
+      return "Refreshing works in the Claude desktop app, where your Monzo connection runs. Open this page there, or ask Claude in chat to refresh.";
+    if (code === "not_in_manifest") return "This page isn't allowed to use Monzo. Allow Monzo for it when asked, then try again.";
+    if (code === "cancelled") return "Refresh cancelled.";
+    if (code === "server_unavailable") return "Monzo didn't answer. Try again in a minute.";
+    if (code === "needs_reauth") return "Monzo needs you to log in again. Ask Claude in chat to reconnect Monzo.";
+    if (code === "tool_error") return `Monzo said: ${String(e.message || "something went wrong").slice(0, 140)}`;
+    return `Couldn't refresh: ${String((e && e.message) || "unknown problem").slice(0, 140)}`;
+  }
+  async function refreshBank() {
+    const b = bank();
+    if (refreshing || !b || !state) return;
+    if (!mcp) return toast("Refreshing works in the Claude desktop app, where your Monzo connection runs. Open this page there, or ask Claude in chat to refresh.");
+    refreshing = true;
+    const btn = $("#refreshBank"); btn.disabled = true; btn.textContent = "Refreshing…";
+    $("#potsWhen").textContent = "Checking Monzo…";
+    try {
+      const acc = b.accountId || "";
+      const since = new Date(new Date(b.asOf).getTime() - 864e5).toISOString();
+      const fresh = {cache: false};
+      const balP = payloadOf(await mcp.callTool(MONZO, "monzo_get_balance", {account_id: acc}, fresh));
+      let msg = needsAction(balP) || (typeof (balP && balP.balance) !== "number" ? "Monzo didn't send a balance." : null);
+      if (msg && typeof (balP && balP.balance) !== "number") throw {friendly: msg};
+      const potsP = payloadOf(await mcp.callTool(MONZO, "monzo_list_pots", {}, fresh));
+      if (!Array.isArray(potsP)) throw {friendly: needsAction(potsP) || "Monzo didn't send your pots."};
+      const txP = payloadOf(await mcp.callTool(MONZO, "monzo_list_transactions", {account_id: acc, since, limit: 100}, fresh));
+      const txs = Array.isArray(txP) ? txP : [];
+
+      // pots: keep what each pot is for, add new ones as spending pots
+      const old = new Map(b.pots.map(p => [p.id, p]));
+      const pots = potsP.filter(p => !p.deleted).map(p => {
+        const o = old.get(p.id) || {role: "spend", cats: []};
+        return {...o, id: p.id, name: p.name, balance: r2((p.balance || 0) / 100), goal: p.goal_amount ? r2(p.goal_amount / 100) : null};
+      });
+      const main = r2((balP.balance || 0) / 100);
+      const spendMoney = r2(main + pots.filter(p => p.role === "spend").reduce((s, p) => s + p.balance, 0));
+
+      // new card payments and money in, skipping pot moves, declines and card checks
+      const known = new Set();
+      for (const k in months) for (const it of months[k]) if (it.monzoId) { known.add(it.monzoId); if (it.returnedId) known.add(it.returnedId); }
+      const catIds = new Set((state.categories || []).map(c => c.id));
+      const stamp = Date.now();
+      const add = {};
+      let added = 0;
+      for (const t of txs) {
+        if (!t || !t.id || known.has(t.id) || t.decline_reason || !t.amount) continue;
+        if (String(t.description || "").startsWith("pot_") || t.category === "savings") continue;
+        const date = isoD(new Date(t.created));
+        const name = String(t.merchant || t.description || "Monzo").trim().slice(0, 60);
+        const amt = r2(Math.abs(t.amount) / 100);
+        const cat = t.amount < 0 ? (catIds.has(MONZO_CAT[t.category]) ? MONZO_CAT[t.category] : "other") : "monzo-in";
+        const row = {id: uid6(), type: t.amount < 0 ? "expense" : "income", amount: amt, cat, note: name, date, created: stamp - 1, monzoId: t.id};
+        if (t.amount > 0) {
+          // pay that matches an income source counts as that payday arriving
+          const src = incomes().find(x => name.toLowerCase().includes(x.name.split(" ")[0].toLowerCase()));
+          const due = src && occurrences(src, addDays(date, -4), addDays(date, 4))[0];
+          if (src && due && !isReceived(src.id, due)) Object.assign(row, {cat: src.id, srcId: src.id, forDate: due, note: ""});
+        }
+        (add[date.slice(0, 7)] = add[date.slice(0, 7)] || []).push(row);
+        added++;
+      }
+      for (const k in add) writeMonth(k, items => items.concat(add[k]));
+      // the bank's numbers are the truth: re-anchor spending money to them
+      saveState({...state, balance: spendMoney, balanceSetAt: stamp, balanceAsOf: today(),
+        bank: {...b, main, pots, asOf: new Date(stamp).toISOString()}});
+      toast(added ? `Updated from Monzo. ${added} new payment${added > 1 ? "s" : ""} added` : "Updated from Monzo. No new payments", true);
+    } catch (e) {
+      toast(e && e.friendly ? e.friendly : refreshError(e));
+    } finally {
+      refreshing = false; btn.disabled = false; btn.textContent = "Refresh"; renderPots();
+    }
+  }
+  $("#refreshBank").onclick = refreshBank;
+
   /* ---------- bills ---------- */
   const bills = () => (state && state.bills) || [];
-  const BILL_FREQ = {monthly: "Every month", weekly: "Every week", fourweekly: "Every 4 weeks", quarterly: "Every 3 months", yearly: "Every year"};
-  const PER_MONTH = {monthly: 1, weekly: 52/12, fourweekly: 13/12, quarterly: 1/3, yearly: 1/12};
+  const BILL_FREQ = {monthly: "Every month", weekly: "Every week", fortnightly: "Every 2 weeks", fourweekly: "Every 4 weeks", quarterly: "Every 3 months", yearly: "Every year"};
+  const PER_MONTH = {monthly: 1, weekly: 52/12, fortnightly: 26/12, fourweekly: 13/12, quarterly: 1/3, yearly: 1/12};
   const METHOD = {dd: "Direct debit", card: "Card", transfer: "I send it myself"};
   const METHOD_META = {dd: "direct debit", card: "card", transfer: "you send it"};
   const COMMON_BILLS = ["Rent", "Council tax", "Energy", "Water", "Phone", "Broadband", "Gym", "TV licence", "Insurance", "Car finance", "Loan"];
@@ -802,7 +899,7 @@ body{background:transparent}
       return out;
     }
     if (!b.date) return out;
-    const A = parseD(b.date), step = {weekly: 7, fourweekly: 28}[b.freq];
+    const A = parseD(b.date), step = {weekly: 7, fortnightly: 14, fourweekly: 28}[b.freq];
     if (step) {
       const n = Math.floor((F - A) / 864e5 / step) - 1;
       for (let i = n; i < n + 600; i++) {
@@ -1223,7 +1320,7 @@ body{background:transparent}
   function catLabel(it, c) {
     if (it.type === "income") {
       const s = incomes().find(x => x.id === it.cat);
-      return s ? s.name : it.cat === "paycheck" ? "Paycheck" : it.cat === "gift" ? "Gift" : "Other income";
+      return s ? s.name : it.cat === "paycheck" ? "Paycheck" : it.cat === "gift" ? "Gift" : it.cat === "monzo-in" ? "Money in" : "Other income";
     }
     if (it.type === "save") return "Moved to savings";
     const f = c.cats.find(x => x.id === it.cat);
@@ -1837,6 +1934,7 @@ body{background:transparent}
       return;
     }
     db = d;
+    window.claude.use("mcp").then(m => { mcp = m; }).catch(() => {});
     stateRef = db.doc(`data/users/${uid}/state`);
     stateRef.onSnapshot(s => {
       state = s.exists ? s.data() : null;
