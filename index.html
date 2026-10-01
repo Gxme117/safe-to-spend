@@ -270,6 +270,9 @@ body{background:transparent}
 .inc .iamt{color:var(--good);font-weight:700;white-space:nowrap}
 .inc-sum{font-size:.93rem;margin:-6px 0 10px}
 .note{font-size:.75rem;color:var(--muted);border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-top:4px;list-style:none}
+.ask .chips{margin:4px 0 14px}
+.ask .pot-group{margin:0 0 6px}
+.ask .field{margin-bottom:14px}
 .checkin .lead{margin:0 0 4px;color:var(--muted);font-size:.93rem}
 .checkin h2{margin-bottom:6px}
 .checkin p{margin:0 0 14px}
@@ -376,6 +379,7 @@ body{background:transparent}
 
 <main class="grid" id="monthView">
   <section class="col">
+    <div id="askTx"></div>
     <div id="checkin"></div>
     <div class="hero-wrap"><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
 
@@ -849,8 +853,10 @@ body{background:transparent}
         const date = isoD(new Date(t.created));
         const name = String(t.merchant || t.description || "Monzo").trim().slice(0, 60);
         const amt = r2(Math.abs(t.amount) / 100);
-        const cat = t.amount < 0 ? (catIds.has(MONZO_CAT[t.category]) ? MONZO_CAT[t.category] : "other") : "monzo-in";
+        const sure = t.amount < 0 && catIds.has(MONZO_CAT[t.category]);
+        const cat = t.amount < 0 ? (sure ? MONZO_CAT[t.category] : "other") : "monzo-in";
         const row = {id: uid6(), type: t.amount < 0 ? "expense" : "income", amount: amt, cat, note: name, date, created: stamp - 1, monzoId: t.id};
+        if (t.amount < 0 && !sure) row.needsCat = true;
         if (t.amount > 0) {
           // pay that matches an income source counts as that payday arriving
           const src = incomes().find(x => name.toLowerCase().includes(x.name.split(" ")[0].toLowerCase()));
@@ -956,6 +962,54 @@ body{background:transparent}
     const before = (c.billsDue || []).reduce((s, x) => s + (x.b.amount || 0), 0);
     body.innerHTML = `<ul class="pots bills">${sorted.map(billRow).join("")}</ul>
       ${c.payday ? `<p class="pot-group">${before ? `${money(before)} is due before payday on ${niceDate(c.payday)}, so it's held back from your spending money.` : `Nothing is due before payday on ${niceDate(c.payday)}.`}</p>` : ""}`;
+  }
+
+  /* ---------- "What was this?" for payments the app can't place ---------- */
+  function unsorted() {
+    const out = [];
+    for (const k in months) for (const it of months[k]) if (it.needsCat && it.type === "expense") out.push(it);
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+  function billFor(b, date) {
+    // count it towards the next one due on or after the payment (past ones are no longer held back anyway)
+    const ds = billDates(b, date, addDays(date, 45));
+    return ds.find(d => !billPaid(b, d)) || ds[0] || null;
+  }
+  function renderAsk(c) {
+    const box = $("#askTx");
+    if (!state || !db) { box.innerHTML = ""; return; }
+    const list = unsorted();
+    if (!list.length) { box.innerHTML = ""; box.dataset.key = ""; return; }
+    const it = list[0];
+    if (box.dataset.key === it.id + list.length && box.innerHTML) return;
+    box.dataset.key = it.id + list.length;
+    const billChips = bills().map(b => `<button type="button" class="chip" data-ask-bill="${esc(b.id)}">${esc(b.name)}<small>${money(b.amount || 0)}</small></button>`).join("");
+    const catChips = c.cats.filter(x => !x.fixed || !bills().some(b => b.cat === x.id)).map(x => `<button type="button" class="chip" data-ask-cat="${esc(x.id)}">${esc(x.name)}</button>`).join("");
+    box.innerHTML = `<div class="panel checkin ask">
+      <p class="lead">${list.length > 1 ? `1 of ${list.length} payments to sort` : "A payment to sort"}</p>
+      <h2>What was ${money(it.amount)} to ${esc(it.note || "this payment")}?</h2>
+      <p class="muted">Paid ${niceDate(it.date)}. Tell the tracker what it was so your budgets and bills stay right.</p>
+      <label class="field"><span>What was it for? (optional)</span><input id="askNote" placeholder="e.g. Shoes, haircut, deposit"></label>
+      ${billChips ? `<p class="pot-group">A bill</p><div class="chips">${billChips}</div>` : ""}
+      <p class="pot-group">Spending</p><div class="chips">${catChips}</div>
+    </div>`;
+    box.querySelectorAll("[data-ask-bill],[data-ask-cat]").forEach(btn => btn.onclick = () => {
+      const note = ($("#askNote").value || "").trim().slice(0, 60);
+      const patch = {needsCat: false};
+      let msg;
+      if (btn.dataset.askBill) {
+        const b = bills().find(x => x.id === btn.dataset.askBill), d = b && billFor(b, it.date);
+        Object.assign(patch, {cat: b.cat || "other", billId: b.id, forDate: d});
+        msg = d ? `${b.name} marked paid for ${niceDate(d)}. It's no longer held back` : `Filed under ${b.name}`;
+      } else {
+        patch.cat = btn.dataset.askCat;
+        msg = `Filed under ${(c.cats.find(x => x.id === patch.cat) || {}).name}`;
+      }
+      if (note) patch.note = `${note} (${it.note})`;
+      box.dataset.key = "";
+      writeMonth(it.date.slice(0, 7), items => items.map(x => x.id === it.id ? {...x, ...patch} : x));
+      toast(msg, true);
+    });
   }
 
   /* ---------- bills walkthrough ---------- */
@@ -1155,7 +1209,7 @@ body{background:transparent}
     const c = calc();
     $("#monthTitle").textContent = monthName(c.cur);
     $("#balanceLine").textContent = c.balance == null ? "" : `${bank() ? "Spending money" : "Balance"} ${money(c.balance)}`;
-    renderPots(); renderBills(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
+    renderPots(); renderBills(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
   function renderHero(c) {
