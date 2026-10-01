@@ -231,6 +231,26 @@ body{background:transparent}
 
 /* income */
 #checkin:empty{display:none}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:8px 14px;font:inherit;font-size:.93rem;font-weight:600;cursor:pointer;display:inline-flex;gap:8px;align-items:baseline}
+.chip small{font-size:.75rem;color:var(--muted);font-weight:400}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.chip[aria-pressed="true"] small{color:inherit;opacity:.75}
+.chip:focus-visible,.daybtn:focus-visible,.opt:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.days7{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.daybtn{height:40px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
+.daybtn[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.opts{display:grid;gap:8px}
+.opt{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface);color:var(--ink);font:inherit;font-weight:600;cursor:pointer;text-align:left}
+.opt small{font-size:.75rem;color:var(--muted);font-weight:700}
+.opt[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.wiz-q{display:grid;gap:10px}
+.wiz-q>p{margin:0}
+.bigmoney input{height:56px!important;font-size:1.2rem;font-weight:700}
+.bills li{cursor:pointer}
+#bwNext{margin-left:auto}
+.bills li:hover .pname{text-decoration:underline;text-underline-offset:3px}
+.link-btn{border:0;background:none;padding:0;color:var(--muted);font:inherit;font-size:.93rem;text-decoration:underline;cursor:pointer;justify-self:start}
 .pots{list-style:none;margin:0;padding:0}
 .pots li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .pots li:first-child{border-top:0}
@@ -393,6 +413,10 @@ body{background:transparent}
       <div class="panel-head"><h2>Your pots</h2><span id="potsWhen" class="muted"></span></div>
       <div id="potsBody"></div>
     </div>
+    <div class="panel" id="billsPanel">
+      <div class="panel-head"><h2>Bills</h2><div style="display:flex;gap:10px;align-items:baseline"><span id="billsSum" class="muted num"></span><button class="btn ghost small" type="button" data-bill-wiz id="addBillBtn" hidden>Add bill</button></div></div>
+      <div id="billsBody"></div>
+    </div>
     <div class="panel">
       <div class="panel-head"><h2>Budgets</h2><span id="budgetSum" class="muted num"></span></div>
       <ul id="cats" class="cats"></ul>
@@ -488,6 +512,16 @@ body{background:transparent}
     <div class="dlg-foot split">
       <button class="btn ghost" type="button" id="iDelete">Remove</button>
       <div style="display:flex;gap:10px;margin-left:auto"><button class="btn ghost" type="button" id="iCancel">Cancel</button><button class="btn primary" type="submit">Save income</button></div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="billWiz" aria-labelledby="bwTitle">
+  <form id="bwForm" class="dlg" novalidate>
+    <div id="bwBody" class="wiz-q"></div>
+    <div class="dlg-foot split">
+      <button class="btn ghost" type="button" id="bwBack">Back</button>
+      <button class="btn primary" type="submit" id="bwNext">Next</button>
     </div>
   </form>
 </dialog>
@@ -689,11 +723,19 @@ body{background:transparent}
         balance += it.type === "income" ? it.amount : -it.amount;
       }
     }
-    let billsLeft = 0;
-    for (const c of cats) if (c.fixed) billsLeft += Math.max(0, (c.budget || 0) - (spent[c.id] || 0));
     const payday = incomes().length ? nextPaydayCalc() : (state && state.nextPayday) || null;
     const daysLeft = payday ? dayDiff(t, payday) : null;
-    return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, daysLeft, payday};
+    let billsLeft = 0;
+    const billsDue = [];
+    if (bills().length) {
+      // only bills that land before the next payday and haven't gone out yet
+      const until = payday ? addDays(payday, -1) : addDays(t, 30);
+      for (const b of bills()) for (const d of billDates(b, t, until)) if (!billPaid(b, d)) { billsLeft += b.amount || 0; billsDue.push({b, d}); }
+      billsDue.sort((x, y) => x.d < y.d ? -1 : 1);
+    } else {
+      for (const c of cats) if (c.fixed) billsLeft += Math.max(0, (c.budget || 0) - (spent[c.id] || 0));
+    }
+    return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, billsDue, daysLeft, payday};
   }
 
   /* ---------- pots (synced from the bank) ---------- */
@@ -734,12 +776,289 @@ body{background:transparent}
     $("#potsBody").innerHTML = html;
   }
 
+  /* ---------- bills ---------- */
+  const bills = () => (state && state.bills) || [];
+  const BILL_FREQ = {monthly: "Every month", weekly: "Every week", fourweekly: "Every 4 weeks", quarterly: "Every 3 months", yearly: "Every year"};
+  const PER_MONTH = {monthly: 1, weekly: 52/12, fourweekly: 13/12, quarterly: 1/3, yearly: 1/12};
+  const METHOD = {dd: "Direct debit", card: "Card", transfer: "I send it myself"};
+  const METHOD_META = {dd: "direct debit", card: "card", transfer: "you send it"};
+  const COMMON_BILLS = ["Rent", "Council tax", "Energy", "Water", "Phone", "Broadband", "Gym", "TV licence", "Insurance", "Car finance", "Loan"];
+  const ord = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? "th" : ({1: "st", 2: "nd", 3: "rd"}[n % 10] || "th"));
+  function workingAfter(d) {
+    const x = new Date(d);
+    while (x.getDay() === 0 || x.getDay() === 6 || BANK_HOLIDAYS.has(isoD(x))) x.setDate(x.getDate() + 1);
+    return x;
+  }
+  // bills move LATER on weekends and bank holidays (pay moves earlier)
+  function billDates(b, from, to) {
+    const out = [], F = parseD(from), T = parseD(to);
+    if (b.freq === "monthly") {
+      for (let i = -1; i < 40; i++) {
+        const base = new Date(F.getFullYear(), F.getMonth() + i, 1), last = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+        const d = b.day === "last" ? workingBefore(last) : workingAfter(new Date(base.getFullYear(), base.getMonth(), Math.min(+b.day || 1, last.getDate())));
+        if (d > T) break;
+        if (d >= F) out.push(isoD(d));
+      }
+      return out;
+    }
+    if (!b.date) return out;
+    const A = parseD(b.date), step = {weekly: 7, fourweekly: 28}[b.freq];
+    if (step) {
+      const n = Math.floor((F - A) / 864e5 / step) - 1;
+      for (let i = n; i < n + 600; i++) {
+        const d = new Date(A); d.setDate(d.getDate() + i * step);
+        const w = workingAfter(d);
+        if (w > T) break;
+        if (w >= F) out.push(isoD(w));
+      }
+      return out;
+    }
+    const m = {quarterly: 3, yearly: 12}[b.freq] || 1;
+    const i0 = Math.floor(((F.getFullYear() - A.getFullYear()) * 12 + F.getMonth() - A.getMonth()) / m) - 1;
+    for (let i = i0; i < i0 + 200; i++) {
+      const base = new Date(A.getFullYear(), A.getMonth() + i * m, 1), last = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+      const w = workingAfter(new Date(base.getFullYear(), base.getMonth(), Math.min(A.getDate(), last.getDate())));
+      if (w > T) break;
+      if (w >= F) out.push(isoD(w));
+    }
+    return out;
+  }
+  const nextBill = b => billDates(b, today(), addDays(today(), 400))[0] || null;
+  function billPaid(b, d) {
+    for (const k in months) for (const it of months[k]) {
+      if (it.billId === b.id && it.forDate === d) return true;
+      if (b.cat && it.type === "expense" && it.cat === b.cat && it.date >= addDays(d, -7) && it.date <= addDays(d, 3)) return true;
+    }
+    return false;
+  }
+  const billMonthly = b => (b.amount || 0) * (PER_MONTH[b.freq] || 1);
+  function billSource(b) {
+    const f = b.from || {};
+    if (f.kind === "pot") { const p = bank() && bank().pots.find(x => x.id === f.id); return p ? potName(p) : (f.name || "a pot"); }
+    if (f.kind === "other") return f.name || "another bank";
+    return "main account";
+  }
+  function billRow(b) {
+    const n = nextBill(b);
+    const meta = `${n ? `Next ${niceDate(n)}` : BILL_FREQ[b.freq]}. From ${billSource(b)}${b.method ? `, ${METHOD_META[b.method]}` : ""}`;
+    return `<li data-edit-bill="${esc(b.id)}" tabindex="0" role="button"><div><span class="pname">${esc(b.name)}</span><span class="pmeta">${esc(meta)}</span></div><span class="pamt num">${b.varies ? "About " : ""}${money(b.amount || 0)}</span></li>`;
+  }
+  function renderBills(c) {
+    const body = $("#billsBody");
+    if (!state) { body.innerHTML = ""; $("#billsSum").textContent = ""; $("#addBillBtn").hidden = true; return; }
+    const list = bills();
+    $("#addBillBtn").hidden = !list.length;
+    if (!list.length) {
+      $("#billsSum").textContent = "";
+      body.innerHTML = `<p class="muted" style="margin:0 0 14px">Tell the tracker what goes out regularly, like rent or your phone. It holds that money back before showing what you can spend.</p>
+        <button class="btn primary" type="button" data-bill-wiz>Set up your bills</button>`;
+      return;
+    }
+    $("#billsSum").textContent = `${money(list.reduce((s, b) => s + billMonthly(b), 0))} a month`;
+    const sorted = [...list].sort((x, y) => (nextBill(x) || "9") < (nextBill(y) || "9") ? -1 : 1);
+    const before = (c.billsDue || []).reduce((s, x) => s + (x.b.amount || 0), 0);
+    body.innerHTML = `<ul class="pots bills">${sorted.map(billRow).join("")}</ul>
+      ${c.payday ? `<p class="pot-group">${before ? `${money(before)} is due before payday on ${niceDate(c.payday)}, so it's held back from your spending money.` : `Nothing is due before payday on ${niceDate(c.payday)}.`}</p>` : ""}`;
+  }
+
+  /* ---------- bills walkthrough ---------- */
+  let wiz = null;
+  function openWiz(editId) {
+    if (!db) return toast("Open this page in Claude to save bills.");
+    if (!state) return toast("Finish setting up first.");
+    if (editId) {
+      const b = bills().find(x => x.id === editId); if (!b) return;
+      wiz = {edit: true, queue: [JSON.parse(JSON.stringify(b))], i: 0, step: "amount"};
+    } else wiz = {edit: false, picks: new Set(), custom: "", customOn: false, queue: [], i: 0, step: "pick"};
+    drawWiz(); $("#billWiz").showModal();
+  }
+  function pickOptions() {
+    const haveCat = new Set(bills().map(b => b.cat).filter(Boolean));
+    const taken = bills().map(b => b.name.toLowerCase());
+    const SAME = {energy: ["electric", "gas"]};
+    const clash = n => { const l = n.toLowerCase(); return taken.some(t => t.includes(l) || l.includes(t) || (SAME[l] || []).some(w => t.includes(w))); };
+    const found = ((bank() && bank().found) || []).map((f, i) => ({key: `f:${i}`, name: f.name, amount: f.amount, freq: f.freq || "monthly", day: f.day, cat: f.cat,
+      hint: `${money(f.amount)} around the ${ord(f.day)}`})).filter(o => !(o.cat && haveCat.has(o.cat)) && !clash(o.name));
+    const foundCats = new Set(found.map(o => o.cat).filter(Boolean));
+    const budget = (state.categories || []).filter(c => c.fixed && !haveCat.has(c.id) && !foundCats.has(c.id) && !clash(c.name))
+      .map(c => ({key: `c:${c.id}`, name: c.name, amount: c.budget || null, cat: c.id, hint: c.budget ? money(c.budget) : ""}));
+    const shown = [...found, ...budget].map(o => o.name.toLowerCase());
+    const common = COMMON_BILLS.filter(n => !clash(n) && !shown.some(t => t.includes(n.toLowerCase()) || ({energy: ["electric", "gas"]}[n.toLowerCase()] || []).some(w => t.includes(w)))).map(n => ({key: `x:${n}`, name: n}));
+    return {found, budget, common};
+  }
+  function captureWiz() {
+    if (!wiz || !wiz.queue[wiz.i]) { const ci = $("#bwCustom"); if (ci && wiz) wiz.custom = ci.value; return; }
+    const d = wiz.queue[wiz.i], v = id => { const el = $("#" + id); return el ? el.value : null; };
+    if (v("bwAmt") != null) d.amountRaw = v("bwAmt");
+    if (v("bwName") != null) d.name = v("bwName").trim() || d.name;
+    if (v("bwDate") != null) d.date = v("bwDate");
+    if (v("bwBank") != null) d.from = {kind: "other", name: v("bwBank").trim()};
+  }
+  const pressed = on => `aria-pressed="${on ? "true" : "false"}"`;
+  function drawWiz() {
+    const body = $("#bwBody"), back = $("#bwBack"), next = $("#bwNext"), n = wiz.queue.length;
+    back.hidden = false;
+    if (wiz.step === "pick") {
+      const o = pickOptions();
+      const chip = x => `<button type="button" class="chip" data-pick="${esc(x.key)}" ${pressed(wiz.picks.has(x.key))}>${esc(x.name)}${x.hint ? `<small>${esc(x.hint)}</small>` : ""}</button>`;
+      const group = (title, list) => list.length ? `<p class="pot-group" style="margin:4px 0 -2px">${title}</p><div class="chips">${list.map(chip).join("")}</div>` : "";
+      body.innerHTML = `<h2 id="bwTitle">Which of these do you pay?</h2>
+        <p class="muted">Tap everything that goes out regularly. You can add more later.</p>
+        ${group("Found in your bank", o.found)}${group("From your budgets", o.budget)}${group("Other common bills", o.common)}
+        <div class="chips"><button type="button" class="chip" data-custom-toggle ${pressed(wiz.customOn)}>Something else</button></div>
+        ${wiz.customOn ? `<label class="field"><span>What's it called?</span><input id="bwCustom" value="${esc(wiz.custom)}" placeholder="e.g. Car insurance"></label>` : ""}`;
+      back.textContent = "Not now";
+      next.textContent = "Next";
+      wiz.opts = o;
+      return;
+    }
+    if (wiz.step === "done") {
+      const c = calc(), added = wiz.saved || [];
+      const before = (c.billsDue || []).reduce((s, x) => s + (x.b.amount || 0), 0);
+      const total = bills().reduce((s, b) => s + billMonthly(b), 0);
+      body.innerHTML = `<h2 id="bwTitle">Your bills are set up</h2>
+        <p class="muted">You have ${bills().length} bill${bills().length > 1 ? "s" : ""}, about ${money(total)} a month.${c.payday ? (before ? ` ${money(before)} is due before payday, so that's held back from your spending money.` : " None are due before payday.") : ""}</p>
+        <ul class="pots">${added.map(b => billRow(b).replace(/ data-edit-bill="[^"]*" tabindex="0" role="button"/, "")).join("")}</ul>`;
+      back.hidden = true; next.textContent = "Done";
+      return;
+    }
+    const d = wiz.queue[wiz.i], nm = esc(d.name), lower = "your " + esc(/^[A-Z][a-z]/.test(d.name) ? d.name[0].toLowerCase() + d.name.slice(1) : d.name);
+    const progress = wiz.edit ? "" : `<p class="muted">Bill ${wiz.i + 1} of ${n}</p>`;
+    if (wiz.step === "amount") {
+      body.innerHTML = `<h2 id="bwTitle">How much is ${lower}?</h2>${progress}
+        ${wiz.edit ? `<label class="field"><span>Name</span><input id="bwName" value="${nm}"></label>` : ""}
+        <label class="field bigmoney"><span>${d.varies ? "Usual amount" : "Amount"}</span><div class="money"><em>£</em><input id="bwAmt" inputmode="decimal" placeholder="0.00" value="${esc(d.amountRaw ?? (d.amount ?? ""))}"></div></label>
+        <label class="check"><input type="checkbox" id="bwVar" ${d.varies ? "checked" : ""}> It changes each time</label>
+        ${d.varies ? `<p class="hint muted">We'll hold back the usual amount, and ask you to update it if a payment is different.</p>` : ""}
+        ${wiz.edit ? `<button type="button" class="link-btn" data-remove-bill>Remove this bill</button>` : ""}`;
+      back.textContent = wiz.edit ? "Cancel" : "Back";
+      next.textContent = "Next";
+      setTimeout(() => { const a = $("#bwAmt"); if (a && !a.value) a.focus(); }, 30);
+      return;
+    }
+    if (wiz.step === "when") {
+      const f = d.freq || "monthly";
+      const freqChips = Object.entries(BILL_FREQ).map(([k, t]) => `<button type="button" class="chip" data-freq="${k}" ${pressed(f === k)}>${t}</button>`).join("");
+      let pickPart;
+      if (f === "monthly") {
+        const days = Array.from({length: 31}, (_, i) => `<button type="button" class="daybtn num" data-day="${i + 1}" ${pressed(+d.day === i + 1)} aria-label="${ord(i + 1)}">${i + 1}</button>`).join("");
+        pickPart = `<p class="muted">Which day of the month?</p><div class="days7">${days}</div>
+          <div class="chips"><button type="button" class="chip" data-day="last" ${pressed(d.day === "last")}>Last working day</button></div>`;
+      } else pickPart = `<label class="field"><span>When's the next one?</span><input id="bwDate" type="date" value="${esc(d.date || "")}"></label>`;
+      body.innerHTML = `<h2 id="bwTitle">When does ${lower} go out?</h2>${progress}
+        <div class="chips">${freqChips}</div>${pickPart}
+        <p class="hint muted">${d.day === "last" && f === "monthly" ? "That's the last weekday that isn't a bank holiday." : "If it lands on a weekend or bank holiday, we'll expect it the next working day."}</p>`;
+      back.textContent = "Back"; next.textContent = "Next";
+      return;
+    }
+    if (wiz.step === "from") {
+      const b = bank(), f = d.from || {};
+      const pots = b ? b.pots.filter(p => p.balance > 0 || (p.cats || []).length) : [];
+      const opt = (key, label, sub, on) => `<button type="button" class="opt" data-from="${esc(key)}" ${pressed(on)}><span>${esc(label)}</span>${sub ? `<small class="num">${sub}</small>` : ""}</button>`;
+      const last = wiz.edit || wiz.i === n - 1;
+      body.innerHTML = `<h2 id="bwTitle">Where does ${lower} come from?</h2>${progress}
+        <div class="opts">
+          ${pots.map(p => opt("pot:" + p.id, potName(p), money(p.balance), f.kind === "pot" && f.id === p.id)).join("")}
+          ${opt("main", "Main account", "", f.kind === "main")}
+          ${opt("other", "Another bank", "", f.kind === "other")}
+        </div>
+        ${f.kind === "other" ? `<label class="field"><span>Which bank?</span><input id="bwBank" value="${esc(f.name || "")}" placeholder="e.g. Chase"></label>` : ""}
+        <p class="muted" style="margin-top:6px">How is it paid?</p>
+        <div class="chips">${Object.entries(METHOD).map(([k, t]) => `<button type="button" class="chip" data-method="${k}" ${pressed(d.method === k)}>${t}</button>`).join("")}</div>
+        ${d.method === "card" && f.kind === "pot" ? `<p class="hint muted">Card payments come out of your main account, not a pot. We'll remind you to move the money across the day before.</p>` : ""}`;
+      back.textContent = "Back";
+      next.textContent = wiz.edit ? "Save bill" : last ? "Finish" : `Next: ${d.name === wiz.queue[wiz.i + 1].name ? "next bill" : wiz.queue[wiz.i + 1].name}`;
+    }
+  }
+  function wizNext() {
+    captureWiz();
+    if (wiz.step === "pick") {
+      const o = wiz.opts, all = [...o.found, ...o.budget, ...o.common];
+      const q = all.filter(x => wiz.picks.has(x.key)).map(x => ({name: x.name, amount: x.amount ?? null, freq: x.freq || "monthly", day: x.day ?? null, cat: x.cat || null}));
+      if (wiz.customOn && wiz.custom.trim()) q.push({name: wiz.custom.trim().slice(0, 40), amount: null, freq: "monthly", day: null, cat: null});
+      if (!q.length) return toast("Tap at least one bill, or choose Not now to do this later.");
+      for (const x of q) { const c = (state.categories || []).find(k => !x.cat && k.name.toLowerCase() === x.name.toLowerCase()); if (c) x.cat = c.id; }
+      wiz.queue = q; wiz.i = 0; wiz.step = "amount"; return drawWiz();
+    }
+    const d = wiz.queue[wiz.i];
+    if (wiz.step === "amount") {
+      const a = num(String(d.amountRaw ?? d.amount ?? ""));
+      if (!(a > 0)) return toast(`Enter how much ${d.name.toLowerCase()} is, e.g. 275`);
+      d.amount = r2(a); wiz.step = "when"; return drawWiz();
+    }
+    if (wiz.step === "when") {
+      const f = d.freq || "monthly"; d.freq = f;
+      if (f === "monthly" && !d.day) return toast("Tap the day it goes out.");
+      if (f !== "monthly" && !d.date) return toast("Pick the date of the next one.");
+      wiz.step = "from"; return drawWiz();
+    }
+    if (wiz.step === "from") {
+      if (!d.from || !d.from.kind) return toast(`Choose where ${d.name.toLowerCase()} comes from.`);
+      if (!d.method) return toast("Choose how it's paid.");
+      if (wiz.i < wiz.queue.length - 1) { wiz.i++; wiz.step = "amount"; return drawWiz(); }
+      return finishWiz();
+    }
+    if (wiz.step === "done") $("#billWiz").close();
+  }
+  function cleanBill(d) {
+    const b = {id: d.id || uid6(), name: d.name.slice(0, 40), amount: d.amount, varies: !!d.varies, freq: d.freq, from: d.from, method: d.method};
+    if (d.freq === "monthly") b.day = d.day; else b.date = d.date;
+    if (d.cat) b.cat = d.cat;
+    if (d.from.kind === "pot") { const p = bank() && bank().pots.find(x => x.id === d.from.id); b.from = {kind: "pot", id: d.from.id, name: p ? potName(p) : ""}; }
+    return b;
+  }
+  function finishWiz() {
+    const made = wiz.queue.map(cleanBill);
+    if (wiz.edit) {
+      saveState({...state, bills: bills().map(b => b.id === made[0].id ? made[0] : b)});
+      $("#billWiz").close(); toast(`${made[0].name} updated`, true); return;
+    }
+    saveState({...state, bills: [...bills(), ...made]});
+    wiz.saved = made; wiz.step = "done"; drawWiz();
+  }
+  function wizBack() {
+    captureWiz();
+    if (wiz.step === "pick" || (wiz.edit && wiz.step === "amount")) return $("#billWiz").close();
+    if (wiz.step === "from") wiz.step = "when";
+    else if (wiz.step === "when") wiz.step = "amount";
+    else if (wiz.step === "amount") { if (wiz.i > 0) { wiz.i--; wiz.step = "from"; } else wiz.step = "pick"; }
+    drawWiz();
+  }
+  $("#bwForm").addEventListener("submit", e => { e.preventDefault(); wizNext(); });
+  $("#bwBack").onclick = wizBack;
+  $("#bwBody").addEventListener("change", e => { if (e.target.id === "bwVar") { captureWiz(); wiz.queue[wiz.i].varies = e.target.checked; drawWiz(); } });
+  $("#bwBody").addEventListener("click", e => {
+    const t = e.target.closest("button"); if (!t || !wiz) return;
+    captureWiz();
+    const d = wiz.queue[wiz.i];
+    if (t.dataset.pick) { wiz.picks.has(t.dataset.pick) ? wiz.picks.delete(t.dataset.pick) : wiz.picks.add(t.dataset.pick); t.setAttribute("aria-pressed", wiz.picks.has(t.dataset.pick)); return; }
+    if ("customToggle" in t.dataset) { wiz.customOn = !wiz.customOn; drawWiz(); if (wiz.customOn) $("#bwCustom").focus(); return; }
+    if (t.dataset.freq) { d.freq = t.dataset.freq; return drawWiz(); }
+    if (t.dataset.day) { d.day = t.dataset.day === "last" ? "last" : +t.dataset.day; return drawWiz(); }
+    if (t.dataset.from) {
+      const v = t.dataset.from;
+      d.from = v === "main" ? {kind: "main"} : v === "other" ? {kind: "other", name: (d.from && d.from.kind === "other" && d.from.name) || ""} : {kind: "pot", id: v.slice(4)};
+      drawWiz(); if (v === "other") $("#bwBank").focus(); return;
+    }
+    if (t.dataset.method) { d.method = t.dataset.method; return drawWiz(); }
+    if ("removeBill" in t.dataset) {
+      if (!confirm(`Remove ${d.name}? It will stop being held back from your spending money.`)) return;
+      saveState({...state, bills: bills().filter(b => b.id !== d.id)});
+      $("#billWiz").close(); toast(`${d.name} removed`);
+    }
+  });
+  document.addEventListener("click", e => {
+    const ed = e.target.closest("[data-edit-bill]"); if (ed) return openWiz(ed.dataset.editBill);
+    if (e.target.closest("[data-bill-wiz]")) openWiz();
+  });
+  document.addEventListener("keydown", e => { const ed = e.target.closest && e.target.closest("[data-edit-bill]"); if (ed && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openWiz(ed.dataset.editBill); } });
+
   /* ---------- render ---------- */
   function render() {
     const c = calc();
     $("#monthTitle").textContent = monthName(c.cur);
     $("#balanceLine").textContent = c.balance == null ? "" : `${bank() ? "Spending money" : "Balance"} ${money(c.balance)}`;
-    renderPots(); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
+    renderPots(); renderBills(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
   function renderHero(c) {
