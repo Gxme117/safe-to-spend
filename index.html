@@ -12,7 +12,7 @@
   --bg:#FFFFFF; --surface:#FFFFFF; --ink:#000000; --muted:#5E5E5E; --line:#D4D4D4;
   --green:#000000; --green-soft:#D9D9D9; --amber:#8C8C8C; --amber-soft:#E6E6E6;
   --red:#000000; --red-soft:#E0E0E0; --focus:#000000;
-  --good:#000000; --good-fill:#FFFFFF; --good-soft:#FFFFFF; --on-good:#000000;
+  --good:#2C9200; --good-fill:#4CE01A; --good-soft:#E6FADD; --on-good:#FFFFFF;
   --glass:rgba(255,255,255,.62); --glass-line:rgba(0,0,0,.07); --glass-hi:rgba(255,255,255,.95); --glass-shadow:0 10px 30px rgba(0,0,0,.06); --blob:.20; --ring:.35;
   color-scheme:light;
   --display:-apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", system-ui, sans-serif;
@@ -25,7 +25,7 @@
   --bg:#000000; --surface:#1C1C1E; --ink:#FFFFFF; --muted:#98989F; --line:#38383A;
   --green:#FFFFFF; --green-soft:#3A3A3C; --amber:#8E8E93; --amber-soft:#2C2C2E;
   --red:#FFFFFF; --red-soft:#3A3A3C; --focus:#FFFFFF;
-  --good:#FFFFFF; --good-fill:#FFFFFF; --good-soft:#1C1C1E; --on-good:#000000;
+  --good:#6DF03C; --good-fill:#6DF03C; --good-soft:#16330C; --on-good:#000000;
   --glass:rgba(28,28,30,.74); --glass-line:rgba(255,255,255,.08); --glass-hi:rgba(255,255,255,.14); --glass-shadow:0 10px 30px rgba(0,0,0,.5); --blob:.34; --ring:.45;
   color-scheme:dark;
 }
@@ -210,12 +210,12 @@ table.sheet{border-collapse:separate;border-spacing:0;width:100%;min-width:1100p
 /* green = money going up or a good decision */
 .good-txt{color:var(--good)!important}
 .big.pos{color:var(--good)}
-.btn.good{background:var(--good-fill);color:var(--on-good)}
+.btn.good{background:var(--btn-bg,var(--good));color:var(--btn-ink,var(--on-good))}
 .btn.good:hover{filter:brightness(1.08)}
 .goal-fig{color:var(--good)}
 .sheet td.gain{color:var(--good)}
 .tile b.gain{color:var(--good)}
-#toast.good{background:var(--good-fill);color:var(--on-good)}
+#toast.good{background:var(--btn-bg,var(--good));color:var(--btn-ink,var(--on-good))}
 #toast.good::before{content:"✓";font-weight:700;margin-right:8px}
 #toast.pop{animation:pop .45s cubic-bezier(.2,1.4,.4,1)}
 @keyframes pop{0%{transform:translateX(-50%) scale(.85)}100%{transform:translateX(-50%) scale(1)}}
@@ -231,6 +231,15 @@ body{background:transparent}
 
 /* income */
 #checkin:empty{display:none}
+.pots{list-style:none;margin:0;padding:0}
+.pots li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.pots li:first-child{border-top:0}
+.pots .pname{font-weight:600;display:block}
+.pots .pmeta{font-size:.75rem;color:var(--muted)}
+.pots .pamt{font-weight:700;white-space:nowrap}
+.pots li.total .pname{font-weight:700}
+.pots li.note{display:block;border:1px dashed var(--line);margin-top:8px;padding:10px 12px}
+.pot-group{font-size:.75rem;color:var(--muted);margin:16px 0 0}
 .inc{list-style:none;margin:0;padding:0}
 .inc li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--line);cursor:pointer}
 .inc li:first-child{border-top:0}
@@ -251,28 +260,55 @@ body{background:transparent}
 .check{display:flex;gap:8px;align-items:center;font-size:.93rem}
 .dlg-foot.split{justify-content:space-between}
 .inc .soon{font-size:.75rem;color:var(--muted);font-weight:400;display:block;text-align:right}
-/* accent = white, glowing, with prismatic edges */
-:root{
-  --prism:conic-gradient(from 210deg,#ff7ac6,#ffcf6e,#8dffb8,#6ecbff,#b18cff,#ff7ac6);
-  --shine-bg:linear-gradient(135deg,#ffffff 0%,#eef4ff 38%,#ffffff 52%,#f6eeff 100%);
-  --glow-box:0 0 8px rgba(255,130,210,.35),0 0 16px rgba(110,200,255,.35);
-  --glow-txt:0 0 10px rgba(170,120,255,.35),0 0 3px rgba(110,200,255,.45);
-}
-:root[data-mode="dark"]{
-  --glow-box:0 0 10px rgba(255,255,255,.55),0 0 22px rgba(170,140,255,.5),0 0 34px rgba(110,200,255,.3);
-  --glow-txt:0 0 8px rgba(255,255,255,.75),0 0 22px rgba(170,140,255,.55),-1px 0 rgba(255,130,210,.45),1px 0 rgba(110,200,255,.45);
-}
-.good-txt,.big.pos,.goal-fig,.sheet td.gain,.tile b.gain,.inc .iamt,.cat.under .left,.cat.paid .left,.tx .amt.in,.cycle-ends .pay b,.dow span.payday,.inc-sum b{text-shadow:var(--glow-txt)}
-.big small{text-shadow:none}
-.days i.under,.days i.today.under,.days i.payday,.bar i,.btn.good,#toast.good,.key .a,.cycle-key i.ca,.dot.free{
-  background:var(--shine-bg) padding-box,var(--prism) border-box!important;border:1.5px solid transparent;box-shadow:var(--glow-box)}
-.runway .free{background:var(--shine-bg) padding-box,var(--prism) border-box!important;border:1.5px solid transparent;border-radius:7px}
-.cat.fixed:not(.paid) .bar i,.cat.over .bar i{border:0;box-shadow:none}
-.cat.fixed:not(.paid) .bar i{background:var(--amber)!important}
-.cat.over .bar i{background:repeating-linear-gradient(45deg,var(--ink) 0 3px,transparent 3px 6px)!important}
-.btn.good,#toast.good{color:#000}
-:root[data-mode="dark"] .days i.over,:root[data-mode="dark"] .days i.today.over,:root[data-mode="dark"] .cycle-key i.ov{background:repeating-linear-gradient(45deg,#8E8E93 0 2px,transparent 2px 5px)!important;box-shadow:inset 0 0 0 1px #8E8E93}
-svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0 0 8px rgba(110,200,255,.55))}
+/* ---------- looks (accent themes) ---------- */
+:root[data-accent="green"]{--good:#248A3D;--good-fill:#34C759;--good-soft:#E3F6E8;--btn-bg:#248A3D;--btn-ink:#FFFFFF}
+:root[data-accent="green"][data-mode="dark"]{--good:#30D158;--good-fill:#30D158;--good-soft:#0F2E1A;--btn-bg:#30D158;--btn-ink:#000000}
+:root[data-accent="vibrant"]{--good:#00953C;--good-fill:#00DC5A;--good-soft:#DFFBEA;--btn-bg:#00953C;--btn-ink:#FFFFFF}
+:root[data-accent="vibrant"][data-mode="dark"]{--good:#1AF07A;--good-fill:#1AF07A;--good-soft:#0B3320;--btn-bg:#1AF07A;--btn-ink:#000000}
+:root[data-accent="grass"]{--good:#2C9200;--good-fill:#4CE01A;--good-soft:#E6FADD;--btn-bg:#2C9200;--btn-ink:#FFFFFF}
+:root[data-accent="grass"][data-mode="dark"]{--good:#6DF03C;--good-fill:#6DF03C;--good-soft:#16330C;--btn-bg:#6DF03C;--btn-ink:#000000}
+:root[data-accent="yellowgreen"]{--good:#4F9A00;--good-fill:#8EE000;--good-soft:#EEFBD9;--btn-bg:#4F9A00;--btn-ink:#FFFFFF}
+:root[data-accent="yellowgreen"][data-mode="dark"]{--good:#A4F02A;--good-fill:#A4F02A;--good-soft:#22330A;--btn-bg:#A4F02A;--btn-ink:#000000}
+:root[data-accent="lime"]{--good:#467000;--good-fill:#ADFF3F;--good-soft:#F1FFDC;--btn-bg:#ADFF3F;--btn-ink:#000000}
+:root[data-accent="lime"][data-mode="dark"]{--good:#ADFF3F;--good-fill:#ADFF3F;--good-soft:#1F2E0A;--btn-bg:#ADFF3F;--btn-ink:#000000}
+:root[data-accent="yellow"]{--good:#8A6A00;--good-fill:#FFE27A;--good-soft:#FFF8D9;--btn-bg:#FFE27A;--btn-ink:#000000}
+:root[data-accent="yellow"][data-mode="dark"]{--good:#FFE27A;--good-fill:#FFE27A;--good-soft:#3A3312;--btn-bg:#FFE27A;--btn-ink:#000000}
+:root[data-accent="aberration"]{--good:#000000;--good-fill:#FFFFFF;--good-soft:#FFFFFF;--btn-bg:#FFFFFF;--btn-ink:#000000}
+:root[data-accent="aberration"][data-mode="dark"]{--good:#FFFFFF;--good-fill:#FFFFFF;--good-soft:#1C1C1E;--btn-bg:#FFFFFF;--btn-ink:#000000}
+:root[data-accent="glow"]{--good:#000000;--good-fill:#FFFFFF;--good-soft:#FFFFFF;--btn-bg:#FFFFFF;--btn-ink:#000000}
+:root[data-accent="glow"][data-mode="dark"]{--good:#FFFFFF;--good-fill:#FFFFFF;--good-soft:#1C1C1E;--btn-bg:#FFFFFF;--btn-ink:#000000}
+
+/* chromatic aberration look */
+:root[data-accent="aberration"]{--ca-r:rgba(255,0,90,.8);--ca-b:rgba(0,190,255,.8)}
+:root[data-accent="aberration"] .good-txt,:root[data-accent="aberration"] .big.pos,:root[data-accent="aberration"] .goal-fig,:root[data-accent="aberration"] .sheet td.gain,:root[data-accent="aberration"] .tile b.gain,:root[data-accent="aberration"] .inc .iamt,:root[data-accent="aberration"] .cat.under .left,:root[data-accent="aberration"] .cat.paid .left,:root[data-accent="aberration"] .tx .amt.in,:root[data-accent="aberration"] .cycle-ends .pay b,:root[data-accent="aberration"] .dow span.payday,:root[data-accent="aberration"] .inc-sum b{text-shadow:-1px 0 var(--ca-r),1px 0 var(--ca-b)}
+:root[data-accent="aberration"] .big.pos{text-shadow:-3px 0 var(--ca-r),3px 0 var(--ca-b)}
+:root[data-accent="aberration"] .big small{text-shadow:none}
+:root[data-accent="aberration"] .days i.under,:root[data-accent="aberration"] .days i.today.under,:root[data-accent="aberration"] .bar i,:root[data-accent="aberration"] .btn.good,:root[data-accent="aberration"] #toast.good,:root[data-accent="aberration"] .days i.payday,:root[data-accent="aberration"] .key .a,:root[data-accent="aberration"] .cycle-key i.ca,:root[data-accent="aberration"] .dot.free{box-shadow:-2px 0 0 var(--ca-r),2px 0 0 var(--ca-b),inset 0 0 0 1px rgba(0,0,0,.12)}
+:root[data-accent="aberration"] .runway .free{box-shadow:inset 2px 0 0 var(--ca-r),inset -2px 0 0 var(--ca-b),inset 0 0 0 1px rgba(0,0,0,.18)}
+:root[data-accent="aberration"] .days i.payday{box-shadow:-2px 0 0 var(--ca-r),2px 0 0 var(--ca-b),inset 0 0 0 2px var(--ink)}
+:root[data-accent="aberration"] .cat.fixed:not(.paid) .bar i,:root[data-accent="aberration"] .cat.over .bar i{box-shadow:none}
+:root[data-accent="aberration"] svg rect.gainbar{filter:drop-shadow(-2px 0 0 var(--ca-r)) drop-shadow(2px 0 0 var(--ca-b))}
+
+/* prismatic glow look */
+:root[data-accent="glow"]{--prism:conic-gradient(from 210deg,#ff7ac6,#ffcf6e,#8dffb8,#6ecbff,#b18cff,#ff7ac6);--shine-bg:linear-gradient(135deg,#ffffff 0%,#eef4ff 38%,#ffffff 52%,#f6eeff 100%);--glow-box:0 0 8px rgba(255,130,210,.35),0 0 16px rgba(110,200,255,.35);--glow-txt:0 0 10px rgba(170,120,255,.35),0 0 3px rgba(110,200,255,.45)}
+:root[data-accent="glow"][data-mode="dark"]{--glow-box:0 0 10px rgba(255,255,255,.55),0 0 22px rgba(170,140,255,.5),0 0 34px rgba(110,200,255,.3);--glow-txt:0 0 8px rgba(255,255,255,.75),0 0 22px rgba(170,140,255,.55),-1px 0 rgba(255,130,210,.45),1px 0 rgba(110,200,255,.45)}
+:root[data-accent="glow"] .good-txt,:root[data-accent="glow"] .big.pos,:root[data-accent="glow"] .goal-fig,:root[data-accent="glow"] .sheet td.gain,:root[data-accent="glow"] .tile b.gain,:root[data-accent="glow"] .inc .iamt,:root[data-accent="glow"] .cat.under .left,:root[data-accent="glow"] .cat.paid .left,:root[data-accent="glow"] .tx .amt.in,:root[data-accent="glow"] .cycle-ends .pay b,:root[data-accent="glow"] .dow span.payday,:root[data-accent="glow"] .inc-sum b{text-shadow:var(--glow-txt)}
+:root[data-accent="glow"] .big small{text-shadow:none}
+:root[data-accent="glow"] .days i.under,:root[data-accent="glow"] .days i.today.under,:root[data-accent="glow"] .days i.payday,:root[data-accent="glow"] .bar i,:root[data-accent="glow"] .btn.good,:root[data-accent="glow"] #toast.good,:root[data-accent="glow"] .key .a,:root[data-accent="glow"] .cycle-key i.ca,:root[data-accent="glow"] .dot.free{background:var(--shine-bg) padding-box,var(--prism) border-box!important;border:1.5px solid transparent;box-shadow:var(--glow-box)}
+:root[data-accent="glow"] .runway .free{background:var(--shine-bg) padding-box,var(--prism) border-box!important;border:1.5px solid transparent;border-radius:7px}
+:root[data-accent="glow"] .cat.fixed:not(.paid) .bar i,:root[data-accent="glow"] .cat.over .bar i{border:0;box-shadow:none}
+:root[data-accent="glow"] .cat.fixed:not(.paid) .bar i{background:var(--amber)!important}
+:root[data-accent="glow"] .cat.over .bar i{background:repeating-linear-gradient(45deg,var(--ink) 0 3px,transparent 3px 6px)!important}
+:root[data-accent="glow"] svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0 0 8px rgba(110,200,255,.55))}
+:root[data-accent="glow"][data-mode="dark"] .days i.over,:root[data-accent="glow"][data-mode="dark"] .days i.today.over,:root[data-accent="glow"][data-mode="dark"] .cycle-key i.ov{background:repeating-linear-gradient(45deg,#8E8E93 0 2px,transparent 2px 5px)!important;box-shadow:inset 0 0 0 1px #8E8E93}
+:root[data-accent="aberration"][data-mode="dark"] .days i.over,:root[data-accent="aberration"][data-mode="dark"] .days i.today.over,:root[data-accent="aberration"][data-mode="dark"] .cycle-key i.ov{background:repeating-linear-gradient(45deg,#8E8E93 0 2px,transparent 2px 5px)!important;box-shadow:inset 0 0 0 1px #8E8E93}
+
+/* look picker */
+.looks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.look{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface);cursor:pointer;text-align:left;display:grid;gap:8px;font-size:.75rem;font-weight:600}
+.look[aria-checked="true"]{box-shadow:0 0 0 2px var(--ink);border-color:var(--ink)}
+.look .sw{height:22px;border-radius:6px;border:1px solid var(--line)}
+@media (max-width:520px){.looks{grid-template-columns:repeat(2,minmax(0,1fr))}}
 /* bold numbers */
 .num,.cat-top .left,.tx .amt,.big,.goal-fig,.tile b,.legend,.sheet tbody td:not(:first-child){font-weight:700}
 .big small,.goal-fig .muted,.month-sum .muted,.sheet td small{font-weight:400}
@@ -353,6 +389,10 @@ svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0
       <ul id="incomeList" class="inc"></ul>
       <div id="oneOffWrap" hidden><h2 style="margin:18px 0 6px">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
     </div>
+    <div class="panel" id="potsPanel" hidden>
+      <div class="panel-head"><h2>Your pots</h2><span id="potsWhen" class="muted"></span></div>
+      <div id="potsBody"></div>
+    </div>
     <div class="panel">
       <div class="panel-head"><h2>Budgets</h2><span id="budgetSum" class="muted num"></span></div>
       <ul id="cats" class="cats"></ul>
@@ -387,6 +427,10 @@ svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0
 <dialog id="settings" aria-labelledby="setTitle">
   <form id="setForm" class="dlg" method="dialog">
     <h2 id="setTitle">Settings</h2>
+    <div>
+      <p class="hint muted" style="margin:0 0 10px">Look. Tap one to try it straight away.</p>
+      <div class="looks" id="looks" role="radiogroup" aria-label="Look"></div>
+    </div>
     <div class="two">
       <label class="field"><span>Current balance</span>
         <div class="money"><em>£</em><input id="sBal" inputmode="decimal" placeholder="0.00"></div>
@@ -652,12 +696,50 @@ svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0
     return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, daysLeft, payday};
   }
 
+  /* ---------- pots (synced from the bank) ---------- */
+  const bank = () => (state && state.bank && Array.isArray(state.bank.pots)) ? state.bank : null;
+  const potName = x => String(x.name || "").trim();
+  const potFor = catId => { const b = bank(); return b ? b.pots.find(x => (x.cats || []).includes(catId)) : null; };
+  function renderPots() {
+    const panel = $("#potsPanel"), b = bank();
+    if (!b) { panel.hidden = true; return; }
+    panel.hidden = false;
+    const has = x => x.balance > 0, sum = a => a.reduce((s, x) => s + x.balance, 0);
+    const spend = b.pots.filter(x => x.role === "spend" && has(x)), aside = b.pots.filter(x => x.role !== "spend" && has(x));
+    const empty = b.pots.filter(x => !has(x)).length;
+    const at = new Date(b.asOf);
+    $("#potsWhen").textContent = isoD(at) === today()
+      ? `From ${b.source || "your bank"} at ${at.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`
+      : `From ${b.source || "your bank"} on ${niceDate(isoD(at))}`;
+    const catName = id => ((state.categories || []).find(c => c.id === id) || {}).name;
+    const row = (name, amt, meta, cls) => `<li${cls ? ` class="${cls}"` : ""}><div><span class="pname">${esc(name)}</span>${meta ? `<span class="pmeta">${esc(meta)}</span>` : ""}</div><span class="pamt num">${money(amt)}</span></li>`;
+    const plain = t => String(t).toLowerCase().replace(/[^a-z ]/g, "").trim();
+    const forText = x => {
+      const n = (x.cats || []).map(catName).filter(Boolean);
+      if (!n.length || (n.length === 1 && (plain(n[0]).includes(plain(x.name)) || plain(x.name).includes(plain(n[0]))))) return "";
+      return `For ${n.join(", ")}`;
+    };
+    const goalText = x => x.goal ? `${Math.min(100, Math.round(x.balance / x.goal * 100))}% of ${money(x.goal)}` : "";
+    const spendTotal = (b.main || 0) + sum(spend);
+    let html = `<ul class="pots">
+      ${row("Main account", b.main || 0, (b.main || 0) < 1 ? "Empty. Card payments come from here" : "")}
+      ${spend.map(x => row(potName(x), x.balance, forText(x))).join("")}
+      ${row("Spending money", spendTotal, "Main account plus the pots above", "total")}
+      ${(b.main || 0) < 1 ? `<li class="note">Your main account is empty, so any card payment or subscription that isn't paid from a pot will be declined. Move a little in before one is due.</li>` : ""}
+    </ul>`;
+    if (aside.length) html += `<p class="pot-group">Set aside, not counted as spending money</p><ul class="pots">
+      ${aside.map(x => row(potName(x), x.balance, goalText(x))).join("")}
+      ${row("Set aside", sum(aside), "", "total")}</ul>`;
+    if (empty) html += `<p class="pot-group">${empty} empty pot${empty > 1 ? "s" : ""} hidden</p>`;
+    $("#potsBody").innerHTML = html;
+  }
+
   /* ---------- render ---------- */
   function render() {
     const c = calc();
     $("#monthTitle").textContent = monthName(c.cur);
-    $("#balanceLine").textContent = c.balance == null ? "" : `Balance ${money(c.balance)}`;
-    renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
+    $("#balanceLine").textContent = c.balance == null ? "" : `${bank() ? "Spending money" : "Balance"} ${money(c.balance)}`;
+    renderPots(); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
   function renderHero(c) {
@@ -784,6 +866,11 @@ svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0
     if (opts.some(o => o[0] === prev)) sel.value = prev;
   }
 
+  function potLine(x) {
+    const p = potFor(x.id);
+    if (!p) return "";
+    return `. ${money(p.balance)} in ${esc(potName(p))}${(p.cats || []).length > 1 ? ", shared" : ""}`;
+  }
   function renderCats(c) {
     const list = $("#cats");
     if (!state) { list.innerHTML = `<li class="empty">Your budgets will show here once you're set up.</li>`; $("#budgetSum").textContent = ""; return; }
@@ -805,7 +892,7 @@ svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0
       return `<li class="${cls}">
         <div class="cat-top"><span class="name">${esc(x.name)}${x.fixed ? '<span class="tag">Bill</span>' : ""}</span><span class="left">${leftTxt}</span></div>
         <div class="bar"><i style="width:${pct}%"></i></div>
-        <div class="cat-sub muted num">${money(sp)} of ${money(b)}</div></li>`;
+        <div class="cat-sub muted num">${money(sp)} of ${money(b)}${potLine(x)}</div></li>`;
     });
     const orphan = Object.keys(c.spent).filter(k => !known.has(k)).reduce((s, k) => s + c.spent[k], 0);
     if (orphan) rows.push(`<li class="cat"><div class="cat-top"><span class="name">Removed categories</span><span class="left">${money(orphan)} spent</span></div></li>`);
@@ -1373,6 +1460,31 @@ svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0
   });
 
 
+
+  /* ---------- looks ---------- */
+  const LOOKS = [
+    ["yellow", "Pale yellow", "#FFE27A"], ["green", "Apple green", "#34C759"], ["vibrant", "Vibrant green", "#00DC5A"],
+    ["grass", "Grass green", "#4CE01A"], ["yellowgreen", "Yellow-green", "#8EE000"], ["lime", "Lime", "#ADFF3F"],
+    ["aberration", "Chromatic", "linear-gradient(90deg,#ff005a 0 18%,#fff 18% 82%,#00beff 82%)"],
+    ["glow", "Prismatic glow", "conic-gradient(from 210deg,#ff7ac6,#ffcf6e,#8dffb8,#6ecbff,#b18cff,#ff7ac6)"]
+  ];
+  let accent = "yellow";
+  try { accent = localStorage.getItem("accent") || "yellow"; } catch (e) {}
+  function applyAccent(a, save) {
+    if (!LOOKS.some(l => l[0] === a)) a = "yellow";
+    accent = a;
+    document.documentElement.setAttribute("data-accent", a);
+    document.querySelectorAll(".look").forEach(b => b.setAttribute("aria-checked", b.dataset.look === a));
+    if (save) {
+      try { localStorage.setItem("accent", a); } catch (e) {}
+      if (db && state && state.accent !== a) saveState({...state, accent: a});
+    }
+  }
+  $("#looks").innerHTML = LOOKS.map(([id, name, sw]) =>
+    `<button type="button" class="look" role="radio" data-look="${id}" aria-checked="false"><span class="sw" style="background:${sw}"></span>${name}</button>`).join("");
+  $("#looks").addEventListener("click", e => { const b = e.target.closest(".look"); if (b) applyAccent(b.dataset.look, true); });
+  applyAccent(accent, false);
+
   /* ---------- theme ---------- */
   const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
   const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
@@ -1410,6 +1522,7 @@ svg rect.gainbar{filter:drop-shadow(0 0 4px rgba(255,130,210,.55)) drop-shadow(0
     stateRef.onSnapshot(s => {
       state = s.exists ? s.data() : null;
       loaded = true;
+      if (state && state.accent && state.accent !== accent) applyAccent(state.accent, false);
       syncMonths(); render();
     }, () => { $("#hero").innerHTML = `<p class="sub">Your data stopped loading. Reload the page to reconnect.</p>`; });
   })();
