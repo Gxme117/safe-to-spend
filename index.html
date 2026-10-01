@@ -45,6 +45,19 @@ button,input,select{font:inherit;color:inherit}
 
 .grid{max-width:1180px;margin:0 auto;padding:16px 28px 48px;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:20px;align-items:start}
 .col{display:grid;gap:20px;min-width:0}
+.today-view{max-width:680px;margin:0 auto;padding:16px 28px 48px;display:grid;gap:16px}
+.today-view>div:empty{display:none}
+details.todo{padding-top:0;padding-bottom:0}
+details.todo>summary{list-style:none;display:flex;align-items:center;gap:12px;padding:14px 0;cursor:pointer}
+details.todo>summary::-webkit-details-marker{display:none}
+details.todo>summary::after{content:"";width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);margin:0 4px 4px auto;transition:transform .15s}
+details.todo[open]>summary::after{transform:rotate(-135deg);margin-bottom:-4px}
+details.todo[open]{padding-bottom:20px}
+details.todo>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
+.todo-dot{width:10px;height:10px;border-radius:50%;background:var(--good);flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--good) 30%,transparent)}
+.todo-txt{display:grid;font-weight:700}
+.todo-txt small{font-weight:400;font-size:.75rem;color:var(--muted)}
+#txMore{margin-top:10px}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px}
 h2{font-family:var(--display);font-weight:600;font-size:1.2rem;margin:0 0 14px;letter-spacing:-.01em}
 .panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
@@ -273,6 +286,7 @@ body{background:transparent}
 .ask .chips{margin:4px 0 14px}
 .ask .pot-group{margin:0 0 6px}
 .ask .field{margin-bottom:14px}
+.ask .field input{box-sizing:border-box;max-width:100%}
 .checkin .lead{margin:0 0 4px;color:var(--muted);font-size:.93rem}
 .checkin h2{margin-bottom:6px}
 .checkin p{margin:0 0 14px}
@@ -353,7 +367,7 @@ body{background:transparent}
   .fields{grid-template-columns:1fr 1fr}
 }
 @media (max-width:520px){
-  .top,.grid{padding-left:16px;padding-right:16px}
+  .top,.grid,.today-view{padding-left:16px;padding-right:16px}
   .fields,.two{grid-template-columns:1fr}
   .catrow{grid-template-columns:minmax(0,1fr) 90px 34px}
   .catrow label{grid-column:1/-1;order:5}
@@ -369,7 +383,8 @@ body{background:transparent}
   </div>
   <div class="top-actions">
     <div class="tabs" role="tablist" aria-label="View">
-      <button role="tab" id="tabMonth" aria-selected="true" type="button">Month</button>
+      <button role="tab" id="tabMonth" aria-selected="true" type="button">Today</button>
+      <button role="tab" id="tabMoney" aria-selected="false" type="button">Money</button>
       <button role="tab" id="tabYear" aria-selected="false" type="button">Year</button>
     </div>
     <button id="themeBtn" class="btn ghost theme-btn" type="button" aria-label="Switch to dark mode"></button>
@@ -377,14 +392,48 @@ body{background:transparent}
   </div>
 </header>
 
-<main class="grid" id="monthView">
-  <section class="col">
+<main class="today-view" id="monthView">
+    <div class="hero-wrap"><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
     <div id="askTx"></div>
     <div id="checkin"></div>
-    <div class="hero-wrap"><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
+    <div class="panel">
+      <div class="panel-head"><h2>This month</h2><button class="btn primary small" type="button" id="openAdd">Add payment</button></div>
+      <div id="monthSum" class="month-sum num"></div>
+      <ul id="txList" class="tx"></ul>
+      <button type="button" class="link-btn" id="txMore" hidden></button>
+    </div>
+</main>
 
-    <form id="addForm" class="panel" autocomplete="off">
-      <h2>Add a transaction</h2>
+<main class="grid" id="moneyView" hidden>
+  <section class="col">
+    <div class="panel" id="potsPanel" hidden>
+      <div class="panel-head"><h2>Your pots</h2><button class="btn ghost small" type="button" id="refreshBank">Refresh</button></div>
+      <p id="potsWhen" class="muted pot-when"></p>
+      <div id="potsBody"></div>
+    </div>
+    <div class="panel" id="billsPanel">
+      <div class="panel-head"><h2>Bills</h2><div style="display:flex;gap:10px;align-items:baseline"><span id="billsSum" class="muted num"></span><button class="btn ghost small" type="button" data-bill-wiz id="addBillBtn" hidden>Add bill</button></div></div>
+      <div id="billsBody"></div>
+    </div>
+  </section>
+  <section class="col">
+    <div class="panel">
+      <div class="panel-head"><h2>Budgets</h2><span id="budgetSum" class="muted num"></span></div>
+      <ul id="cats" class="cats"></ul>
+    </div>
+    <div class="panel" id="incomePanel">
+      <div class="panel-head"><h2>Income</h2><div style="display:flex;gap:8px"><button id="addOneOff" class="btn ghost small" type="button">Add one-off</button><button id="addIncome" class="btn ghost small" type="button">Add regular</button></div></div>
+      <p id="incomeSum" class="inc-sum muted num"></p>
+      <ul id="incomeList" class="inc"></ul>
+      <div id="oneOffWrap" hidden><h2 style="margin:18px 0 6px">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
+    </div>
+    <div id="goal" class="panel"></div>
+  </section>
+</main>
+
+<dialog id="addDlg" aria-labelledby="addTitle">
+  <form id="addForm" class="dlg" autocomplete="off">
+      <h2 id="addTitle">Add a payment</h2>
       <div class="seg" role="radiogroup" aria-label="Transaction type">
         <label><input type="radio" name="kind" value="expense" checked><span>Spent</span></label>
         <label><input type="radio" name="kind" value="income"><span>Received</span></label>
@@ -397,39 +446,9 @@ body{background:transparent}
         <label class="field"><span>Note</span><input id="fNote" placeholder="e.g. Tesco"></label>
         <label class="field"><span>Date</span><input id="fDate" type="date" required></label>
       </div>
-      <div class="add-foot"><button class="btn primary" type="submit">Add transaction</button></div>
+      <div class="dlg-foot"><button class="btn ghost" type="button" id="addCancel">Cancel</button><button class="btn primary" type="submit">Add payment</button></div>
     </form>
-
-    <div class="panel">
-      <h2>This month's activity</h2>
-      <div id="monthSum" class="month-sum num"></div>
-      <ul id="txList" class="tx"></ul>
-    </div>
-  </section>
-
-  <section class="col">
-    <div class="panel" id="incomePanel">
-      <div class="panel-head"><h2>Income</h2><div style="display:flex;gap:8px"><button id="addOneOff" class="btn ghost small" type="button">Add one-off</button><button id="addIncome" class="btn ghost small" type="button">Add regular</button></div></div>
-      <p id="incomeSum" class="inc-sum muted num"></p>
-      <ul id="incomeList" class="inc"></ul>
-      <div id="oneOffWrap" hidden><h2 style="margin:18px 0 6px">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
-    </div>
-    <div class="panel" id="potsPanel" hidden>
-      <div class="panel-head"><h2>Your pots</h2><button class="btn ghost small" type="button" id="refreshBank">Refresh</button></div>
-      <p id="potsWhen" class="muted pot-when"></p>
-      <div id="potsBody"></div>
-    </div>
-    <div class="panel" id="billsPanel">
-      <div class="panel-head"><h2>Bills</h2><div style="display:flex;gap:10px;align-items:baseline"><span id="billsSum" class="muted num"></span><button class="btn ghost small" type="button" data-bill-wiz id="addBillBtn" hidden>Add bill</button></div></div>
-      <div id="billsBody"></div>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><h2>Budgets</h2><span id="budgetSum" class="muted num"></span></div>
-      <ul id="cats" class="cats"></ul>
-    </div>
-    <div id="goal" class="panel"></div>
-  </section>
-</main>
+</dialog>
 
 <section class="year" id="yearView" hidden>
   <div class="year-bar">
@@ -985,14 +1004,13 @@ body{background:transparent}
     box.dataset.key = it.id + list.length;
     const billChips = bills().map(b => `<button type="button" class="chip" data-ask-bill="${esc(b.id)}">${esc(b.name)}<small>${money(b.amount || 0)}</small></button>`).join("");
     const catChips = c.cats.filter(x => !x.fixed || !bills().some(b => b.cat === x.id)).map(x => `<button type="button" class="chip" data-ask-cat="${esc(x.id)}">${esc(x.name)}</button>`).join("");
-    box.innerHTML = `<div class="panel checkin ask">
-      <p class="lead">${list.length > 1 ? `1 of ${list.length} payments to sort` : "A payment to sort"}</p>
+    box.innerHTML = `<details class="panel checkin ask todo"><summary><span class="todo-dot" aria-hidden="true"></span><span class="todo-txt">${list.length > 1 ? `${list.length} payments to sort` : "1 payment to sort"}<small>${money(it.amount)} to ${esc(it.note || "unknown")}</small></span></summary>
       <h2>What was ${money(it.amount)} to ${esc(it.note || "this payment")}?</h2>
       <p class="muted">Paid ${niceDate(it.date)}. Tell the tracker what it was so your budgets and bills stay right.</p>
       <label class="field"><span>What was it for? (optional)</span><input id="askNote" placeholder="e.g. Shoes, haircut, deposit"></label>
       ${billChips ? `<p class="pot-group">A bill</p><div class="chips">${billChips}</div>` : ""}
       <p class="pot-group">Spending</p><div class="chips">${catChips}</div>
-    </div>`;
+    </details>`;
     box.querySelectorAll("[data-ask-bill],[data-ask-cat]").forEach(btn => btn.onclick = () => {
       const note = ($("#askNote").value || "").trim().slice(0, 60);
       const patch = {needsCat: false};
@@ -1345,9 +1363,11 @@ body{background:transparent}
     const list = $("#cats");
     if (!state) { list.innerHTML = `<li class="empty">Your budgets will show here once you're set up.</li>`; $("#budgetSum").textContent = ""; return; }
     const total = c.cats.reduce((s, x) => s + (x.budget || 0), 0);
-    $("#budgetSum").textContent = `${money(total)} a month`;
+    $("#budgetSum").textContent = `${money(bills().length ? c.cats.filter(x => !bills().some(b => b.cat === x.id) && !x.fixed).reduce((s, x) => s + (x.budget || 0), 0) : total)} a month`;
     const known = new Set(c.cats.map(x => x.id));
-    const rows = c.cats.map(x => {
+    const billCats = new Set(bills().map(b => b.cat).filter(Boolean));
+    const shown = bills().length ? c.cats.filter(x => !billCats.has(x.id) && !(x.fixed && !(c.spent[x.id]))) : c.cats;
+    const rows = shown.map(x => {
       const sp = c.spent[x.id] || 0, b = x.budget || 0, left = b - sp;
       const pct = b ? Math.min(100, sp / b * 100) : (sp ? 100 : 0);
       let cls = "cat", leftTxt;
@@ -1362,7 +1382,7 @@ body{background:transparent}
       return `<li class="${cls}">
         <div class="cat-top"><span class="name">${esc(x.name)}${x.fixed ? '<span class="tag">Bill</span>' : ""}</span><span class="left">${leftTxt}</span></div>
         <div class="bar"><i style="width:${pct}%"></i></div>
-        <div class="cat-sub muted num">${money(sp)} of ${money(b)}${potLine(x)}</div></li>`;
+        <div class="cat-sub muted num">${money(sp)} of ${money(b)}</div></li>`;
     });
     const orphan = Object.keys(c.spent).filter(k => !known.has(k)).reduce((s, k) => s + c.spent[k], 0);
     if (orphan) rows.push(`<li class="cat"><div class="cat-top"><span class="name">Removed categories</span><span class="left">${money(orphan)} spent</span></div></li>`);
@@ -1381,11 +1401,14 @@ body{background:transparent}
     return f ? f.name : "Removed category";
   }
 
+  let txAll = false;
   function renderTx(c) {
     $("#monthSum").innerHTML = state ? `<span class="muted">Received <b class="${c.inTotal > 0 ? "good-txt" : ""}" style="color:var(--ink)">${money(c.inTotal)}</b></span><span class="muted">Spent <b style="color:var(--ink)">${money(c.spentTotal)}</b></span>${c.savedMonth ? `<span class="muted">Saved <b class="good-txt">${money(c.savedMonth)}</b></span>` : ""}` : "";
     const items = [...c.items].sort((a, b) => b.date.localeCompare(a.date) || (b.created || 0) - (a.created || 0));
-    if (!items.length) { $("#txList").innerHTML = `<li style="display:block;border:0"><p class="empty">Nothing logged this month yet. Add your first transaction above.</p></li>`; return; }
-    $("#txList").innerHTML = items.map(it => {
+    if (!items.length) { $("#txList").innerHTML = `<li style="display:block;border:0"><p class="empty">Nothing this month yet. Payments appear here when you refresh from Monzo or add one.</p></li>`; return; }
+    $("#txMore").hidden = items.length <= 5;
+    $("#txMore").textContent = txAll ? "Show fewer" : `Show all ${items.length}`;
+    $("#txList").innerHTML = (txAll ? items : items.slice(0, 5)).map(it => {
       const cat = catLabel(it, c), title = it.note || cat;
       const inflow = it.type === "income";
       return `<li>
@@ -1629,13 +1652,19 @@ body{background:transparent}
   function setView(v) {
     view = v;
     $("#monthView").hidden = v !== "month";
+    $("#moneyView").hidden = v !== "money";
     $("#yearView").hidden = v !== "year";
     $("#tabMonth").setAttribute("aria-selected", v === "month");
+    $("#tabMoney").setAttribute("aria-selected", v === "money");
     $("#tabYear").setAttribute("aria-selected", v === "year");
     render();
   }
   $("#tabMonth").onclick = () => setView("month");
   $("#tabYear").onclick = () => setView("year");
+  $("#tabMoney").onclick = () => setView("money");
+  $("#openAdd").onclick = () => { if (!$("#fDate").value) $("#fDate").value = today(); $("#addDlg").showModal(); setTimeout(() => $("#fAmt").focus(), 30); };
+  $("#addCancel").onclick = () => $("#addDlg").close();
+  $("#txMore").onclick = () => { txAll = !txAll; render(); };
 
 
   /* ---------- income UI ---------- */
@@ -1690,8 +1719,7 @@ body{background:transparent}
     if (box.dataset.key === p.key && box.innerHTML) return;
     box.dataset.key = p.key;
     const expect = s.varies ? `Usually ${money(usualAmt(s))}, at least ${money(lowAmt(s))}.` : `Expected ${money(s.amount || 0)}.`;
-    box.innerHTML = `<div class="panel checkin">
-      <p class="lead">${p.date === today() ? "Payday check" : "Missed payday check"}</p>
+    box.innerHTML = `<details class="panel checkin todo"><summary><span class="todo-dot" aria-hidden="true"></span><span class="todo-txt">${p.date === today() ? "Payday check" : "Missed payday check"}<small>${esc(s.name)}, due ${p.date === today() ? "today" : niceDate(p.date)}</small></span></summary>
       <h2>Did your ${esc(s.name)} ${s.type === "work" ? "pay" : "money"} arrive?</h2>
       <p class="muted">Due ${p.date === today() ? "today" : niceDate(p.date)}. ${expect} Confirm the amount that actually landed so your balance stays real.</p>
       <form class="ci-row" id="ciForm">
@@ -1701,7 +1729,7 @@ body{background:transparent}
         <button class="btn ghost" type="button" id="ciSkip">It's not coming</button>
       </form>
       ${pend.length > 1 ? `<p class="hint muted" style="margin:10px 0 0">${pend.length - 1} more to check after this.</p>` : ""}
-    </div>`;
+    </details>`;
     $("#ciForm").onsubmit = e => {
       e.preventDefault();
       const raw = $("#ciAmt").value.trim(), a = num(raw || String(usualAmt(s)));
@@ -1850,7 +1878,7 @@ body{background:transparent}
     const date = $("#fDate").value || today();
     const tx = {id: uid6(), type: kind, amount: r2(a), cat: $("#fCat").value, note: $("#fNote").value.trim().slice(0, 80), date, created: Date.now()};
     writeMonth(date.slice(0, 7), items => { items.push(tx); return items; });
-    $("#fAmt").value = ""; $("#fNote").value = ""; $("#fAmt").focus();
+    $("#fAmt").value = ""; $("#fNote").value = ""; $("#addDlg").close();
     if (kind === "income") {
       toast(`${money(a)} received. Your balance just went up`, true);
       const src = incomes().find(x => x.id === tx.cat);
