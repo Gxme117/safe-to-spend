@@ -282,6 +282,8 @@ body{background:transparent}
 .pots .pmeta{font-size:.75rem;color:var(--muted)}
 .pots .pamt{font-weight:700;white-space:nowrap}
 .pots li.total .pname{font-weight:700}
+.pots li.grand{padding-top:0}
+.pots li.grand .pamt{font-size:1.2rem}
 .pots li.note{display:block;border:1px dashed var(--line);margin-top:var(--s2);padding:var(--s3) var(--s3)}
 .pot-when{font-size:.75rem;margin:2px 0 var(--s2)}
 .pot-group{font-size:.75rem;color:var(--muted);margin:var(--s4) 0 0}
@@ -873,7 +875,11 @@ html.framed dialog{max-width:416px}
     };
     const goalText = x => x.goal ? `${Math.min(100, Math.round(x.balance / x.goal * 100))}% of ${money(x.goal)}` : "";
     const spendTotal = (b.main || 0) + sum(spend);
-    let html = `<ul class="pots">
+    const c0 = calc();
+    const grand = r2((c0.balance != null ? c0.balance : spendTotal) + sum(aside));
+    let html = `<ul class="pots"><li class="total grand"><div><span class="pname">Total balance</span><span class="pmeta">Everything in Monzo, including savings</span></div><span class="pamt num">${money(grand)}</span></li></ul>
+    <p class="pot-group">Spending money</p>
+    <ul class="pots">
       ${row("Main account", b.main || 0, (b.main || 0) < 1 ? "Empty. Card payments come from here" : "")}
       ${spend.map(x => row(potName(x), x.balance, forText(x))).join("")}
       ${row("Spending money", spendTotal, "Main account plus the pots above", "total")}
@@ -1335,9 +1341,7 @@ html.framed dialog{max-width:416px}
   function render() {
     const c = calc();
     $("#monthTitle").textContent = monthName(c.cur);
-    // total = spending money (kept current with anything logged since the last sync) + every set-aside pot
-    const aside = bank() ? bank().pots.filter(p => p.role !== "spend").reduce((s, p) => s + (p.balance || 0), 0) : 0;
-    $("#balanceLine").textContent = c.balance == null ? "" : `Total balance ${money(r2(c.balance + aside))}`;
+    $("#balanceLine").hidden = true;
     renderPots(); renderBills(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
