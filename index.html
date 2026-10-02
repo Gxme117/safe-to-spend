@@ -71,7 +71,14 @@ details.todo>summary::after{content:"";width:8px;height:8px;border-right:2px sol
 details.todo[open]>summary::after{transform:rotate(-135deg);margin-bottom:calc(-1 * var(--s1))}
 details.todo[open]{padding-bottom:var(--s5)}
 details.todo>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
-.todo-dot{width:10px;height:10px;border-radius:50%;background:var(--good);flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--good) 30%,transparent)}
+.todo-dot{width:10px;height:10px;border-radius:50%;background:var(--good);flex:none;--glow:color-mix(in srgb,var(--good) 70%,transparent);box-shadow:0 0 6px 2px var(--glow);animation:todoPulse 1.6s ease-out infinite}
+@keyframes todoPulse{
+  0%{box-shadow:0 0 0 0 var(--glow),0 0 6px 2px var(--glow);opacity:1}
+  45%{opacity:.45}
+  70%{box-shadow:0 0 0 9px transparent,0 0 10px 3px var(--glow);opacity:1}
+  100%{box-shadow:0 0 0 0 transparent,0 0 6px 2px var(--glow);opacity:1}
+}
+@media (prefers-reduced-motion:reduce){.todo-dot{animation:none}}
 .todo-txt{display:grid;font-weight:700}
 .todo-txt small{font-weight:400;font-size:.75rem;color:var(--muted)}
 #txMore{margin-top:var(--s3)}
