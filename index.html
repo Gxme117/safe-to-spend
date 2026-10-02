@@ -82,6 +82,16 @@ details.todo>summary:focus-visible{outline:2px solid var(--focus);outline-offset
 details.todo[open]>summary{padding-bottom:var(--s3)}
 details.todo[open] .todo-txt small{display:none}
 details.todo h2{margin:0 0 var(--s2)}
+/* payment to sort, open: one question, one likely answer, quiet alternatives */
+.ask-body h2{font-size:1.2rem;margin:0}
+.ask-when{margin:var(--s1) 0 0;font-size:.93rem;color:var(--muted)}
+.ask .chip.suggest{display:flex;width:100%;box-sizing:border-box;justify-content:center;margin-top:var(--s5);padding:var(--s3) var(--s4);font-size:1rem;background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-color:transparent}
+.ask-group{margin-top:var(--s5)}
+.ask-label{margin:0 0 var(--s2);font-size:.75rem;font-weight:600;color:var(--muted)}
+.ask .ask-group .chips{margin:0}
+.ask .ask-group .chip{background:transparent;font-weight:500}
+.ask-note-btn{margin-top:var(--s5)}
+.ask #askNoteWrap{margin:var(--s5) 0 0}
 details.todo h2+p{margin:0 0 var(--s4)}
 details.todo .field{margin:0 0 var(--s4)}
 .todo-txt small{font-weight:400;font-size:.75rem;color:var(--muted)}
@@ -95,7 +105,7 @@ h2{font-family:var(--display);font-weight:600;font-size:1.2rem;margin:0 0 var(--
 .hero .lead{margin:0 0 var(--s2);color:var(--muted)}
 .big{font-family:var(--display);font-weight:600;font-size:clamp(3rem,7cqw,5.2rem);line-height:.95;letter-spacing:-.04em;margin:0}
 .big .int,.big .pence{display:block;line-height:1}
-.big:has(.int){display:flex;align-items:flex-start;line-height:1;margin-top:var(--s3);font-weight:800;letter-spacing:-.03em;font-size:clamp(3rem,22.5cqi,4.875rem);white-space:nowrap}
+.big:has(.int){display:flex;align-items:flex-start;line-height:1;margin-top:var(--s3);font-weight:800;letter-spacing:-.03em;font-size:clamp(3rem,18.75cqi,4.875rem);white-space:nowrap}
 /* pence: half the height of the pounds, tops lined up on the cap height */
 .big .pence{font-size:.5em;letter-spacing:-.02em;margin-left:.06em;margin-top:.16em}
 @supports (text-box: trim-both cap alphabetic){
@@ -430,6 +440,16 @@ body{background:transparent}
 #hero.hero{container-type:inline-size;background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-color:transparent}
 #hero .lead{color:inherit;opacity:.85;font-weight:700}
 #hero .sub{color:inherit;opacity:.85;font-size:.93rem;line-height:1.4}
+/* first card flips: today's amount on the front, days to payday on the back */
+#hero.hero.flippable{padding:0;background:none;border:0;box-shadow:none;perspective:1200px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#hero.flippable:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:14px}
+#hero .flip{display:grid;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.2,.75,.2,1)}
+#hero.flipped .flip{transform:rotateY(180deg)}
+#hero .face{grid-area:1/1;position:relative;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-radius:14px;padding:var(--s6)}
+#hero .back{transform:rotateY(180deg)}
+#hero .flip-ic{position:absolute;top:var(--s4);right:var(--s4);opacity:.45}
+:root[data-accent="glow"] #hero .face{background:var(--shine-bg) padding-box,var(--prism) border-box;border:1.5px solid transparent;box-shadow:var(--glow-box)}
+@media (prefers-reduced-motion:reduce){#hero .flip{transition:none}}
 /* spacing that leads the eye: label sits tight on the number, the number gets room to breathe, the note trails off */
 #hero.hero{padding:var(--s6)}
 #hero .lead{margin:0;line-height:1.2;font-size:.93rem;opacity:.7}
@@ -1060,12 +1080,24 @@ html.framed dialog{max-width:416px}
   $("#refreshBank").onclick = refreshBank;
   $("#syncBtn").onclick = refreshBank;
 
+  let heroFlipped = false;
   function fitBig() {
-    const el = $("#hero .big"); if (!el) return;
-    el.style.fontSize = "";
-    let px = parseFloat(getComputedStyle(el).fontSize);
-    while (el.scrollWidth > el.clientWidth + 1 && px > 40) { px -= 2; el.style.fontSize = px + "px"; }
+    document.querySelectorAll("#hero .big").forEach(el => {
+      el.style.fontSize = "";
+      let px = parseFloat(getComputedStyle(el).fontSize);
+      while (el.scrollWidth > el.clientWidth + 1 && px > 40) { px -= 2; el.style.fontSize = px + "px"; }
+    });
   }
+  function flipHero() {
+    const h = $("#hero"); if (!h.classList.contains("flippable")) return;
+    heroFlipped = !heroFlipped;
+    h.classList.toggle("flipped", heroFlipped);
+    h.querySelector(".front").setAttribute("aria-hidden", heroFlipped);
+    h.querySelector(".back").setAttribute("aria-hidden", !heroFlipped);
+    h.setAttribute("aria-label", heroFlipped ? "Days until payday. Tap to show today's amount." : "Safe to spend today. Tap to show days until payday.");
+  }
+  $("#hero").addEventListener("click", e => { if (!e.target.closest("button, a, input, form")) flipHero(); });
+  $("#hero").addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target === $("#hero")) { e.preventDefault(); flipHero(); } });
   addEventListener("resize", () => fitBig());
 
   /* ---------- bills ---------- */
@@ -1172,15 +1204,23 @@ html.framed dialog{max-width:416px}
     const it = list[0];
     if (box.dataset.key === it.id + list.length && box.innerHTML) return;
     box.dataset.key = it.id + list.length;
-    const billChips = bills().map(b => `<button type="button" class="chip" data-ask-bill="${esc(b.id)}">${esc(b.name)}<small>${money(b.amount || 0)}</small></button>`).join("");
+    // figure: the most likely answer (a bill for the same amount) is offered first, on its own
+    const guess = bills().find(b => Math.abs((b.amount || 0) - it.amount) < 0.5);
+    const billChips = bills().filter(b => b !== guess).map(b => `<button type="button" class="chip" data-ask-bill="${esc(b.id)}">${esc(b.name)}</button>`).join("");
     const catChips = c.cats.filter(x => !x.fixed || !bills().some(b => b.cat === x.id)).map(x => `<button type="button" class="chip" data-ask-cat="${esc(x.id)}">${esc(x.name)}</button>`).join("");
     box.innerHTML = `<details class="panel checkin ask todo"><summary><span class="todo-dot" aria-hidden="true"></span><span class="todo-txt">${list.length > 1 ? `${list.length} payments to sort` : "1 payment to sort"}<small>${money(it.amount)} to ${esc(it.note || "unknown")}</small></span></summary>
-      <h2>What was ${money(it.amount)} to ${esc(it.note || "this payment")}?</h2>
-      <p class="muted">Paid ${niceDate(it.date)}. Tell the tracker what it was so your budgets and bills stay right.</p>
-      <label class="field"><span>What was it for? (optional)</span><input id="askNote" placeholder="e.g. Shoes, haircut, deposit"></label>
-      ${billChips ? `<p class="pot-group">A bill</p><div class="chips">${billChips}</div>` : ""}
-      <p class="pot-group">Spending</p><div class="chips">${catChips}</div>
+      <div class="ask-body">
+        <h2>What was ${money(it.amount)} to ${esc(it.note || "this payment")}?</h2>
+        <p class="ask-when">${niceDate(it.date)}</p>
+        ${guess ? `<button type="button" class="chip suggest" data-ask-bill="${esc(guess.id)}">It's ${esc(guess.name)}</button>` : ""}
+        ${billChips ? `<div class="ask-group"><p class="ask-label">${guess ? "Another bill" : "Bills"}</p><div class="chips">${billChips}</div></div>` : ""}
+        <div class="ask-group"><p class="ask-label">Spending</p><div class="chips">${catChips}</div></div>
+        <button type="button" class="link-btn ask-note-btn" data-note-toggle>Add a note</button>
+        <label class="field" id="askNoteWrap" hidden><span>Note</span><input id="askNote" placeholder="e.g. Shoes, haircut, deposit"></label>
+      </div>
     </details>`;
+    const nt = box.querySelector("[data-note-toggle]");
+    if (nt) nt.onclick = () => { nt.hidden = true; $("#askNoteWrap").hidden = false; $("#askNote").focus(); };
     box.querySelectorAll("[data-ask-bill],[data-ask-cat]").forEach(btn => btn.onclick = () => {
       const note = ($("#askNote").value || "").trim().slice(0, 60);
       const patch = {needsCat: false};
@@ -1404,6 +1444,7 @@ html.framed dialog{max-width:416px}
     const h = $("#hero");
     if (!loaded) return;
     $("#cycleCard").hidden = $("#comingCard").hidden = true;
+    h.classList.remove("flippable", "flipped"); h.removeAttribute("role"); h.removeAttribute("tabindex"); h.removeAttribute("aria-label");
     if (!state) {
       h.innerHTML = `
         <h2>Set up your tracker</h2>
@@ -1497,10 +1538,25 @@ html.framed dialog{max-width:416px}
       : spentToday <= allowance
         ? `You've spent ${money(spentToday)} so far, so ${money(r2(allowance - spentToday))} is left for today.`
         : `You've spent ${money(spentToday)}, ${money(r2(spentToday - allowance))} over. Tomorrow's amount will be a bit lower.`;
-    h.innerHTML = `
-      <p class="lead">Safe to spend today</p>
-      <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
-      <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills before payday are ${money(-free)} more than you have.` : todayLine}</p>`;
+    const FLIP = '<svg class="flip-ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg>';
+    h.classList.add("flippable");
+    h.setAttribute("role", "button"); h.setAttribute("tabindex", "0");
+    h.setAttribute("aria-label", heroFlipped ? "Days until payday. Tap to show today's amount." : "Safe to spend today. Tap to show days until payday.");
+    h.classList.toggle("flipped", heroFlipped);
+    h.innerHTML = `<div class="flip">
+      <div class="face front" aria-hidden="${heroFlipped}">
+        ${FLIP}
+        <p class="lead">Safe to spend today</p>
+        <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
+        <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills before payday are ${money(-free)} more than you have.` : todayLine}</p>
+      </div>
+      <div class="face back" aria-hidden="${!heroFlipped}">
+        ${FLIP}
+        <p class="lead">Until payday</p>
+        <p class="big num pos" aria-label="${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"}"><span class="int">${c.daysLeft}</span><span class="pence">&nbsp;${c.daysLeft === 1 ? "day" : "days"}</span></p>
+        <p class="sub" style="margin-bottom:0">${mainSrc ? esc(mainSrc.name) + " pays" : "Payday is"} ${niceDate(c.payday)}. Day ${dayNo} of ${total} in this pay cycle.</p>
+      </div>
+    </div>`;
 
     fitBig();
 
