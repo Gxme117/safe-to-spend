@@ -452,7 +452,8 @@ body{background:transparent}
 #hero .back .lead{margin-bottom:0}
 #hero .why-line b{font-weight:800}
 /* chocolate bar: 1 whole bar, 2 bills snap off, 3 the rest cracks into one piece per day, 4 today's piece pops */
-#hero .choc{--sil:var(--btn-ink,#000);--line:3px;margin-top:var(--s4)}
+#hero .choc{--sil:var(--btn-ink,#000);--line:3px;margin:0}
+#hero .back{display:flex;flex-direction:column;justify-content:center}
 /* the bar looks like a chocolate-bar icon: a black frame, squares split by thin lines, each square with a raised inner edge */
 #hero .choc-bar{display:flex;height:72px;position:relative;overflow:visible;transition:opacity .45s ease,transform .45s ease}
 #hero .choc-chunk{flex-basis:0;position:relative;z-index:1;margin-right:-10px}
@@ -1671,7 +1672,6 @@ html.framed dialog{max-width:416px}
       <div class="face back${heroFlipped && chocStep !== 0 ? " asked" : ""}${!heroFlipped || chocStep === 0 || chocStep === "a" ? " intro" : ""}" aria-hidden="${!heroFlipped}">
         ${FLIP}
         <div class="why-intro" aria-hidden="true"><span class="l1">How ${perDay < 0 ? "this" : money(pd)} is worked out</span><span class="l2">Think of it like a chocolate bar 🍫</span></div>
-        <p class="lead why-lead">Think of it like a chocolate bar 🍫</p>
         ${(() => {
           const n = free > 0 ? Math.min(c.daysLeft, 62) : 0;
           const rows = n === 0 ? 2 : n <= 10 ? 1 : n <= 20 ? 2 : 3, cols = Math.max(1, Math.ceil(n / rows));
