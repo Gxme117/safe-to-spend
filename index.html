@@ -1083,6 +1083,33 @@ html.framed dialog{max-width:416px}
   $("#syncBtn").onclick = refreshBank;
 
   let heroFlipped = false;
+  // count up to the daily number when it first appears, and from the old figure to the new one when it changes
+  let heroShown = null, heroAnim = 0, heroCounting = null;
+  function countHero(target) {
+    const el = $("#hero .front .big"); if (!el) return;
+    const from = heroShown == null ? 0 : heroShown;
+    heroShown = target;
+    if (from === target || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const show = v => {
+      // look the elements up each frame: a re-render can replace them mid-count
+      const int = $("#hero .front .int"), pen = $("#hero .front .pence"); if (!int || !pen) return;
+      const a = Math.abs(v), w = Math.floor(a + 1e-9), p = Math.round((a - w) * 100) % 100;
+      int.textContent = `${v < 0 ? "−" : ""}£${w.toLocaleString("en-GB")}`;
+      pen.textContent = `.${pad(p)}`;
+    };
+    const id = ++heroAnim, t0 = performance.now(), dur = 900;
+    let last = from;
+    heroCounting = () => show(last);
+    const ease = t => 1 - Math.pow(1 - t, 3);
+    const step = now => {
+      if (id !== heroAnim) return;
+      const t = Math.min(1, (now - t0) / dur);
+      last = from + (target - from) * ease(t);
+      show(last);
+      if (t < 1) requestAnimationFrame(step); else { heroCounting = null; show(target); }
+    };
+    show(from); requestAnimationFrame(step);
+  }
   function fitBig() {
     document.querySelectorAll("#hero .big").forEach(el => {
       el.style.fontSize = "";
@@ -1561,6 +1588,8 @@ html.framed dialog{max-width:416px}
     </div>`;
 
     fitBig();
+    countHero(perDay < 0 ? -pd : pd);
+    if (heroCounting) heroCounting();
 
     // MONTH: payday to payday
     const cyc = $("#cycleCard");
