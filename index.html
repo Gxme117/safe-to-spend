@@ -449,13 +449,14 @@ body{background:transparent}
 #hero .back{transform:rotateY(180deg);background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
 #hero .back .big.pos{color:var(--good)}
 /* back: the sum, drawn. spending money → bills | free → free shared into one slice per day */
-#hero .back .lead{margin-bottom:var(--s4)}
+#hero .back .lead{margin-bottom:var(--s5)}
+#hero .why-line{margin:var(--s4) 0 0;font-size:.93rem;line-height:1.4;opacity:.85;text-wrap:pretty}
 #hero .why-row{display:flex;justify-content:space-between;align-items:baseline;font-size:.93rem;margin-bottom:var(--s2)}
 #hero .back .runway{height:14px}
 #hero .back .legend{font-size:.75rem;gap:var(--s1) var(--s4);margin-top:var(--s2)}
 #hero .zoom{display:block;width:100%;height:16px;margin-top:var(--s2)}
 #hero .zoom polygon{fill:var(--good-fill);opacity:.28}
-#hero .slices{display:flex;gap:2px;height:18px}
+#hero .slices{display:flex;gap:3px;height:40px}
 #hero .slices i{flex:1;border-radius:3px;background:var(--good-fill)}
 #hero .slices i.today{background:var(--ink)}
 #hero .slice-cap{display:flex;justify-content:space-between;gap:var(--s3);font-size:.75rem;margin-top:var(--s2)}
@@ -1606,20 +1607,10 @@ html.framed dialog{max-width:416px}
       <div class="face back" aria-hidden="${!heroFlipped}">
         ${FLIP}
         <p class="lead">How ${perDay < 0 ? "this" : money(pd)} is worked out</p>
-        <div class="why-row"><span>Spending money</span><b class="num">${money(c.balance)}</b></div>
-        <div class="runway" role="img" aria-label="${money(c.balance)} split into ${money(billsW)} for bills and ${money(freeW)} free">
-          ${billsW ? `<i class="bills" style="flex:${billsW}"></i>` : ""}${freeW ? `<i class="free" style="flex:${freeW}"></i>` : ""}
-        </div>
-        <div class="legend num">
-          <span><i class="dot bills"></i>Bills before payday ${money(c.billsLeft)}</span>
-          <span><i class="dot free"></i>Free ${money(Math.max(free, 0))}</span>
-        </div>
         ${free > 0 ? `
-        <svg class="zoom" viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true"><polygon points="${(billsW / Math.max(billsW + freeW, 1) * 100).toFixed(2)},0 100,0 100,16 0,16"/></svg>
-        <div class="slices" role="img" aria-label="${money(free)} shared across ${c.daysLeft} days, ${money(pd)} each">${Array.from({length: Math.min(c.daysLeft, 62)}, (_, i) => `<i${i === 0 ? ' class="today"' : ""}></i>`).join("")}</div>
-        <div class="slice-cap"><span><b>÷ ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"}</b> = ${money(pd)} each</span><span>Payday ${niceDate(c.payday)}</span></div>` : `
-        <p class="sub" style="margin:var(--s4) 0 0">Bills before payday are ${money(-free)} more than you have, so there's nothing free to share out yet.</p>`}
-        ${nextUp ? `<p class="why-next"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span><b>Next:</b> ${esc(nextUp.name)} ${nextUp.amt}, ${niceDate(nextUp.d)}</span></p>` : ""}
+        <div class="slices" role="img" aria-label="${money(free)} shared across ${c.daysLeft} days, ${money(pd)} each">${Array.from({length: Math.min(c.daysLeft, 62)}, (_, k) => `<i${k === 0 ? ' class="today"' : ""}></i>`).join("")}</div>
+        <p class="why-line">${money(free)} left after bills, shared across ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"} to payday. Today is the first.</p>` : `
+        <p class="why-line">Your bills before payday are ${money(-free)} more than you have, so there's nothing left to share out yet.</p>`}
       </div>
     </div>`;
 
