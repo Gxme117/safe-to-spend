@@ -451,6 +451,27 @@ body{background:transparent}
 /* back: the sum, drawn. spending money → bills | free → free shared into one slice per day */
 #hero .back .lead{margin-bottom:0}
 #hero .why-line b{font-weight:800}
+/* chocolate bar: 1 whole bar, 2 bills snap off, 3 the rest cracks into one piece per day, 4 today's piece pops */
+#hero .choc{--choc:#7A4A2E;--choc-hi:#9A6240;--choc-lo:#5C341F;margin-top:var(--s4)}
+#hero .choc-bar{display:flex;height:64px;border-radius:6px;position:relative}
+#hero .choc-chunk{flex-basis:0;display:grid;position:relative;transition:transform .55s cubic-bezier(.3,.7,.3,1),opacity .45s ease .1s,flex-grow .5s ease .35s;transform-origin:20% 80%}
+#hero .choc-chunk i{background:linear-gradient(var(--choc-hi),var(--choc-lo));box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+#hero .choc-chunk i:first-child{border-top-left-radius:6px}
+#hero .choc-chunk span{position:absolute;inset:0;display:grid;place-items:center;color:#F5E6D8;font-size:.75rem;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+#hero .choc-rest{flex-basis:0;display:grid;gap:0;transition:flex-grow .5s ease .35s,gap .35s ease}
+#hero .choc-rest i{background:linear-gradient(var(--choc-hi),var(--choc-lo));box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);transition:border-radius .35s,transform .35s cubic-bezier(.3,1.6,.5,1),box-shadow .35s,background .35s}
+#hero .choc-bar{overflow:visible}
+#hero .choc-chunk{border-radius:6px 0 0 6px;overflow:hidden}
+#hero .choc-rest{border-radius:0 6px 6px 0;overflow:visible}
+#hero .choc.s2 .choc-chunk,#hero .choc.s3 .choc-chunk,#hero .choc.s4 .choc-chunk{transform:translate(-14%,40px) rotate(-16deg);opacity:0;flex-grow:0 !important}
+#hero .choc.s3 .choc-rest,#hero .choc.s4 .choc-rest{gap:3px}
+#hero .choc.s3 .choc-rest i,#hero .choc.s4 .choc-rest i{border-radius:3px}
+#hero .choc.s4 .choc-rest i.today{transform:translateY(-6px) scale(1.12);box-shadow:0 0 0 2px var(--good),0 6px 10px rgba(0,0,0,.25);background:linear-gradient(#B5774E,#7A4A2E)}
+#hero .choc-cap{position:relative;height:1.4em;margin:var(--s3) 0 0;font-size:.93rem}
+#hero .choc-cap span{position:absolute;inset:0;opacity:0;transform:translateY(4px);transition:opacity .3s,transform .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hero .choc-cap b{font-weight:800}
+#hero .choc.s1 .c1,#hero .choc.s2 .c2,#hero .choc.s3 .c3,#hero .choc.s4 .c4{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){#hero .choc *{transition:none !important}}
 #hero .why-line{margin:var(--s3) 0 0;font-size:.93rem;line-height:1.4;opacity:.85;text-wrap:pretty}
 #hero .why-row{display:flex;justify-content:space-between;align-items:baseline;font-size:.93rem;margin-bottom:var(--s2)}
 #hero .back .runway{height:14px}
@@ -1142,6 +1163,15 @@ html.framed dialog{max-width:416px}
       while (back.scrollHeight > back.clientHeight + 1 && px > 12) { px -= .5; line.style.fontSize = px + "px"; } }
   }
   addEventListener("resize", () => sizeFlip());
+  let chocTimers = [];
+  function playChoc() {
+    const ch = $("#hero .choc"); if (!ch) return;
+    chocTimers.forEach(clearTimeout); chocTimers = [];
+    const set = k => { ch.classList.remove("s1", "s2", "s3", "s4"); ch.classList.add("s" + k); };
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return set(4);
+    set(1);
+    [[2, 1300], [3, 2600], [4, 3700]].forEach(([k, t]) => chocTimers.push(setTimeout(() => set(k), t)));
+  }
   function flipHero() {
     const h = $("#hero"); if (!h.classList.contains("flippable")) return;
     heroFlipped = !heroFlipped;
@@ -1149,6 +1179,7 @@ html.framed dialog{max-width:416px}
     h.querySelector(".front").setAttribute("aria-hidden", heroFlipped);
     h.querySelector(".back").setAttribute("aria-hidden", !heroFlipped);
     sizeFlip();
+    if (heroFlipped) setTimeout(playChoc, 250);
     h.setAttribute("aria-label", heroFlipped ? "Days until payday. Tap to show today's amount." : "Safe to spend today. Tap to show days until payday.");
   }
   $("#hero").addEventListener("click", e => { if (!e.target.closest("button, a, input, form")) flipHero(); });
@@ -1611,9 +1642,23 @@ html.framed dialog{max-width:416px}
       <div class="face back" aria-hidden="${!heroFlipped}">
         ${FLIP}
         <p class="lead">Think of it like a chocolate bar 🍫</p>
-        <p class="why-line">${free > 0
-          ? `Your money is one big bar: <b>${money(c.balance)}</b>. Bills snap off their pieces first: <b>${money(c.billsLeft)}</b>. What's left, <b>${money(free)}</b>, is broken into ${c.daysLeft} equal ${c.daysLeft === 1 ? "piece" : "pieces"}, one for each day until payday. Today's piece is <b>${money(pd)}</b>.`
-          : `Your money is one bar: <b>${money(c.balance)}</b>. But bills want <b>${money(c.billsLeft)}</b>, which is <b>${money(-free)}</b> more chocolate than you have. So there are no pieces left to share out until payday.`}</p>
+        ${(() => {
+          const n = free > 0 ? Math.min(c.daysLeft, 62) : 0;
+          const rows = n === 0 ? 2 : n <= 16 ? 1 : n <= 40 ? 2 : 3, cols = Math.max(1, Math.ceil(n / rows));
+          // the bills bit is made of the same-sized squares, roughly in proportion (kept between a quarter and three quarters of the bar)
+          const tot = Math.max(billsW + freeW, 1), bf = free > 0 ? Math.min(.75, Math.max(.25, billsW / tot)) : 1;
+          const bCols = n ? Math.max(1, Math.round(cols * bf / (1 - bf))) : 12;
+          const caps = free > 0
+            ? [`Your money is one bar: <b>${money(c.balance)}</b>`, `Bills snap off their bit first: <b>${money(c.billsLeft)}</b>`, `<b>${money(free)}</b> left, broken into ${n} ${n === 1 ? "piece" : "pieces"}`, `One piece a day. Today's is <b>${money(pd)}</b>`]
+            : [`Your money is one bar: <b>${money(c.balance)}</b>`, `Bills want <b>${money(c.billsLeft)}</b>`, `That's <b>${money(-free)}</b> more than the whole bar`, `No pieces left to share until payday`];
+          return `<div class="choc ${heroFlipped ? "s4" : "s1"}" role="img" aria-label="${caps.map(x => x.replace(/<[^>]+>/g, "")).join(". ")}.">
+            <div class="choc-bar">
+              <div class="choc-chunk" style="flex-grow:${bCols};grid-template-columns:repeat(${bCols},1fr);grid-template-rows:repeat(${rows},1fr)">${Array.from({length: bCols * rows}, () => "<i></i>").join("")}<span>Bills</span></div>
+              ${n ? `<div class="choc-rest" style="flex-grow:${cols};grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">${Array.from({length: n}, (_, k) => `<i${k === 0 ? ' class="today"' : ""}></i>`).join("")}</div>` : ""}
+            </div>
+            <p class="choc-cap" aria-hidden="true">${caps.map((x, k) => `<span class="c${k + 1}">${x}</span>`).join("")}</p>
+          </div>`;
+        })()}
       </div>
     </div>`;
 
