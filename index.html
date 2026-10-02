@@ -445,12 +445,13 @@ body{background:transparent}
 #hero.flippable:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:14px}
 #hero .flip{display:grid;align-items:start;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.2,.75,.2,1),height .35s ease}
 #hero.flipped .flip{transform:rotateY(180deg)}
-#hero .face{grid-area:1/1;position:relative;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-radius:14px;padding:var(--s6)}
+#hero .face{grid-area:1/1;position:relative;height:100%;box-sizing:border-box;overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-radius:14px;padding:var(--s6)}
 #hero .back{transform:rotateY(180deg);background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
 #hero .back .big.pos{color:var(--good)}
 /* back: the sum, drawn. spending money → bills | free → free shared into one slice per day */
 #hero .back .lead{margin-bottom:0}
-#hero .why-line{margin:var(--s4) 0 0;font-size:.93rem;line-height:1.4;opacity:.85;text-wrap:pretty}
+#hero .why-line b{font-weight:800}
+#hero .why-line{margin:var(--s3) 0 0;font-size:.93rem;line-height:1.4;opacity:.85;text-wrap:pretty}
 #hero .why-row{display:flex;justify-content:space-between;align-items:baseline;font-size:.93rem;margin-bottom:var(--s2)}
 #hero .back .runway{height:14px}
 #hero .back .legend{font-size:.75rem;gap:var(--s1) var(--s4);margin-top:var(--s2)}
@@ -1134,8 +1135,11 @@ html.framed dialog{max-width:416px}
   // the card takes the height of whichever side is showing
   function sizeFlip() {
     const f = $("#hero .flip"); if (!f) return;
-    const face = f.querySelector(heroFlipped ? ".back" : ".front");
-    f.style.height = face.offsetHeight + "px";
+    f.style.height = f.querySelector(".front").offsetHeight + "px";
+    // if the explanation would spill over, ease the text down a touch rather than grow the card
+    const back = f.querySelector(".back"), line = back && back.querySelector(".why-line");
+    if (line) { line.style.fontSize = ""; let px = parseFloat(getComputedStyle(line).fontSize);
+      while (back.scrollHeight > back.clientHeight + 1 && px > 12) { px -= .5; line.style.fontSize = px + "px"; } }
   }
   addEventListener("resize", () => sizeFlip());
   function flipHero() {
@@ -1606,10 +1610,10 @@ html.framed dialog{max-width:416px}
       </div>
       <div class="face back" aria-hidden="${!heroFlipped}">
         ${FLIP}
-        <p class="lead">How ${perDay < 0 ? "this" : money(pd)} is worked out</p>
-        ${free > 0 ? `
-        <p class="why-line">${money(free)} left after bills, shared across ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"} to payday. Today is the first.</p>` : `
-        <p class="why-line">Your bills before payday are ${money(-free)} more than you have, so there's nothing left to share out yet.</p>`}
+        <p class="lead">Think of it like a chocolate bar 🍫</p>
+        <p class="why-line">${free > 0
+          ? `Your money is one big bar: <b>${money(c.balance)}</b>. Bills snap off their pieces first: <b>${money(c.billsLeft)}</b>. What's left, <b>${money(free)}</b>, is broken into ${c.daysLeft} equal ${c.daysLeft === 1 ? "piece" : "pieces"}, one for each day until payday. Today's piece is <b>${money(pd)}</b>.`
+          : `Your money is one bar: <b>${money(c.balance)}</b>. But bills want <b>${money(c.billsLeft)}</b>, which is <b>${money(-free)}</b> more chocolate than you have. So there are no pieces left to share out until payday.`}</p>
       </div>
     </div>`;
 
