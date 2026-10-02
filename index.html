@@ -78,7 +78,12 @@ details.todo>summary:focus-visible{outline:2px solid var(--focus);outline-offset
   100%{box-shadow:0 0 0 0 transparent,0 0 6px 2px var(--glow)}
 }
 @media (prefers-reduced-motion:reduce){.todo-dot{animation:none}}
-.todo-txt{display:grid;font-weight:700}
+.todo-txt{display:grid;gap:var(--s1);font-weight:700;line-height:1.2}
+details.todo[open]>summary{padding-bottom:var(--s3)}
+details.todo[open] .todo-txt small{display:none}
+details.todo h2{margin:0 0 var(--s2)}
+details.todo h2+p{margin:0 0 var(--s4)}
+details.todo .field{margin:0 0 var(--s4)}
 .todo-txt small{font-weight:400;font-size:.75rem;color:var(--muted)}
 #txMore{margin-top:var(--s3)}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:var(--s5)}
