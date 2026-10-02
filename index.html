@@ -467,6 +467,10 @@ body{background:transparent}
 #hero .choc.s3 .choc-rest,#hero .choc.s4 .choc-rest{gap:3px}
 #hero .choc.s3 .choc-rest i,#hero .choc.s4 .choc-rest i{border-radius:3px}
 #hero .choc.s4 .choc-rest i.today{transform:translateY(-6px) scale(1.12);box-shadow:0 0 0 2px var(--btn-ink,#000),0 6px 10px rgba(0,0,0,.25);background:linear-gradient(#B5774E,#7A4A2E)}
+#hero .choc-bar,#hero .choc-cap{transition:opacity .45s ease,transform .45s ease}
+#hero .choc.s0 .choc-bar,#hero .choc.s0 .choc-cap{opacity:0;transform:translateY(8px)}
+#hero .back .lead{transition:font-size .4s ease}
+#hero .back.intro .lead{font-size:1.2rem}
 #hero .choc-cap{position:relative;height:1.4em;margin:var(--s3) 0 0;font-size:.93rem}
 #hero .choc-cap span{position:absolute;inset:0;opacity:0;transform:translateY(4px);transition:opacity .3s,transform .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #hero .choc-cap b{font-weight:800}
@@ -1167,10 +1171,12 @@ html.framed dialog{max-width:416px}
   function playChoc() {
     const ch = $("#hero .choc"); if (!ch) return;
     chocTimers.forEach(clearTimeout); chocTimers = [];
-    const set = k => { ch.classList.remove("s1", "s2", "s3", "s4"); ch.classList.add("s" + k); };
+    const back = $("#hero .back");
+    const set = k => { ch.classList.remove("s0", "s1", "s2", "s3", "s4"); ch.classList.add("s" + k); back.classList.toggle("intro", k === 0); };
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return set(4);
-    set(1);
-    [[2, 1300], [3, 2600], [4, 3700]].forEach(([k, t]) => chocTimers.push(setTimeout(() => set(k), t)));
+    // the title has the card to itself for 3 seconds, then the bar tells the story
+    set(0);
+    [[1, 3000], [2, 4300], [3, 5600], [4, 6700]].forEach(([k, t]) => chocTimers.push(setTimeout(() => set(k), t)));
   }
   function flipHero() {
     const h = $("#hero"); if (!h.classList.contains("flippable")) return;
@@ -1651,7 +1657,7 @@ html.framed dialog{max-width:416px}
           const caps = free > 0
             ? [`Your money is a chocolate bar 🍫 <b>${money(c.balance)}</b>`, `Bills snap off their bit first: <b>${money(c.billsLeft)}</b>`, `<b>${money(free)}</b> left, broken into ${n} ${n === 1 ? "piece" : "pieces"}`, `One piece a day. Today's is <b>${money(pd)}</b>`]
             : [`Your money is a chocolate bar 🍫 <b>${money(c.balance)}</b>`, `Bills want <b>${money(c.billsLeft)}</b>`, `That's <b>${money(-free)}</b> more than the whole bar`, `No pieces left to share until payday`];
-          return `<div class="choc ${heroFlipped ? "s4" : "s1"}" role="img" aria-label="${caps.map(x => x.replace(/<[^>]+>/g, "")).join(". ")}.">
+          return `<div class="choc ${heroFlipped ? "s4" : "s0"}" role="img" aria-label="${caps.map(x => x.replace(/<[^>]+>/g, "")).join(". ")}.">
             <div class="choc-bar">
               <div class="choc-chunk" style="flex-grow:${bCols};grid-template-columns:repeat(${bCols},1fr);grid-template-rows:repeat(${rows},1fr)">${Array.from({length: bCols * rows}, () => "<i></i>").join("")}<span>Bills</span></div>
               ${n ? `<div class="choc-rest" style="flex-grow:${cols};grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">${Array.from({length: n}, (_, k) => `<i${k === 0 ? ' class="today"' : ""}></i>`).join("")}</div>` : ""}
