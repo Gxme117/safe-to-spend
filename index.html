@@ -1459,14 +1459,14 @@ html.framed dialog{max-width:416px}
     // TODAY: one number and what it means for today
     const spentToday = spentOn[c.t] || 0;
     const todayLine = !spentToday
-      ? `Spend up to this today and you'll have enough until payday on ${niceDate(c.payday)}.`
+      ? `Lasts you until payday, ${niceDate(c.payday)}.`
       : spentToday <= allowance
-        ? `You've spent ${money(spentToday)} today, so ${money(r2(allowance - spentToday))} is left for today.`
-        : `You've spent ${money(spentToday)} today, ${money(r2(spentToday - allowance))} over. The days ahead get a little less each.`;
+        ? `Spent ${money(spentToday)}. ${money(r2(allowance - spentToday))} left today.`
+        : `Spent ${money(spentToday)}, ${money(r2(spentToday - allowance))} over today.`;
     h.innerHTML = `
       <p class="lead">Safe to spend today</p>
       <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
-      <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills still to pay are ${money(-free)} more than your money. Payday is ${niceDate(c.payday)}.` : todayLine}</p>`;
+      <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Bills are ${money(-free)} more than you have.` : todayLine}</p>`;
 
     // MONTH: payday to payday
     const cyc = $("#cycleCard");
