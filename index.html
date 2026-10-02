@@ -1195,8 +1195,8 @@ html.framed dialog{max-width:416px}
   function playChoc() {
     resetChoc();
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return setChoc(4);
-    // 1) the question on its own for 2 seconds, 2) the idea on its own, 3) the bar tells the story
-    [["a", 2000], [1, 4000], [2, 5100], [3, 6200], [4, 7200]].forEach(([k, t]) => chocTimers.push(setTimeout(() => setChoc(k), t)));
+    // 1) the question on its own for 1.5 seconds, 2) the idea on its own, 3) the bar tells the story
+    [["a", 1500], [1, 3500], [2, 4600], [3, 5700], [4, 6700]].forEach(([k, t]) => chocTimers.push(setTimeout(() => setChoc(k), t)));
   }
   function flipHero() {
     const h = $("#hero"); if (!h.classList.contains("flippable")) return;
