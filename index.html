@@ -40,6 +40,9 @@
 .avatar.lg{width:64px;height:64px;font-size:1.2rem;cursor:default}
 .acct-head{display:flex;align-items:center;gap:var(--s4)}
 .acct-head h2{margin:0}
+#acctDlg .panel{border:0;padding:0;background:none;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+#acctDlg .panel-head h2{margin:0}
+#acctDlg #potsPanel,#acctDlg #incomePanel{margin-top:var(--s4)}
 .theme-btn{width:42px;padding:0;display:inline-grid;place-items:center}
 .theme-btn svg{width:20px;height:20px}
 *,*::before,*::after{box-sizing:inherit}
@@ -437,8 +440,8 @@ html.framed dialog{max-width:416px}
   <div class="top-actions">
     <div class="tabs" role="tablist" aria-label="View">
       <button role="tab" id="tabMonth" aria-selected="true" type="button">Today</button>
-      <button role="tab" id="tabMoney" aria-selected="false" type="button">Money</button>
-      <button role="tab" id="tabYear" aria-selected="false" type="button">Year</button>
+      <button role="tab" id="tabPlan" aria-selected="false" type="button">Month</button>
+      <button role="tab" id="tabYear" aria-selected="false" type="button">Future</button>
     </div>
     <button id="themeBtn" class="btn ghost theme-btn" type="button" aria-label="Switch to dark mode"></button>
     <button id="openSettings" class="btn ghost" type="button" aria-label="Settings"><svg class="gear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="set-txt">Settings</span></button>
@@ -450,38 +453,28 @@ html.framed dialog{max-width:416px}
     <div id="askTx"></div>
     <div id="checkin"></div>
     <div class="panel">
-      <div class="panel-head"><h2>This month</h2><button class="btn primary small" type="button" id="openAdd">Add payment</button></div>
-      <div id="monthSum" class="month-sum num"></div>
-      <ul id="txList" class="tx"></ul>
-      <button type="button" class="link-btn" id="txMore" hidden></button>
+      <div class="panel-head"><h2>Spent today</h2><button class="btn primary small" type="button" id="openAdd">Add payment</button></div>
+      <ul id="todayList" class="tx"></ul>
     </div>
 </main>
 
-<main class="grid" id="moneyView" hidden>
-  <section class="col">
-    <div class="panel" id="potsPanel" hidden>
-      <div class="panel-head"><h2>Your pots</h2><button class="btn ghost small" type="button" id="refreshBank">Refresh</button></div>
-      <p id="potsWhen" class="muted pot-when"></p>
-      <div id="potsBody"></div>
-    </div>
+<main class="today-view" id="planView" hidden>
+    <div class="panel" id="cycleCard"></div>
+    <div class="panel" id="comingCard"></div>
     <div class="panel" id="billsPanel">
       <div class="panel-head"><h2>Bills</h2><div style="display:flex;gap:var(--s3);align-items:baseline"><span id="billsSum" class="muted num"></span><button class="btn ghost small" type="button" data-bill-wiz id="addBillBtn" hidden>Add bill</button></div></div>
       <div id="billsBody"></div>
     </div>
-  </section>
-  <section class="col">
     <div class="panel">
       <div class="panel-head"><h2>Budgets</h2><span id="budgetSum" class="muted num"></span></div>
       <ul id="cats" class="cats"></ul>
     </div>
-    <div class="panel" id="incomePanel">
-      <div class="panel-head"><h2>Income</h2><div style="display:flex;gap:var(--s2)"><button id="addOneOff" class="btn ghost small" type="button">Add one-off</button><button id="addIncome" class="btn ghost small" type="button">Add regular</button></div></div>
-      <p id="incomeSum" class="inc-sum muted num"></p>
-      <ul id="incomeList" class="inc"></ul>
-      <div id="oneOffWrap" hidden><h2 style="margin:var(--s4) 0 var(--s2)">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
+    <div class="panel">
+      <div class="panel-head"><h2>Payments this month</h2></div>
+      <div id="monthSum" class="month-sum num"></div>
+      <ul id="txList" class="tx"></ul>
+      <button type="button" class="link-btn" id="txMore" hidden></button>
     </div>
-    <div id="goal" class="panel"></div>
-  </section>
 </main>
 
 <dialog id="addDlg" aria-labelledby="addTitle">
@@ -522,6 +515,7 @@ html.framed dialog{max-width:416px}
     <div id="chart"></div>
     <div class="key"><span><i class="a"></i>What happened</span><span><i class="p"></i>Your plan</span></div>
   </div>
+  <div id="goal" class="panel"></div>
   <div class="sheet-wrap"><table class="sheet" id="sheet"></table></div>
   <p class="legend-note">Grey figures are your plan, and the others are what actually happened. Click any plan figure in this month or a future month to change it, and clear it to go back to the monthly budget. Underlined figures went over plan.</p>
 </section>
@@ -608,6 +602,17 @@ html.framed dialog{max-width:416px}
   <div class="dlg">
     <div class="acct-head"><span class="avatar lg" id="acctBig" aria-hidden="true"></span><div><h2 id="acctName">Your account</h2><p class="muted" style="margin:0" id="acctSub"></p></div></div>
     <ul class="pots" id="acctRows"></ul>
+    <div class="panel" id="potsPanel" hidden>
+      <div class="panel-head"><h2>Your pots</h2><button class="btn ghost small" type="button" id="refreshBank">Refresh</button></div>
+      <p id="potsWhen" class="muted pot-when"></p>
+      <div id="potsBody"></div>
+    </div>
+    <div class="panel" id="incomePanel">
+      <div class="panel-head"><h2>Income</h2><div style="display:flex;gap:var(--s2)"><button id="addOneOff" class="btn ghost small" type="button">Add one-off</button><button id="addIncome" class="btn ghost small" type="button">Add regular</button></div></div>
+      <p id="incomeSum" class="inc-sum muted num"></p>
+      <ul id="incomeList" class="inc"></ul>
+      <div id="oneOffWrap" hidden><h2 style="margin:var(--s4) 0 var(--s2)">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
+    </div>
     <div class="dlg-foot split"><button class="btn ghost" type="button" id="acctSettings">Settings</button><button class="btn primary" type="button" id="acctClose">Done</button></div>
   </div>
 </dialog>
@@ -1348,6 +1353,7 @@ html.framed dialog{max-width:416px}
   function renderHero(c) {
     const h = $("#hero");
     if (!loaded) return;
+    $("#cycleCard").hidden = $("#comingCard").hidden = true;
     if (!state) {
       h.innerHTML = `
         <h2>Set up your tracker</h2>
@@ -1411,7 +1417,7 @@ html.framed dialog{max-width:416px}
     }
     const flexible = new Set(c.cats.filter(x => !x.fixed).map(x => x.id));
     const spentOn = {};
-    for (const k in months) for (const it of months[k]) if (it.type === "expense" && !c.cats.find(x => x.id === it.cat && x.fixed)) spentOn[it.date] = (spentOn[it.date] || 0) + it.amount;
+    for (const k in months) for (const it of months[k]) if (it.type === "expense" && !it.needsCat && !it.billId && !c.cats.find(x => x.id === it.cat && x.fixed)) spentOn[it.date] = (spentOn[it.date] || 0) + it.amount;
     const allowance = Math.max(0, perDay);
     const tracked = state.balanceAsOf || c.t;
     const total = Math.min(dayDiff(start, c.payday), 62);
@@ -1434,13 +1440,27 @@ html.framed dialog{max-width:416px}
     const cap = past
       ? `Day ${dayNo} of ${total}. You've stayed under ${money(allowance)} on ${under} of ${past} ${past === 1 ? "day" : "days"} so far.`
       : `Day ${dayNo} of ${total}. Keep today's spending under ${money(allowance)} to turn its block green.`;
+    // TODAY: one number and what it means for today
+    const spentToday = spentOn[c.t] || 0;
+    const todayLine = !spentToday
+      ? `Spend up to this today and you'll have enough until payday on ${niceDate(c.payday)}.`
+      : spentToday <= allowance
+        ? `You've spent ${money(spentToday)} today, so ${money(r2(allowance - spentToday))} is left for today.`
+        : `You've spent ${money(spentToday)} today, ${money(r2(spentToday - allowance))} over. The days ahead get a little less each.`;
     h.innerHTML = `
-      <p class="lead">Safe to spend until payday</p>
-      <p class="big num ${perDay < 0 ? "neg" : "pos"}">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}<span class="pence">.${pad(pence)}</span><small>a day</small></p>
-      <p class="sub">${free >= 0
-        ? `You have ${money(free)} free across ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"}. Payday is ${niceDate(c.payday)}.`
-        : `Your bills still to pay are ${money(-free)} more than your balance. Payday is ${niceDate(c.payday)}.`}</p>
-      <div class="runway" role="img" aria-label="Balance split: ${money(billsW)} for bills, ${money(freeW)} free">
+      <p class="lead">Safe to spend today</p>
+      <p class="big num ${perDay < 0 ? "neg" : "pos"}">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}<span class="pence">.${pad(pence)}</span></p>
+      <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills still to pay are ${money(-free)} more than your money. Payday is ${niceDate(c.payday)}.` : todayLine}</p>`;
+
+    // MONTH: payday to payday
+    const cyc = $("#cycleCard");
+    cyc.hidden = false;
+    cyc.innerHTML = `
+      <div class="panel-head"><h2>Payday to payday</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
+      <p class="sub" style="margin-top:0">${free >= 0
+        ? `You have ${money(free)} free across ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"}, after the bills below. Payday is ${niceDate(c.payday)}.`
+        : `Your bills still to pay are ${money(-free)} more than your money. Payday is ${niceDate(c.payday)}.`}</p>
+      <div class="runway" role="img" aria-label="Money split: ${money(billsW)} for bills, ${money(freeW)} free">
         ${billsW ? `<i class="bills" style="flex:${billsW}"></i>` : ""}${freeW ? `<i class="free" style="flex:${freeW}"></i>` : ""}
       </div>
       <div class="legend num">
@@ -1454,6 +1474,16 @@ html.framed dialog{max-width:416px}
         <div class="cycle-key"><span><i class="ca" style="background:var(--good-fill)"></i>Under your daily amount</span><span><i class="ov" style="background:var(--ink)"></i>Over</span><span><i style="background:var(--line)"></i>Still to come</span></div>
         <p class="days-cap muted">${cap}</p>
       </div>`;
+
+    // MONTH: what's coming, in date order
+    const com = $("#comingCard");
+    com.hidden = false;
+    const coming = (c.billsDue || []).map(x => ({d: x.d, name: x.b.name, meta: `From ${billSource(x.b)}`, amt: `−${money(x.b.amount || 0)}`}));
+    if (mainSrc) coming.push({d: c.payday, name: `${mainSrc.name} pay`, meta: mainSrc.varies ? `Usually ${money(mainSrc.typical || mainSrc.low)}, at least ${money(mainSrc.low)}` : "Payday", amt: `+${money(mainSrc.varies ? mainSrc.low : (mainSrc.amount || 0))}`, good: true});
+    coming.sort((a, b) => a.d < b.d ? -1 : 1);
+    com.innerHTML = `<div class="panel-head"><h2>Coming up</h2>${bills().length ? "" : `<button class="btn ghost small" type="button" data-bill-wiz>Add bills</button>`}</div>
+      <ul class="pots">${coming.map(x => `<li><div><span class="pname">${esc(x.name)}</span><span class="pmeta">${niceDate(x.d)}. ${esc(x.meta)}</span></div><span class="pamt num${x.good ? " good-txt" : ""}">${x.amt}</span></li>`).join("")}</ul>
+      ${!(c.billsDue || []).length ? `<p class="pot-group">${bills().length ? "No bills due before payday." : "Add your bills to see when each one goes out."}</p>` : ""}`;
   }
 
   function renderCatSelect(c) {
@@ -1520,7 +1550,16 @@ html.framed dialog{max-width:416px}
   function renderTx(c) {
     $("#monthSum").innerHTML = state ? `<span class="muted">Received <b class="${c.inTotal > 0 ? "good-txt" : ""}" style="color:var(--ink)">${money(c.inTotal)}</b></span><span class="muted">Spent <b style="color:var(--ink)">${money(c.spentTotal)}</b></span>${c.savedMonth ? `<span class="muted">Saved <b class="good-txt">${money(c.savedMonth)}</b></span>` : ""}` : "";
     const items = [...c.items].sort((a, b) => b.date.localeCompare(a.date) || (b.created || 0) - (a.created || 0));
-    if (!items.length) { $("#txList").innerHTML = `<li style="display:block;border:0"><p class="empty">Nothing this month yet. Payments appear here when you refresh from Monzo or add one.</p></li>`; return; }
+    if (!items.length) { $("#todayList").innerHTML = `<li style="display:block;border:0"><p class="empty" style="margin:0">Nothing spent today.</p></li>`; $("#txList").innerHTML = `<li style="display:block;border:0"><p class="empty">Nothing this month yet. Payments appear here when you refresh from Monzo or add one.</p></li>`; return; }
+    const row = it => {
+      const cat = catLabel(it, c), title = it.note || cat, inflow = it.type === "income";
+      return `<li>
+        <div class="what"><b>${esc(title)}</b><span class="muted">${niceDate(it.date)}${it.note ? ", " + esc(cat) : ""}</span></div>
+        <span class="amt ${inflow ? "in" : ""}">${inflow ? "+" : "−"}${money(it.amount)}</span>
+        <button class="x" type="button" data-del="${esc(it.id)}" aria-label="Delete ${esc(title)}">×</button></li>`;
+    };
+    const tod = items.filter(it => it.date === c.t && it.type === "expense");
+    $("#todayList").innerHTML = tod.length ? tod.map(row).join("") : `<li style="display:block;border:0"><p class="empty" style="margin:0">Nothing spent today.</p></li>`;
     $("#txMore").hidden = items.length <= 5;
     $("#txMore").textContent = txAll ? "Show fewer" : `Show all ${items.length}`;
     $("#txList").innerHTML = (txAll ? items : items.slice(0, 5)).map(it => {
@@ -1767,16 +1806,16 @@ html.framed dialog{max-width:416px}
   function setView(v) {
     view = v;
     $("#monthView").hidden = v !== "month";
-    $("#moneyView").hidden = v !== "money";
+    $("#planView").hidden = v !== "plan";
     $("#yearView").hidden = v !== "year";
     $("#tabMonth").setAttribute("aria-selected", v === "month");
-    $("#tabMoney").setAttribute("aria-selected", v === "money");
+    $("#tabPlan").setAttribute("aria-selected", v === "plan");
     $("#tabYear").setAttribute("aria-selected", v === "year");
     render();
   }
   $("#tabMonth").onclick = () => setView("month");
   $("#tabYear").onclick = () => setView("year");
-  $("#tabMoney").onclick = () => setView("money");
+  $("#tabPlan").onclick = () => setView("plan");
   $("#openAdd").onclick = () => { if (!$("#fDate").value) $("#fDate").value = today(); $("#addDlg").showModal(); setTimeout(() => $("#fAmt").focus(), 30); };
   $("#addCancel").onclick = () => $("#addDlg").close();
   $("#txMore").onclick = () => { txAll = !txAll; render(); };
@@ -2009,14 +2048,16 @@ html.framed dialog{max-width:416px}
     }
   });
 
-  $("#txList").addEventListener("click", e => {
+  const onDel = e => {
     const b = e.target.closest("[data-del]"); if (!b) return;
     const id = b.dataset.del, cur = today().slice(0, 7);
     const it = (months[cur] || []).find(x => x.id === id);
     if (!it || !confirm(`Delete this ${money(it.amount)} transaction?`)) return;
     writeMonth(cur, items => items.filter(x => x.id !== id));
     if (it.type === "save" && state.goal) saveState({...state, goal:{...state.goal, saved:r2(Math.max(0, (state.goal.saved || 0) - it.amount))}});
-  });
+  };
+  $("#txList").addEventListener("click", onDel);
+  $("#todayList").addEventListener("click", onDel);
 
   /* settings */
   const dlg = $("#settings");
