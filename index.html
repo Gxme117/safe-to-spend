@@ -32,6 +32,14 @@
   --glass:rgba(28,28,30,.74); --glass-line:rgba(255,255,255,.08); --glass-hi:rgba(255,255,255,.14); --glass-shadow:0 10px 30px rgba(0,0,0,.5); --blob:.34; --ring:.45;
   color-scheme:dark;
 }
+.top-id{display:flex;align-items:center;gap:var(--s3);min-width:0}
+.top-title{min-width:0}
+.avatar{width:44px;height:44px;flex:none;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:.93rem;font-weight:800;display:grid;place-items:center;padding:0;cursor:pointer;overflow:hidden}
+.avatar svg{width:22px;height:22px}
+.avatar:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.avatar.lg{width:64px;height:64px;font-size:1.2rem;cursor:default}
+.acct-head{display:flex;align-items:center;gap:var(--s4)}
+.acct-head h2{margin:0}
 .theme-btn{width:42px;padding:0;display:inline-grid;place-items:center}
 .theme-btn svg{width:20px;height:20px}
 *,*::before,*::after{box-sizing:inherit}
@@ -408,9 +416,12 @@ html.framed dialog{max-width:416px}
   <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2"/><rect x="24.5" y="4.5" width="1.5" height="4" rx=".75" opacity=".4"/></svg>
 </span></div>
 <header class="top">
-  <div>
-    <h1 id="monthTitle">This month</h1>
-    <p id="balanceLine" class="muted num"></p>
+  <div class="top-id">
+    <button id="acctBtn" class="avatar" type="button" aria-label="Your account"><span id="acctInit" aria-hidden="true"></span></button>
+    <div class="top-title">
+      <h1 id="monthTitle">This month</h1>
+      <p id="balanceLine" class="muted num"></p>
+    </div>
   </div>
   <div class="top-actions">
     <div class="tabs" role="tablist" aria-label="View">
@@ -580,6 +591,14 @@ html.framed dialog{max-width:416px}
       <button class="btn primary" type="submit" id="bwNext">Next</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="acctDlg" aria-labelledby="acctName">
+  <div class="dlg">
+    <div class="acct-head"><span class="avatar lg" id="acctBig" aria-hidden="true"></span><div><h2 id="acctName">Your account</h2><p class="muted" style="margin:0" id="acctSub"></p></div></div>
+    <ul class="pots" id="acctRows"></ul>
+    <div class="dlg-foot split"><button class="btn ghost" type="button" id="acctSettings">Settings</button><button class="btn primary" type="button" id="acctClose">Done</button></div>
+  </div>
 </dialog>
 
 <dialog id="jobDlg" aria-labelledby="jobTitle">
@@ -857,6 +876,30 @@ html.framed dialog{max-width:416px}
     if (empty) html += `<p class="pot-group">${empty} empty pot${empty > 1 ? "s" : ""} hidden</p>`;
     $("#potsBody").innerHTML = html;
   }
+
+  /* ---------- account ---------- */
+  let me = null;
+  const PERSON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>';
+  const initials = n => String(n || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+  function renderAcct() {
+    const ini = initials(me && me.name);
+    for (const el of [$("#acctInit"), $("#acctBig")]) { if (ini) el.textContent = ini; else el.innerHTML = PERSON; }
+    $("#acctName").textContent = (me && me.name) || "Your account";
+    const b = bank();
+    $("#acctSub").textContent = b ? `Connected to ${b.source || "your bank"}` : "No bank connected yet";
+    const at = b ? new Date(b.asOf) : null;
+    const row = (k, v) => `<li><div><span class="pname">${esc(k)}</span></div><span class="pmeta">${esc(v)}</span></li>`;
+    $("#acctRows").innerHTML = [
+      b ? row("Bank", b.source || "Connected") : row("Bank", "Not connected"),
+      b ? row("Last updated", isoD(at) === today() ? `Today at ${at.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}` : niceDate(isoD(at))) : "",
+      state ? row("Spending money", money(calc().balance)) : "",
+      row("Saved in", "Your Claude account")
+    ].join("");
+  }
+  $("#acctBtn").onclick = () => { renderAcct(); $("#acctDlg").showModal(); };
+  $("#acctClose").onclick = () => $("#acctDlg").close();
+  $("#acctSettings").onclick = () => { $("#acctDlg").close(); openSettings(); };
+  renderAcct();
 
   /* ---------- refresh from Monzo (local connector, Claude desktop app only) ---------- */
   const MONZO = "host:monzo";
@@ -2073,6 +2116,7 @@ html.framed dialog{max-width:416px}
       return;
     }
     db = d;
+    if (user) user.me().then(m => { me = m || null; renderAcct(); }).catch(() => {});
     window.claude.use("mcp").then(m => { mcp = m; }).catch(() => {});
     stateRef = db.doc(`data/users/${uid}/state`);
     stateRef.onSnapshot(s => {
