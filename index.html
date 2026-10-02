@@ -972,7 +972,7 @@ html.framed dialog{max-width:416px}
     if (code === "server_not_connected" || code === "not_granted" || code === "capability_disabled" || code === "capability_removed")
       return "Refreshing works in the Claude desktop app, where your Monzo connection runs. Open this page there, or ask Claude in chat to refresh.";
     if (code === "not_in_manifest") return "This page isn't allowed to use Monzo. Allow Monzo for it when asked, then try again.";
-    if (code === "cancelled") return "Refresh cancelled.";
+    if (code === "cancelled") return "Claude asked you to allow the Monzo request and it wasn't allowed. Tap refresh again and choose Allow for each one.";
     if (code === "server_unavailable") return "Monzo didn't answer. Try again in a minute.";
     if (code === "needs_reauth") return "Monzo needs you to log in again. Ask Claude in chat to reconnect Monzo.";
     if (code === "tool_error") return `Monzo said: ${String(e.message || "something went wrong").slice(0, 140)}`;
