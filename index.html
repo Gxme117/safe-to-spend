@@ -456,14 +456,14 @@ body{background:transparent}
 #hero .back{display:flex;flex-direction:column;justify-content:center}
 /* the bar looks like a chocolate-bar icon: a black frame, squares split by thin lines, each square with a raised inner edge */
 /* whole bar: a compact icon, wrapper and chocolate side by side, chocolate 4 columns by 3 rows */
-#hero .choc-stage{position:relative;height:86px}
+#hero .choc-stage{position:relative;height:100px}
 #hero .choc-bar{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;transition:opacity .45s ease,transform .45s ease}
-#hero .choc-chunk{position:relative;z-index:1;width:96px;height:72px;margin-right:-10px;flex:none;transform-origin:20% 80%;transition:transform .55s cubic-bezier(.3,.7,.3,1),opacity .45s ease .1s,width .4s ease .45s,margin .4s ease .45s}
+#hero .choc-chunk{position:relative;z-index:1;width:124px;height:96px;margin-right:-13px;flex:none;transform-origin:20% 80%;transition:transform .55s cubic-bezier(.3,.7,.3,1),opacity .45s ease .1s,width .4s ease .45s,margin .4s ease .45s}
 #hero .choc-chunk .wrap{position:absolute;inset:0;width:100%;height:100%}
 #hero .choc-chunk .wrap path{fill:var(--sil);stroke:var(--btn-bg,#fff);stroke-width:3;vector-effect:non-scaling-stroke;paint-order:stroke}
-#hero .choc-chunk span{position:absolute;left:46%;top:50%;transform:translate(-50%,-50%);color:var(--btn-bg,#fff);font-size:.93rem;font-weight:800;letter-spacing:.02em;white-space:nowrap}
-#hero .choc-rest{width:98px;height:72px;flex:none;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr);gap:5px;transition:opacity .35s ease,transform .45s ease}
-#hero .choc-rest i,#hero .choc-days i{background:var(--sil);border-radius:4px}
+#hero .choc-chunk span{position:absolute;left:46%;top:50%;transform:translate(-50%,-50%);color:var(--btn-bg,#fff);font-size:1.2rem;font-weight:800;letter-spacing:.02em;white-space:nowrap}
+#hero .choc-rest{width:130px;height:96px;flex:none;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr);gap:5px;transition:opacity .35s ease,transform .45s ease}
+#hero .choc-rest i,#hero .choc-days i{background:var(--sil);border-radius:5px}
 /* bills snap off */
 #hero .choc.s2 .choc-chunk,#hero .choc.s3 .choc-chunk,#hero .choc.s4 .choc-chunk{transform:translate(-14%,40px) rotate(-16deg);opacity:0;width:0;margin-right:0}
 /* what's left breaks into one piece per day */
