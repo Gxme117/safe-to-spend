@@ -81,7 +81,7 @@ h2{font-family:var(--display);font-weight:600;font-size:1.2rem;margin:0 0 var(--
 .hero .lead{margin:0 0 var(--s2);color:var(--muted)}
 .big{font-family:var(--display);font-weight:600;font-size:clamp(3rem,7cqw,5.2rem);line-height:.95;letter-spacing:-.04em;margin:0}
 .big .int,.big .pence{display:block;line-height:1}
-.big:has(.int){display:flex;align-items:flex-start;line-height:1;margin-top:var(--s3);font-weight:800;letter-spacing:-.03em}
+.big:has(.int){display:flex;align-items:flex-start;line-height:1;margin-top:var(--s3);font-weight:800;letter-spacing:-.03em;font-size:clamp(3rem,30cqi,6.5rem);white-space:nowrap}
 /* pence: half the height of the pounds, tops lined up on the cap height */
 .big .pence{font-size:.5em;letter-spacing:-.02em;margin-left:.06em;margin-top:.16em}
 @supports (text-box: trim-both cap alphabetic){
@@ -412,7 +412,7 @@ body{background:transparent}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
 
 /* the first card carries the accent: it's the one number that matters */
-#hero.hero{background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-color:transparent}
+#hero.hero{container-type:inline-size;background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-color:transparent}
 #hero .lead{color:inherit;opacity:.85;font-weight:700}
 #hero .sub{color:inherit;opacity:.85;font-size:.93rem;line-height:1.4}
 #hero .big.pos,#hero .big.neg{color:inherit}
@@ -1034,6 +1034,14 @@ html.framed dialog{max-width:416px}
   }
   $("#refreshBank").onclick = refreshBank;
 
+  function fitBig() {
+    const el = $("#hero .big"); if (!el) return;
+    el.style.fontSize = "";
+    let px = parseFloat(getComputedStyle(el).fontSize);
+    while (el.scrollWidth > el.clientWidth + 1 && px > 40) { px -= 2; el.style.fontSize = px + "px"; }
+  }
+  addEventListener("resize", () => fitBig());
+
   /* ---------- bills ---------- */
   const bills = () => (state && state.bills) || [];
   const BILL_FREQ = {monthly: "Every month", weekly: "Every week", fortnightly: "Every 2 weeks", fourweekly: "Every 4 weeks", quarterly: "Every 3 months", yearly: "Every year"};
@@ -1467,6 +1475,8 @@ html.framed dialog{max-width:416px}
       <p class="lead">Safe to spend today</p>
       <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
       <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills before payday are ${money(-free)} more than you have.` : todayLine}</p>`;
+
+    fitBig();
 
     // MONTH: payday to payday
     const cyc = $("#cycleCard");
