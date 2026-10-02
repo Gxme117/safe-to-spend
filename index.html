@@ -1199,8 +1199,13 @@ html.framed dialog{max-width:416px}
   function playChoc() {
     resetChoc();
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return setChoc(4);
-    // 1) the question on its own for 1.5 seconds, 2) the idea on its own, 3) the bar tells the story
-    [["a", 1500], [1, 3500], [2, 4600], [3, 5700], [4, 6700]].forEach(([k, t]) => chocTimers.push(setTimeout(() => setChoc(k), t)));
+    // 1) the question on its own, 2) the idea on its own, 3) the bar tells the story
+    // each step stays up for at least 1.5s, longer if its words need more time to read (about 4–5 words a second, plus the movement)
+    const words = sel => { const el = $(sel); return el ? el.textContent.trim().split(/\s+/).length : 0; };
+    const hold = sel => Math.max(1500, 500 + words(sel) * 220);
+    const plan = [["a", 1500], [1, hold("#hero .why-intro .l2")], [2, hold("#hero .choc-cap .c1")], [3, hold("#hero .choc-cap .c2")], [4, hold("#hero .choc-cap .c3")]];
+    let t = 0;
+    plan.forEach(([k, d]) => { t += d; chocTimers.push(setTimeout(() => setChoc(k), t)); });
   }
   function flipHero() {
     const h = $("#hero"); if (!h.classList.contains("flippable")) return;
