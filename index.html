@@ -1184,9 +1184,9 @@ html.framed dialog{max-width:416px}
       back.classList.toggle("asked", k !== 0);
     };
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return set(4);
-    // 1) the question on its own for 3 seconds, 2) the idea on its own, 3) the bar tells the story
+    // 1) the question on its own for a second, 2) the idea on its own, 3) the bar tells the story
     set(0);
-    [["a", 3000], [1, 5000], [2, 6100], [3, 7200], [4, 8200]].forEach(([k, t]) => chocTimers.push(setTimeout(() => set(k), t)));
+    [["a", 1000], [1, 3000], [2, 4100], [3, 5200], [4, 6200]].forEach(([k, t]) => chocTimers.push(setTimeout(() => set(k), t)));
   }
   function flipHero() {
     const h = $("#hero"); if (!h.classList.contains("flippable")) return;
