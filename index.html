@@ -1657,7 +1657,7 @@ html.framed dialog{max-width:416px}
       </div>
       <div class="face back${heroFlipped ? " asked" : " intro"}" aria-hidden="${!heroFlipped}">
         ${FLIP}
-        <div class="why-intro" aria-hidden="true"><span class="l1">Why ${perDay < 0 ? "−" : ""}${money(pd)}?</span><span class="l2">Think of it like a chocolate bar 🍫</span></div>
+        <div class="why-intro" aria-hidden="true"><span class="l1">How ${perDay < 0 ? "this" : money(pd)} is worked out</span><span class="l2">Think of it like a chocolate bar 🍫</span></div>
         <p class="lead why-lead">Think of it like a chocolate bar 🍫</p>
         ${(() => {
           const n = free > 0 ? Math.min(c.daysLeft, 62) : 0;
