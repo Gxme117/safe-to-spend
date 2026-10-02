@@ -80,7 +80,14 @@ h2{font-family:var(--display);font-weight:600;font-size:1.2rem;margin:0 0 var(--
 .hero{padding:var(--s5)}
 .hero .lead{margin:0 0 var(--s2);color:var(--muted)}
 .big{font-family:var(--display);font-weight:600;font-size:clamp(3rem,7cqw,5.2rem);line-height:.95;letter-spacing:-.04em;margin:0}
-.big .pence{font-size:2rem;letter-spacing:-.01em;vertical-align:.95em;margin-left:2px}
+.big .int,.big .pence{display:block;line-height:1}
+.big:has(.int){display:flex;align-items:flex-start;line-height:1;margin-top:var(--s3)}
+/* pence: half the height of the pounds, tops lined up on the cap height */
+.big .pence{font-size:.5em;letter-spacing:-.02em;margin-left:.06em;margin-top:.16em}
+@supports (text-box: trim-both cap alphabetic){
+  .big .int,.big .pence{text-box:trim-both cap alphabetic}
+  .big .pence{margin-top:0}
+}
 .big small{font-family:var(--body);font-weight:400;font-size:1.2rem;letter-spacing:0;color:var(--muted);margin-left:var(--s3)}
 .big.neg{color:var(--red)}
 .hero .sub{margin:var(--s4) 0 var(--s5);max-width:60ch}
@@ -1458,7 +1465,7 @@ html.framed dialog{max-width:416px}
         : `You've spent ${money(spentToday)} today, ${money(r2(spentToday - allowance))} over. The days ahead get a little less each.`;
     h.innerHTML = `
       <p class="lead">Safe to spend today</p>
-      <p class="big num ${perDay < 0 ? "neg" : "pos"}">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}<span class="pence">.${pad(pence)}</span></p>
+      <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
       <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills still to pay are ${money(-free)} more than your money. Payday is ${niceDate(c.payday)}.` : todayLine}</p>`;
 
     // MONTH: payday to payday
