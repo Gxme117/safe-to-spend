@@ -449,7 +449,7 @@ body{background:transparent}
 #hero .back{transform:rotateY(180deg);background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
 #hero .back .big.pos{color:var(--good)}
 /* back: the sum, drawn. spending money → bills | free → free shared into one slice per day */
-#hero .back .lead{margin-bottom:var(--s5)}
+#hero .back .lead{margin-bottom:0}
 #hero .why-line{margin:var(--s4) 0 0;font-size:.93rem;line-height:1.4;opacity:.85;text-wrap:pretty}
 #hero .why-row{display:flex;justify-content:space-between;align-items:baseline;font-size:.93rem;margin-bottom:var(--s2)}
 #hero .back .runway{height:14px}
@@ -1608,7 +1608,6 @@ html.framed dialog{max-width:416px}
         ${FLIP}
         <p class="lead">How ${perDay < 0 ? "this" : money(pd)} is worked out</p>
         ${free > 0 ? `
-        <div class="slices" role="img" aria-label="${money(free)} shared across ${c.daysLeft} days, ${money(pd)} each">${Array.from({length: Math.min(c.daysLeft, 62)}, (_, k) => `<i${k === 0 ? ' class="today"' : ""}></i>`).join("")}</div>
         <p class="why-line">${money(free)} left after bills, shared across ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"} to payday. Today is the first.</p>` : `
         <p class="why-line">Your bills before payday are ${money(-free)} more than you have, so there's nothing left to share out yet.</p>`}
       </div>
