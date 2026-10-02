@@ -446,8 +446,8 @@ body{background:transparent}
 #hero .flip{display:grid;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.2,.75,.2,1)}
 #hero.flipped .flip{transform:rotateY(180deg)}
 #hero .face{grid-area:1/1;position:relative;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-radius:14px;padding:var(--s6)}
-#hero .back{transform:rotateY(180deg);background:color-mix(in srgb,var(--btn-bg,var(--good-fill)) 8%,#232327);color:var(--btn-bg,var(--good-fill))}
-:root[data-mode="dark"] #hero .back{background:color-mix(in srgb,var(--btn-bg,var(--good-fill)) 10%,#35353B)}
+#hero .back{transform:rotateY(180deg);background:#242428;color:var(--btn-bg,var(--good-fill))}
+:root[data-mode="dark"] #hero .back{background:var(--surface);box-shadow:inset 0 0 0 1px var(--line)}
 :root[data-accent="glow"] #hero .back{background:#000;color:#fff}
 #hero .flip-ic{position:absolute;top:var(--s4);right:var(--s4);opacity:.45}
 :root[data-accent="glow"] #hero .face{background:var(--shine-bg) padding-box,var(--prism) border-box;border:1.5px solid transparent;box-shadow:var(--glow-box)}
