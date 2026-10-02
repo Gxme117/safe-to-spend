@@ -482,6 +482,7 @@ body{background:transparent}
 #hero .choc-cap b{font-weight:800}
 #hero .choc.s1 .c1,#hero .choc.s2 .c2,#hero .choc.s3 .c3,#hero .choc.s4 .c4{opacity:1;transform:none}
 @media (prefers-reduced-motion:reduce){#hero .choc *{transition:none !important}}
+#hero .back.snap,#hero .back.snap *{transition:none !important}
 #hero .why-line{margin:var(--s3) 0 0;font-size:.93rem;line-height:1.4;opacity:.85;text-wrap:pretty}
 #hero .why-row{display:flex;justify-content:space-between;align-items:baseline;font-size:.93rem;margin-bottom:var(--s2)}
 #hero .back .runway{height:14px}
@@ -1174,19 +1175,28 @@ html.framed dialog{max-width:416px}
   }
   addEventListener("resize", () => sizeFlip());
   let chocTimers = [];
-  function playChoc() {
-    const ch = $("#hero .choc"); if (!ch) return;
+  // the animation's current step lives here, so a re-render keeps its place and every flip starts it fresh
+  let chocStep = 0;
+  function setChoc(k) {
+    chocStep = k;
+    const ch = $("#hero .choc"), back = $("#hero .back"); if (!ch || !back) return;
+    ch.classList.remove("s0", "sa", "s1", "s2", "s3", "s4"); ch.classList.add("s" + k);
+    back.classList.toggle("intro", k === 0 || k === "a");
+    back.classList.toggle("asked", k !== 0);
+  }
+  function resetChoc() {
     chocTimers.forEach(clearTimeout); chocTimers = [];
-    const back = $("#hero .back");
-    const set = k => {
-      ch.classList.remove("s0", "sa", "s1", "s2", "s3", "s4"); ch.classList.add("s" + k);
-      back.classList.toggle("intro", k === 0 || k === "a");
-      back.classList.toggle("asked", k !== 0);
-    };
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return set(4);
+    const back = $("#hero .back"); if (!back) return;
+    back.classList.add("snap");             // jump back to the start with no transitions
+    setChoc(0);
+    void back.offsetWidth;
+    back.classList.remove("snap");
+  }
+  function playChoc() {
+    resetChoc();
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return setChoc(4);
     // 1) the question on its own for 2 seconds, 2) the idea on its own, 3) the bar tells the story
-    set(0);
-    [["a", 2000], [1, 4000], [2, 5100], [3, 6200], [4, 7200]].forEach(([k, t]) => chocTimers.push(setTimeout(() => set(k), t)));
+    [["a", 2000], [1, 4000], [2, 5100], [3, 6200], [4, 7200]].forEach(([k, t]) => chocTimers.push(setTimeout(() => setChoc(k), t)));
   }
   function flipHero() {
     const h = $("#hero"); if (!h.classList.contains("flippable")) return;
@@ -1195,7 +1205,7 @@ html.framed dialog{max-width:416px}
     h.querySelector(".front").setAttribute("aria-hidden", heroFlipped);
     h.querySelector(".back").setAttribute("aria-hidden", !heroFlipped);
     sizeFlip();
-    if (heroFlipped) setTimeout(playChoc, 250);
+    if (heroFlipped) playChoc(); else resetChoc();
     h.setAttribute("aria-label", heroFlipped ? "Days until payday. Tap to show today's amount." : "Safe to spend today. Tap to show days until payday.");
   }
   $("#hero").addEventListener("click", e => { if (!e.target.closest("button, a, input, form")) flipHero(); });
@@ -1655,7 +1665,7 @@ html.framed dialog{max-width:416px}
         <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
         <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills before payday are ${money(-free)} more than you have.` : todayLine}</p>
       </div>
-      <div class="face back${heroFlipped ? " asked" : " intro"}" aria-hidden="${!heroFlipped}">
+      <div class="face back${heroFlipped && chocStep !== 0 ? " asked" : ""}${!heroFlipped || chocStep === 0 || chocStep === "a" ? " intro" : ""}" aria-hidden="${!heroFlipped}">
         ${FLIP}
         <div class="why-intro" aria-hidden="true"><span class="l1">How ${perDay < 0 ? "this" : money(pd)} is worked out</span><span class="l2">Think of it like a chocolate bar 🍫</span></div>
         <p class="lead why-lead">Think of it like a chocolate bar 🍫</p>
@@ -1668,7 +1678,7 @@ html.framed dialog{max-width:416px}
           const caps = free > 0
             ? [`Your money is one bar: <b>${money(c.balance)}</b>`, `Bills snap off their bit first: <b>${money(c.billsLeft)}</b>`, `<b>${money(free)}</b> left, broken into ${n} ${n === 1 ? "piece" : "pieces"}`, `One piece a day. Today's is <b>${money(pd)}</b>`]
             : [`Your money is one bar: <b>${money(c.balance)}</b>`, `Bills want <b>${money(c.billsLeft)}</b>`, `That's <b>${money(-free)}</b> more than the whole bar`, `No pieces left to share until payday`];
-          return `<div class="choc ${heroFlipped ? "s4" : "s0"}" role="img" aria-label="${caps.map(x => x.replace(/<[^>]+>/g, "")).join(". ")}.">
+          return `<div class="choc s${heroFlipped ? chocStep : 0}" role="img" aria-label="${caps.map(x => x.replace(/<[^>]+>/g, "")).join(". ")}.">
             <div class="choc-bar">
               <div class="choc-chunk" style="flex-grow:${bCols};grid-template-columns:repeat(${bCols},1fr);grid-template-rows:repeat(${rows},1fr)">${Array.from({length: bCols * rows}, () => "<i></i>").join("")}<span>Bills</span></div>
               ${n ? `<div class="choc-rest" style="flex-grow:${cols};grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">${Array.from({length: n}, (_, k) => `<i${k === 0 ? ' class="today"' : ""}></i>`).join("")}</div>` : ""}
