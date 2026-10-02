@@ -363,7 +363,16 @@ body{background:transparent}
 .big small,.goal-fig .muted,.month-sum .muted,.sheet td small{font-weight:400}
 .sheet td.plan{font-weight:600}
 @container app (max-width:900px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@container app (max-width:520px){.year{padding-left:var(--s4);padding-right:var(--s4)}.top{flex-wrap:wrap;align-items:center}.top>div:first-child{flex:1;min-width:0}.top-actions{display:contents}.top-actions .tabs{order:5;flex:1 1 100%;display:flex}.top-actions .tabs button{flex:1}.set-txt{display:none}#openSettings{padding-left:var(--s3);padding-right:var(--s3)}}
+@container app (max-width:520px){.year{padding-left:var(--s4);padding-right:var(--s4)}.top{display:grid;grid-template-columns:minmax(0,1fr) auto auto;column-gap:var(--s2);row-gap:var(--s4);align-items:center}
+  .top-id,.top-actions{display:contents}
+  #acctBtn{grid-column:1;grid-row:1;justify-self:start}
+  #themeBtn{grid-column:2;grid-row:1}
+  #openSettings{grid-column:3;grid-row:1}
+  #themeBtn,#openSettings{width:44px;height:44px;padding:0;display:inline-grid;place-items:center}
+  .top-title{grid-column:1/-1;grid-row:2}
+  .top-actions .tabs{grid-column:1/-1;grid-row:3;display:flex}
+  .top-actions .tabs button{flex:1}
+  .set-txt{display:none}}
 .gear{display:none}
 @container app (max-width:520px){.gear{display:block}}
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:var(--s3) var(--s4);border-radius:10px;font-size:.93rem;opacity:0;pointer-events:none;transition:opacity .2s}
