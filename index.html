@@ -1335,7 +1335,9 @@ html.framed dialog{max-width:416px}
   function render() {
     const c = calc();
     $("#monthTitle").textContent = monthName(c.cur);
-    $("#balanceLine").textContent = c.balance == null ? "" : `${bank() ? "Spending money" : "Balance"} ${money(c.balance)}`;
+    // total = spending money (kept current with anything logged since the last sync) + every set-aside pot
+    const aside = bank() ? bank().pots.filter(p => p.role !== "spend").reduce((s, p) => s + (p.balance || 0), 0) : 0;
+    $("#balanceLine").textContent = c.balance == null ? "" : `Total ${money(r2(c.balance + aside))}`;
     renderPots(); renderBills(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
