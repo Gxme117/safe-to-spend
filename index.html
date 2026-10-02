@@ -455,12 +455,14 @@ body{background:transparent}
 #hero .choc{--sil:var(--btn-ink,#000);--line:3px;margin:0}
 #hero .back{display:flex;flex-direction:column;justify-content:center}
 /* the bar looks like a chocolate-bar icon: a black frame, squares split by thin lines, each square with a raised inner edge */
-#hero .choc-bar{display:flex;height:72px;position:relative;overflow:visible;transition:opacity .45s ease,transform .45s ease}
+#hero .choc-bar{display:flex;height:50px;position:relative;overflow:visible;transition:opacity .45s ease,transform .45s ease,height .5s ease .35s}
+#hero .choc.s3 .choc-bar,#hero .choc.s4 .choc-bar{height:86px}
 #hero .choc-chunk{flex-basis:0;position:relative;z-index:1;margin-right:-10px}
-#hero .choc-rest{flex-basis:0;display:grid;gap:5px;position:relative;padding:2px 0}
+#hero .choc-rest{flex-basis:0;display:grid;gap:3px;position:relative;padding:2px 0}
 #hero .choc-chunk{transition:transform .55s cubic-bezier(.3,.7,.3,1),opacity .45s ease .1s,flex-grow .5s ease .35s;transform-origin:20% 80%}
 #hero .choc-rest{transition:flex-grow .5s ease .35s,gap .35s ease}
-#hero .choc-rest i{background:var(--sil);border-radius:4px}
+#hero .choc-rest i{background:var(--sil);border-radius:3px}
+#hero .choc.s3 .choc-rest i,#hero .choc.s4 .choc-rest i{border-radius:5px}
 #hero .choc-chunk .wrap{position:absolute;inset:0;width:100%;height:100%}
 #hero .choc-chunk .wrap path{fill:var(--sil);stroke:var(--btn-bg,#fff);stroke-width:3;vector-effect:non-scaling-stroke;paint-order:stroke}
 #hero .choc-rest i{transition:transform .35s cubic-bezier(.3,1.6,.5,1),opacity .35s,box-shadow .35s}
@@ -469,6 +471,9 @@ body{background:transparent}
 #hero .choc.s3 .choc-chunk,#hero .choc.s4 .choc-chunk{position:absolute;width:0;margin:0}
 #hero .choc.s2 .choc-chunk{margin-right:0}
 #hero .choc.s3 .choc-rest,#hero .choc.s4 .choc-rest{gap:7px}
+/* the whole bar is a full rectangle (3 rows, wrapper and chocolate in equal halves); squares beyond the number of days melt away when it breaks */
+#hero .choc.s3 .choc-rest i.extra,#hero .choc.s4 .choc-rest i.extra{opacity:0 !important;transform:scale(.6)}
+#hero .choc-bar{margin:0 auto;width:100%}
 #hero .choc.s4 .choc-rest i{opacity:.28}
 #hero .choc.s4 .choc-rest i.today{opacity:1;transform:translateY(-6px) scale(1.15);box-shadow:0 6px 10px rgba(0,0,0,.25)}
 #hero .choc-cap{transition:opacity .45s ease,transform .45s ease}
@@ -1679,10 +1684,10 @@ html.framed dialog{max-width:416px}
         <div class="why-intro" aria-hidden="true"><span class="l1">How ${perDay < 0 ? "this" : money(pd)} is worked out</span><span class="l2">Think of it like a chocolate bar 🍫</span></div>
         ${(() => {
           const n = free > 0 ? Math.min(c.daysLeft, 62) : 0;
-          const rows = n === 0 ? 2 : n <= 10 ? 1 : n <= 20 ? 2 : 3, cols = Math.max(1, Math.ceil(n / rows));
+          const rows = 3, cols = Math.max(1, Math.ceil(n / rows));
           // the bills bit is made of the same-sized squares, roughly in proportion (kept between a quarter and three quarters of the bar)
           const tot = Math.max(billsW + freeW, 1), bf = free > 0 ? Math.min(.75, Math.max(.25, billsW / tot)) : 1;
-          const bCols = n ? Math.min(Math.round(cols * 2 / 3), Math.max(3, Math.round(cols * bf / (1 - bf)))) : 12;
+          const bCols = n ? cols : 12;   // wrapper and chocolate take equal halves
           let zig = "M6,0 L92,0 C99,22 86,40 94,60 C99,74 90,88 97,100 L6,100";
           for (let y = 100, k = 0; y > 0; y -= 6.25, k++) zig += ` L${k % 2 ? 6 : 0},${Math.max(0, y - 6.25).toFixed(2)}`;
           const WRAPPER = zig + " Z";
@@ -1692,7 +1697,7 @@ html.framed dialog{max-width:416px}
           return `<div class="choc s${heroFlipped ? chocStep : 0}" role="img" aria-label="${caps.map(x => x.replace(/<[^>]+>/g, "")).join(". ")}.">
             <div class="choc-bar">
               <div class="choc-chunk" style="flex-grow:${bCols}"><svg class="wrap" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="${WRAPPER}"/></svg><span>Bills</span></div>
-              ${n ? `<div class="choc-rest" style="flex-grow:${cols};grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">${Array.from({length: n}, (_, k) => `<i${k === 0 ? ' class="today"' : ""}></i>`).join("")}</div>` : ""}
+              ${n ? `<div class="choc-rest" style="flex-grow:${cols};grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">${Array.from({length: cols * rows}, (_, k) => `<i${k === 0 ? ' class="today"' : k >= n ? ' class="extra"' : ""}></i>`).join("")}</div>` : ""}
             </div>
             <p class="choc-cap" aria-hidden="true">${caps.map((x, k) => `<span class="c${k + 1}">${x}</span>`).join("")}</p>
           </div>`;
