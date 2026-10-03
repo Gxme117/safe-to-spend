@@ -32,6 +32,8 @@ won't work outside Claude.
 
 ## Mobile app
 
+[![Mobile CI](https://github.com/Gxme117/safe-to-spend/actions/workflows/mobile.yml/badge.svg)](https://github.com/Gxme117/safe-to-spend/actions/workflows/mobile.yml)
+
 `mobile/` is a phone version of the core of the app, built with Expo, React Native and TypeScript.
 It keeps everything on the phone (SQLite) and you type your balance in rather than connecting Monzo.
 
