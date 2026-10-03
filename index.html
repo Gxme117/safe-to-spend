@@ -68,22 +68,51 @@
 .ev-chip b{font-weight:800;color:var(--good)}
 .ev-chip.over{background:color-mix(in srgb,var(--ink) 8%,transparent)}
 .ev-chip.over b{color:var(--ink)}
-/* planner */
-.plan-list{list-style:none;margin:0;padding:0;display:grid}
-.plan-list li{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);padding:var(--s3) 0;border-top:1px solid var(--line)}
-.plan-list li:first-child{border-top:0}
-.plan-list label{display:grid;gap:2px;font-weight:600}
-.plan-list small{font-size:.75rem;color:var(--muted);font-weight:400}
-.plan-list .money{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:10px;padding:0 10px;width:110px}
-.plan-list .money input{border:0;background:none;width:100%;height:40px;font:inherit;font-weight:700;color:var(--ink)}
-.seg-mini{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px}
-.seg-mini button{all:unset;cursor:pointer;padding:6px 12px;border-radius:999px;font-size:.93rem;font-weight:600}
-.seg-mini button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
-.plan-add{display:flex;gap:var(--s2)}
-.plan-add input{flex:1;height:40px;border:1px solid var(--line);border-radius:10px;padding:0 12px;font:inherit;background:var(--surface);color:var(--ink)}
-.plan-sum{list-style:none;margin:0;padding:0}
-.plan-sum li{display:flex;justify-content:space-between;padding:var(--s2) 0;border-top:1px solid var(--line)}
-.plan-sum li:first-child{border-top:0}
+/* planner: one question per screen, groups as clear regions, the thing to act on carries the weight */
+.pl-dots{display:flex;gap:6px}
+.pl-dots i{width:22px;height:4px;border-radius:2px;background:var(--line)}
+.pl-dots i.on{background:var(--ink)}
+.pl-title{font-size:1.2rem;margin:0}
+.pl-hint{margin:0;font-size:.93rem;color:var(--muted)}
+.pl-group{border-radius:14px;padding:var(--s4);display:grid;gap:var(--s3)}
+.pl-group.ev,.pl-group.sv{background:color-mix(in srgb,var(--good-fill) 38%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--good) 35%,transparent)}
+.pl-group.fr{background:color-mix(in srgb,var(--ink) 4%,transparent)}
+.pl-group.bl{background:transparent;box-shadow:inset 0 0 0 1px var(--line);opacity:.75}
+.pl-head{display:flex;gap:var(--s3);align-items:flex-start}
+.pl-ic{font-size:1.2rem;line-height:1.2}
+.pl-head b{display:block;font-size:1rem;font-weight:800}
+.pl-head span{display:block;font-size:.93rem;color:var(--muted);line-height:1.35}
+.pl-group.bl .pl-head b{font-weight:700}
+.pl-chips{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.pl-chip{all:unset;cursor:pointer;padding:8px 14px;border-radius:999px;font-weight:700;font-size:.93rem;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 1px var(--line)}
+.pl-group.ev .pl-chip{background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);box-shadow:none}
+.pl-chip:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.pl-empty{font-size:.93rem;color:var(--muted)}
+.pl-list{margin:0;font-size:.93rem;color:var(--muted)}
+.pl-add{display:flex;gap:var(--s2)}
+.pl-add input{flex:1;min-width:0;height:40px;border:1px dashed color-mix(in srgb,var(--ink) 30%,transparent);border-radius:10px;padding:0 12px;font:inherit;background:var(--surface);color:var(--ink)}
+.pl-add button{all:unset;cursor:pointer;padding:0 14px;border-radius:10px;background:var(--ink);color:var(--surface);font-weight:700;font-size:.93rem}
+.pl-amts{list-style:none;margin:0;padding:0}
+.pl-amts li{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);padding:var(--s3) 0;border-top:1px solid color-mix(in srgb,var(--ink) 10%,transparent)}
+.pl-amts li:first-child{border-top:0;padding-top:0}
+.pl-amts label{display:grid;gap:2px}
+.pl-amts label b{font-weight:700}
+.pl-amts label span{font-size:.75rem;color:var(--muted)}
+.pl-money{display:flex;align-items:center;gap:4px;background:var(--surface);border-radius:10px;padding:0 12px;width:112px;box-shadow:inset 0 0 0 1px var(--line)}
+.pl-money em{font-style:normal;color:var(--muted)}
+.pl-money input{border:0;background:none;width:100%;height:44px;font:inherit;font-weight:800;font-size:1rem;color:var(--ink)}
+.pl-money.big{width:auto}
+.pl-money.big input{height:56px;font-size:1.2rem}
+.pl-big{display:grid;gap:var(--s2)}
+.pl-big>span:first-child{font-size:.75rem;font-weight:600;color:var(--muted)}
+.pl-total{display:flex;justify-content:space-between;align-items:baseline;padding-top:var(--s3);border-top:1.5px solid color-mix(in srgb,var(--ink) 18%,transparent)}
+.pl-total span{font-weight:700}
+.pl-total b{font-size:1.2rem;font-weight:800}
+.pl-sum{list-style:none;margin:0;padding:0}
+.pl-sum li{display:flex;justify-content:space-between;padding:var(--s2) 0;font-size:.93rem;color:var(--muted);border-top:1px solid var(--line)}
+.pl-sum li:first-child{border-top:0}
+.pl-sum i{font-style:normal;margin-right:var(--s2)}
+.pl-sum b{color:var(--ink);font-weight:700}
 .plan-free{border-radius:14px;padding:var(--s5);background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);display:grid;gap:var(--s2)}
 .plan-free span{font-weight:700}
 .plan-free .mc-big{margin:0}
@@ -1660,41 +1689,63 @@ html.framed dialog{max-width:416px}
   }
   function drawPlan() {
     const body = $("#planBody"), back = $("#planBack"), next = $("#planNext");
+    const steps = ["groups", "amounts", "savings", "summary"], at = steps.indexOf(plan.step);
+    const dots = `<div class="pl-dots" aria-label="Step ${at + 1} of 4">${steps.map((_, k) => `<i${k <= at ? ' class="on"' : ""}></i>`).join("")}</div>`;
     back.textContent = plan.step === "groups" ? "Not now" : "Back";
     if (plan.step === "groups") {
-      const bill = plan.cats.filter(x => x.group === "bills"), rest = plan.cats.filter(x => x.group !== "bills");
-      body.innerHTML = `<h2 id="planTitle">Where does your money go?</h2>
-        <p class="muted">Everyday is what you spend on every month but choose how much, like groceries, laundry or coffee. Free is everything else.</p>
-        ${bill.length ? `<p class="pot-group" style="margin:0">Bills, set up separately: ${bill.map(x => esc(x.name)).join(", ")}</p>` : ""}
-        <ul class="plan-list">${rest.map(x => `<li><span>${esc(x.name)}</span><span class="seg-mini">
-          <button type="button" data-grp="everyday" data-id="${esc(x.id)}" aria-pressed="${x.group === "everyday"}">Everyday</button>
-          <button type="button" data-grp="free" data-id="${esc(x.id)}" aria-pressed="${x.group === "free"}">Free</button></span></li>`).join("")}</ul>
-        <div class="plan-add"><input id="planAdd" placeholder="Add one, e.g. Coffee" value="${esc(plan.adding)}" aria-label="New everyday category"><button type="button" class="btn ghost small" data-add-cat>Add</button></div>`;
+      const bill = plan.cats.filter(x => x.group === "bills"), ev = plan.cats.filter(x => x.group === "everyday"), fr = plan.cats.filter(x => x.group === "free");
+      const chip = (x, to) => `<button type="button" class="pl-chip" data-move="${esc(x.id)}" data-to="${to}" aria-label="${esc(x.name)}. Move to ${to === "free" ? "Free" : "Everyday"}">${esc(x.name)}</button>`;
+      body.innerHTML = `${dots}
+        <h2 id="planTitle" class="pl-title">Where does your money go?</h2>
+        <p class="pl-hint">Tap a thing to move it between Everyday and Free.</p>
+        <section class="pl-group ev" aria-label="Everyday">
+          <div class="pl-head"><span class="pl-ic" aria-hidden="true">🛒</span><div><b>Everyday</b><span>You'll buy it anyway, but you choose how much. Like food or coffee.</span></div></div>
+          <div class="pl-chips">${ev.map(x => chip(x, "free")).join("") || '<span class="pl-empty">Nothing yet</span>'}</div>
+          <div class="pl-add"><input id="planAdd" placeholder="Add one, e.g. Coffee" value="${esc(plan.adding)}" aria-label="Add an everyday thing"><button type="button" data-add-cat>Add</button></div>
+        </section>
+        <section class="pl-group fr" aria-label="Free">
+          <div class="pl-head"><span class="pl-ic" aria-hidden="true">🎈</span><div><b>Free</b><span>Fun money. Whatever's left over is yours to spend.</span></div></div>
+          <div class="pl-chips">${fr.map(x => chip(x, "everyday")).join("") || '<span class="pl-empty">Nothing here</span>'}</div>
+        </section>
+        ${bill.length ? `<section class="pl-group bl" aria-label="Bills">
+          <div class="pl-head"><span class="pl-ic" aria-hidden="true">🧾</span><div><b>Bills</b><span>Must pay, same time every month. Like rent. Set up separately.</span></div></div>
+          <p class="pl-list">${bill.map(x => esc(x.name)).join(" · ")}</p>
+        </section>` : ""}`;
       next.textContent = "Next";
       return;
     }
     if (plan.step === "amounts") {
       const ev = plan.cats.filter(x => x.group === "everyday"), last = lastCycleSpend();
-      body.innerHTML = `<h2 id="planTitle">How much do you want to spend each month?</h2>
-        <p class="muted">${ev.length ? "A rough amount is fine. You can change it any time." : "Nothing is set as Everyday. Go back to choose some, or carry on."}</p>
-        <ul class="plan-list amounts">${ev.map(x => `<li><label for="amt-${esc(x.id)}"><span>${esc(x.name)}</span>${last[x.id] ? `<small>Last month ${money(last[x.id])}</small>` : ""}</label>
-          <span class="money"><em>£</em><input id="amt-${esc(x.id)}" data-amt="${esc(x.id)}" inputmode="decimal" placeholder="0" value="${x.budget ? x.budget : (last[x.id] ? Math.round(last[x.id]) : "")}"></span></li>`).join("")}</ul>`;
+      const total = r2(ev.reduce((s2, x) => s2 + (+x.budget || 0), 0));
+      body.innerHTML = `${dots}
+        <h2 id="planTitle" class="pl-title">How much each month?</h2>
+        <p class="pl-hint">${ev.length ? "Pick what feels right. You can change it any time." : "Nothing is in Everyday. Go back to add some, or carry on."}</p>
+        ${ev.length ? `<section class="pl-group ev">
+          <ul class="pl-amts">${ev.map(x => `<li><label for="amt-${esc(x.id)}"><b>${esc(x.name)}</b>${last[x.id] ? `<span>Last month ${money(last[x.id])}</span>` : ""}</label>
+            <span class="pl-money"><em>£</em><input id="amt-${esc(x.id)}" data-amt="${esc(x.id)}" inputmode="decimal" placeholder="0" value="${x.budget ? x.budget : (last[x.id] ? Math.round(last[x.id]) : "")}"></span></li>`).join("")}</ul>
+          <div class="pl-total"><span>Everyday each month</span><b class="num" id="plTotal">${money(total)}</b></div>
+        </section>` : ""}`;
       next.textContent = "Next";
       return;
     }
     if (plan.step === "savings") {
-      body.innerHTML = `<h2 id="planTitle">How much do you save each month?</h2>
-        <p class="muted">The money you move into savings on payday. Leave it at 0 if you don't yet.</p>
-        <label class="field bigmoney"><span>Savings each month</span><span class="money"><em>£</em><input id="planSave" inputmode="decimal" placeholder="0" value="${esc(plan.save)}"></span></label>`;
+      body.innerHTML = `${dots}
+        <h2 id="planTitle" class="pl-title">How much do you save?</h2>
+        <section class="pl-group sv">
+          <div class="pl-head"><span class="pl-ic" aria-hidden="true">🐷</span><div><b>Savings</b><span>Money you hide away for later, like a piggy bank. Put it away on payday so you never miss it.</span></div></div>
+          <label class="pl-big"><span>Each month</span><span class="pl-money big"><em>£</em><input id="planSave" inputmode="decimal" placeholder="0" value="${esc(plan.save)}"></span></label>
+        </section>`;
       next.textContent = "See my free money";
       return;
     }
     const n = planNumbers(), fAbs = Math.abs(n.free), fw = Math.floor(fAbs), fp = Math.round((fAbs - fw) * 100) % 100;
-    const row = (k, v, sign) => `<li><span>${k}</span><b class="num">${sign}${money(v)}</b></li>`;
-    body.innerHTML = `<h2 id="planTitle">Your free money</h2>
-      <ul class="plan-sum">${row("Pay you can count on", n.income, "")}${row("Bills", n.billsM, "−")}${row("Savings", n.save, "−")}${row("Everyday", n.every, "−")}</ul>
-      <div class="plan-free"><span>${n.free >= 0 ? "Free each month" : "Short each month"}</span><p class="mc-big num"><span class="int">${n.free < 0 ? "−" : ""}£${fw.toLocaleString("en-GB")}</span><span class="pence">.${pad(fp)}</span></p>
-      <small>${n.free >= 0 ? `About ${money(r2(n.free / 30))} a day to spend however you like` : "Trim an everyday amount or your savings to balance it"}</small></div>`;
+    const row = (ic, k, v, sign) => `<li><span><i aria-hidden="true">${ic}</i>${k}</span><b class="num">${sign}${money(v)}</b></li>`;
+    body.innerHTML = `${dots}
+      <div class="plan-free"><span>${n.free >= 0 ? "Your free money each month" : "You'd be short each month"}</span>
+        <p class="mc-big num"><span class="int">${n.free < 0 ? "−" : ""}£${fw.toLocaleString("en-GB")}</span><span class="pence">.${pad(fp)}</span></p>
+        <small>${n.free >= 0 ? `About ${money(r2(n.free / 30))} a day for whatever you like` : "Lower an everyday amount or your savings to balance it"}</small></div>
+      <p class="pl-hint" style="margin-top:var(--s4)">How it's worked out</p>
+      <ul class="pl-sum">${row("💷", "Pay you can count on", n.income, "")}${row("🧾", "Bills", n.billsM, "−")}${row("🐷", "Savings", n.save, "−")}${row("🛒", "Everyday", n.every, "−")}</ul>`;
     next.textContent = "Done";
   }
   function planNext() {
@@ -1713,9 +1764,14 @@ html.framed dialog{max-width:416px}
     if (i <= 0) return $("#planDlg").close();
     plan.step = order[i - 1]; drawPlan();
   };
+  $("#planBody").addEventListener("input", e => {
+    if (!e.target.matches("[data-amt]")) return;
+    capturePlan();
+    const t2 = $("#plTotal"); if (t2) t2.textContent = money(r2(plan.cats.filter(x => x.group === "everyday").reduce((s2, x) => s2 + (+x.budget || 0), 0)));
+  });
   $("#planBody").addEventListener("click", e => {
-    const g = e.target.closest("[data-grp]");
-    if (g) { capturePlan(); const x = plan.cats.find(k => k.id === g.dataset.id); if (x) x.group = g.dataset.grp; return drawPlan(); }
+    const mv = e.target.closest("[data-move]");
+    if (mv) { capturePlan(); const x = plan.cats.find(k => k.id === mv.dataset.move); if (x) x.group = mv.dataset.to; return drawPlan(); }
     if (e.target.closest("[data-add-cat]")) {
       capturePlan();
       const name = (plan.adding || "").trim().slice(0, 30); if (!name) return toast("Type a name first, e.g. Coffee");
