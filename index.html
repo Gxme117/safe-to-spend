@@ -770,6 +770,7 @@ html.framed dialog{max-width:416px}
     <div class="hero-wrap wallet" id="wallet"><div class="wcard" id="bankCard" hidden role="button" tabindex="0" aria-label="Show your Monzo card"></div><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
     <div id="everydayRow"></div>
     <div id="shortTodo"></div>
+    <div id="declineTodo"></div>
     <div id="askTx"></div>
     <div id="checkin"></div>
     <div class="panel">
@@ -1342,7 +1343,24 @@ html.framed dialog{max-width:416px}
       const stamp = Date.now();
       const add = {};
       let added = 0;
+      const decl = JSON.parse(JSON.stringify(state.declines || []));
+      const dKey = n => String(n || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24);
       for (const t of txs) {
+        if (t && t.id && t.decline_reason && t.amount < 0) {
+          const name = String(t.merchant || t.description || "A company").trim().slice(0, 60), key = dKey(name);
+          let d = decl.find(x => x.key === key);
+          if (!d) { d = {key, name, amount: 0, last: "", count: 0, ids: [], status: "open"}; decl.push(d); }
+          if (!d.ids.includes(t.id)) {
+            d.ids.push(t.id); d.ids = d.ids.slice(-10); d.count++;
+            d.amount = r2(Math.abs(t.amount) / 100); d.last = isoD(new Date(t.created));
+            if (d.status === "keep" || d.status === "dismiss") d.status = "open";   // tried again: ask again
+          }
+          continue;
+        }
+        if (t && t.id && t.amount < 0 && !t.decline_reason) {
+          const d = decl.find(x => x.key === dKey(t.merchant || t.description) && x.status === "cancel");
+          if (d) { d.status = "charged"; d.amount = r2(Math.abs(t.amount) / 100); d.last = isoD(new Date(t.created)); }
+        }
         if (!t || !t.id || known.has(t.id) || t.decline_reason || !t.amount) continue;
         if (String(t.description || "").startsWith("pot_") || t.category === "savings") continue;
         const date = isoD(new Date(t.created));
@@ -1364,7 +1382,8 @@ html.framed dialog{max-width:416px}
       for (const k in add) writeMonth(k, items => items.concat(add[k]));
       // the bank's numbers are the truth: re-anchor spending money to them
       saveState({...state, balance: spendMoney, balanceSetAt: stamp, balanceAsOf: today(),
-        bank: {...b, main, pots, asOf: new Date(stamp).toISOString()}});
+        bank: {...b, main, pots, asOf: new Date(stamp).toISOString()},
+        declines: decl.filter(x => x.status !== "done" && x.last >= addDays(today(), -45))});
       toast(added ? `Updated from Monzo. ${added} new payment${added > 1 ? "s" : ""} added` : "Updated from Monzo. No new payments", true);
     } catch (e) {
       toast(e && e.friendly ? e.friendly : refreshError(e));
@@ -1728,6 +1747,37 @@ html.framed dialog{max-width:416px}
     $("#shortMoved").onclick = () => { if (mcp) refreshBank(); else toast("Once it's moved, tap refresh in the desktop app so the app sees it."); };
   }
 
+  /* ---------- declined payments: keep it or cancel it ---------- */
+  function renderDeclines() {
+    const box = $("#declineTodo");
+    const list = (state && !viewDay) ? (state.declines || []).filter(d => d.status === "open" || d.status === "charged") : [];
+    const key = list.map(d => d.key + d.status + d.count).join("|");
+    if (box.dataset.key === key && box.innerHTML) return;
+    box.dataset.key = key;
+    box.innerHTML = list.map(d => d.status === "charged" ? `
+      <details class="panel checkin todo"><summary><span class="todo-dot" aria-hidden="true"></span><span class="todo-txt">${esc(d.name)} charged you after you cancelled<small>${money(d.amount)} on ${niceDate(d.last)}</small></span></summary>
+        <h2>${esc(d.name)} took ${money(d.amount)}</h2>
+        <p class="muted">You said you'd cancel this. If you did, ask ${esc(d.name)} for a refund. If the cancel didn't go through, cancel it again where you signed up.</p>
+        <div class="row-btns"><button class="btn primary" type="button" data-dec="done" data-key="${esc(d.key)}">Sorted</button><button class="btn ghost" type="button" data-dec="keep" data-key="${esc(d.key)}">Actually, keep it</button></div>
+      </details>` : `
+      <details class="panel checkin todo"><summary><span class="todo-dot" aria-hidden="true"></span><span class="todo-txt">${esc(d.name)} tried to take ${money(d.amount)}<small>Declined${d.count > 1 ? ` ${d.count} times` : ""}, last on ${niceDate(d.last)}</small></span></summary>
+        <h2>Keep paying ${esc(d.name)}?</h2>
+        <p class="muted">There wasn't enough in your main account, so it didn't go through.</p>
+        <div class="row-btns"><button class="btn primary" type="button" data-dec="keep" data-key="${esc(d.key)}">Keep it</button><button class="btn ghost" type="button" data-dec="cancel" data-key="${esc(d.key)}">Cancel it</button><button class="btn ghost" type="button" data-dec="dismiss" data-key="${esc(d.key)}">Not sure yet</button></div>
+      </details>`).join("");
+  }
+  $("#declineTodo").addEventListener("click", e => {
+    const b2 = e.target.closest("[data-dec]"); if (!b2) return;
+    const d = (state.declines || []).find(x => x.key === b2.dataset.key); if (!d) return;
+    const act = b2.dataset.dec;
+    const apple = /apple|itunes/i.test(d.name);
+    saveState({...state, declines: (state.declines || []).map(x => x.key === d.key ? {...x, status: act === "dismiss" ? "dismiss" : act} : x)});
+    if (act === "keep") toast(`Move ${money(d.amount)} into your main account so ${d.name}'s next try goes through`, true);
+    else if (act === "cancel") toast(apple ? `Cancel it on your iPhone: Settings, your name, then Subscriptions. I'll tell you if ${d.name} charges you again` : `Cancel it where you signed up. I'll tell you if ${d.name} charges you again`, true);
+    else if (act === "done") toast("Marked as sorted", true);
+    else toast(`I'll ask again if ${d.name} tries again`);
+  });
+
   /* ---------- everyday: Day tab at a glance ---------- */
   function renderEveryday(c) {
     const box = $("#everydayRow");
@@ -2079,7 +2129,7 @@ html.framed dialog{max-width:416px}
     tt.style.whiteSpace = "nowrap"; tt.style.fontSize = "";
     for (let px = parseFloat(getComputedStyle(tt).fontSize); tt.scrollWidth > tt.clientWidth + 1 && px > 22; ) { px -= 1; tt.style.fontSize = px + "px"; }
     $("#balanceLine").hidden = true;
-    renderPots(); renderBills(c); renderEveryday(c); renderShort(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderSplit(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
+    renderPots(); renderBills(c); renderEveryday(c); renderShort(c); renderDeclines(); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderSplit(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
   function renderHero(c) {
