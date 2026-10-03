@@ -1631,7 +1631,12 @@ html.framed dialog{max-width:416px}
   /* ---------- render ---------- */
   function render() {
     const c = calc();
-    $("#monthTitle").textContent = monthName(c.cur);
+    // today's date, e.g. "Saturday 3 October"
+    const tt = $("#monthTitle");
+    tt.textContent = parseD(c.t).toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long"});
+    // long dates like "Wednesday 30 September" ease down a little to stay on one line
+    tt.style.whiteSpace = "nowrap"; tt.style.fontSize = "";
+    for (let px = parseFloat(getComputedStyle(tt).fontSize); tt.scrollWidth > tt.clientWidth + 1 && px > 22; ) { px -= 1; tt.style.fontSize = px + "px"; }
     $("#balanceLine").hidden = true;
     renderPots(); renderBills(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
