@@ -441,7 +441,7 @@ body{background:transparent}
 #hero .lead{color:inherit;opacity:.85;font-weight:700}
 #hero .sub{color:inherit;opacity:.85;font-size:.93rem;line-height:1.4}
 /* first card flips: today's amount on the front, days to payday on the back */
-#hero.hero.flippable{padding:0;background:none;border:0;box-shadow:none;perspective:1200px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#hero.hero.flippable{padding:0;background:none;border:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;perspective:1200px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 #hero.flippable:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:14px}
 #hero .flip{display:grid;align-items:start;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.2,.75,.2,1),height .35s ease}
 #hero.flipped .flip{transform:rotateY(180deg)}
