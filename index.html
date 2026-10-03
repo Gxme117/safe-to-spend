@@ -71,27 +71,22 @@
 .mc-day b{font-size:.93rem;font-weight:700}
 .mc-day small{font-size:.75rem;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
 .mc-day.none{opacity:.35}
-.mc-day.best{background:color-mix(in srgb,var(--good-fill) 45%,transparent)}
-.mc-day.best small{color:var(--ink)}
+.mc-day.spent small{color:var(--ink)}
 .mc-day.zero{background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000)}
 .mc-day.zero small{color:inherit}
-.mc-day.over{background:var(--ink);color:var(--surface)}
-.mc-day.over small{color:inherit;opacity:.8}
 .mc-day.bill small{color:var(--ink)}
 .mc-day.bill small::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ink);margin-right:3px;vertical-align:1px}
 .mc-day.today{border-color:var(--ink);border-width:2px}
 .mc-day.pay{background:var(--good-soft);border-color:var(--good)}
 .mc-day.pay small{color:var(--good)}
-.mc-day.low{border:2px dashed var(--ink)}
 .mc-day.sel{box-shadow:0 0 0 2px var(--focus)}
 .mc-day:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .mc-key{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);margin-top:var(--s3);font-size:.75rem;color:var(--muted)}
 .mc-key span{display:inline-flex;align-items:center;gap:6px}
 .mc-key i{width:10px;height:10px;border-radius:3px;display:inline-block}
-.mc-key .k-best{background:color-mix(in srgb,var(--good-fill) 45%,transparent)}
-.mc-key .k-over{background:var(--ink)}
+.mc-key .k-zero{background:var(--btn-bg,var(--good-fill))}
+.mc-key .k-pay{background:var(--good-soft);box-shadow:inset 0 0 0 1px var(--good)}
 .mc-key .k-bill{border-radius:50%;background:var(--ink);width:6px;height:6px}
-.mc-key .k-low{border:1.5px dashed var(--ink)}
 .mc-detail{margin:var(--s3) 0 0;font-size:.93rem;padding:var(--s3);border-radius:10px;background:color-mix(in srgb,var(--ink) 5%,transparent)}
 .avatar{width:44px;height:44px;flex:none;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:.93rem;font-weight:800;display:grid;place-items:center;padding:0;cursor:pointer;overflow:hidden}
 .avatar svg{width:22px;height:22px}
@@ -1859,7 +1854,7 @@ html.framed dialog{max-width:416px}
       ? `Lasts you until payday, ${niceDate(c.payday)}`
       : spentToday <= allowance
         ? `${money(r2(allowance - spentToday))} left today after ${money(spentToday)} spent`
-        : `${money(r2(spentToday - allowance))} over today, so tomorrow gets less`;
+        : `${money(spentToday)} spent today. The days ahead adjust`;
     const nextUp = [...(c.billsDue || []).map(x => ({d: x.d, name: x.b.name, amt: money(x.b.amount || 0)})),
       ...(mainSrc && c.payday ? [{d: c.payday, name: `${mainSrc.name} pay`, amt: `+${money(mainSrc.varies ? mainSrc.low : (mainSrc.amount || 0))}`}] : [])]
       .sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
@@ -1924,26 +1919,10 @@ html.framed dialog{max-width:416px}
     // MONTH: payday to payday
     const cyc = $("#cycleCard");
     cyc.hidden = false;
-    // --- where your money is heading: walk each day to payday at your real pace
-    const pastDays = [];
-    for (let d = start > tracked ? start : tracked; d < c.t; d = addDays(d, 1)) pastDays.push(d);
-    // early in the cycle a single big day shouldn't swing everything: missing days count as "on plan" until there's a week of history
-    const PACE_DAYS = 7, spentSoFar = pastDays.reduce((s2, d) => s2 + (spentOn[d] || 0), 0);
-    const pace = r2((spentSoFar + allowance * Math.max(0, PACE_DAYS - pastDays.length)) / Math.max(pastDays.length, PACE_DAYS));
+    // no "pace" judgement: spending big one day simply lowers the amount for the days after, and that's fine
     const dueOn = {};
     for (const x of (c.billsDue || [])) (dueOn[x.d] = dueOn[x.d] || []).push(x.b);
-    const proj = {};
-    let bal = c.balance, runOut = null, low = {d: c.t, v: Infinity};
-    for (let d = c.t; d < c.payday; d = addDays(d, 1)) {
-      bal -= (dueOn[d] || []).reduce((s2, b2) => s2 + (b2.amount || 0), 0);
-      bal -= d === c.t ? Math.max(0, pace - spentToday) : pace;
-      proj[d] = r2(bal);
-      if (bal < 0 && !runOut) runOut = d;
-      if (bal < low.v) low = {d, v: r2(bal)};
-    }
-    if (low.v === Infinity) low = {d: c.t, v: c.balance};
-    const brokest = runOut || low.d;
-    const lowAbs = Math.abs(low.v), lw = Math.floor(lowAbs), lp = Math.round((lowAbs - lw) * 100) % 100;
+    const freeAbs = Math.abs(free), fw = Math.floor(freeAbs), fp = Math.round((freeAbs - fw) * 100) % 100;
     // --- the calendar: payday to payday, weeks start on Monday
     const first = parseD(start), lead = (first.getDay() + 6) % 7;
     let cells = ["M", "T", "W", "T", "F", "S", "S"].map(d => `<span class="mc-dow" aria-hidden="true">${d}</span>`).join("") + "<span></span>".repeat(lead);
@@ -1953,26 +1932,21 @@ html.framed dialog{max-width:416px}
       if (d === c.payday) { cls.push("pay"); note = "Pay"; label += ", payday"; }
       else if (d < c.t) {
         if (d < tracked) { cls.push("none"); }
-        else if (!spent) { cls.push("best", "zero"); note = "★"; label += ", no-spend day"; }
-        else { cls.push(spent <= allowance ? "best" : "over"); note = "£" + Math.round(spent); label += `, spent ${money(spent)}`; }
+        else if (!spent) { cls.push("zero"); note = "★"; label += ", no-spend day"; }
+        else { cls.push("spent"); note = "£" + Math.round(spent); label += `, spent ${money(spent)}`; }
       } else {
         const due = (dueOn[d] || []).reduce((s2, b2) => s2 + (b2.amount || 0), 0);
         if (due) { cls.push("bill"); note = "£" + Math.round(due); label += `, ${(dueOn[d] || []).map(b2 => b2.name).join(" and ")} due`; }
         if (d === c.t) { cls.push("today"); label += ", today"; if (!due && spent) note = "£" + Math.round(spent); }
-        if (d === brokest) { cls.push("low"); label += ", lowest point"; }
       }
       cells += `<button type="button" class="${cls.join(" ")}" data-mday="${d}" aria-label="${esc(label)}"><b>${n}</b><small>${note}</small></button>`;
     }
     cyc.innerHTML = `
-      <div class="panel-head"><h2>${runOut ? "You'd run short" : "Lowest point before payday"}</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
-      <p class="mc-big num${low.v < 0 ? " neg" : ""}"><span class="int">${low.v < 0 ? "−" : ""}£${lw.toLocaleString("en-GB")}</span><span class="pence">.${pad(lp)}</span></p>
-      <p class="mc-sub">${runOut ? `At your pace you'd hit £0 on ${niceDate(runOut)}` : `On ${niceDate(low.d)}, at your pace`}</p>
-      <div class="mc-stats num">
-        <div><span>Your pace</span><b>${money(pace)} a day</b></div>
-        <div><span>Safe to spend</span><b>${money(allowance)} a day</b></div>
-      </div>
+      <div class="panel-head"><h2>${free >= 0 ? "Free until payday" : "Short before payday"}</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
+      <p class="mc-big num${free < 0 ? " neg" : ""}"><span class="int">${free < 0 ? "−" : ""}£${fw.toLocaleString("en-GB")}</span><span class="pence">.${pad(fp)}</span></p>
+      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills. Spend it whenever suits you` : `Your bills before payday are more than you have`}</p>
       <div class="mc-grid" role="group" aria-label="Payday to payday calendar">${cells}</div>
-      <div class="mc-key"><span><i class="k-best"></i>Under your daily amount</span><span><i class="k-over"></i>Over</span><span><i class="k-bill"></i>Bill due</span><span><i class="k-low"></i>Lowest point</span></div>
+      <div class="mc-key"><span><i class="k-zero"></i>No-spend day</span><span><i class="k-bill"></i>Bill due</span><span><i class="k-pay"></i>Payday</span></div>
       <p class="mc-detail" id="mcDetail" hidden></p>`;
     cyc.querySelector(".mc-grid").onclick = e => {
       const btn = e.target.closest(".mc-day"); if (!btn) return;
@@ -1983,7 +1957,7 @@ html.framed dialog{max-width:416px}
       det.hidden = false;
       det.innerHTML = d === c.payday
         ? `<b>${niceDate(d)}</b>: payday. ${mainSrc ? `${esc(mainSrc.name)} pays at least ${money(mainSrc.varies ? mainSrc.low : (mainSrc.amount || 0))}.` : ""}`
-        : `<b>${niceDate(d)}</b>: ${bl.length ? bl.map(b2 => `${esc(b2.name)} ${money(b2.amount || 0)}`).join(", ") + " due. " : "No bills. "}About ${money(Math.max(proj[d] ?? 0, -9e9))} left by the end of the day.`;
+        : `<b>${niceDate(d)}</b>: ${bl.length ? bl.map(b2 => `${esc(b2.name)} ${money(b2.amount || 0)}`).join(", ") + " due. It's already set aside, so it won't touch your daily amount." : "No bills due."}`;
     };
 
     // MONTH: what's coming, in date order
