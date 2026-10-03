@@ -1,4 +1,5 @@
 import {addDays, isoD, parseD, workingAfter, workingBefore} from "./dates";
+import {r2} from "./money";
 import type {Bill, BillFreq, BillMethod, Ctx, IsoDate} from "./types";
 
 export const BILL_FREQ: Record<BillFreq, string> = {
@@ -60,4 +61,25 @@ export const billSource = (b: Bill) => b.from?.kind === "other" ? (b.from.name |
 /** "Next Mon 5 Oct. From main account, direct debit" */
 export function billMeta(b: Bill, next: string | null) {
   return `${next ? `Next ${next}` : BILL_FREQ[b.freq]}. From ${billSource(b)}${b.method ? `, ${METHOD_META[b.method]}` : ""}`;
+}
+
+/** Which due date a payment counts towards: the next unpaid one on or after it (past ones are no longer held back anyway). */
+export function billFor(ctx: Ctx, b: Bill, date: IsoDate) {
+  const ds = billDates(b, date, addDays(date, 45));
+  return ds.find(d => !billPaid(ctx, b, d)) || ds[0] || null;
+}
+
+export interface BillForm { name: string; amount: number; varies: boolean; freq: BillFreq; day: number | "last" | null; date: IsoDate; method: BillMethod | null }
+
+export function buildBill(f: BillForm, id: string, old?: Bill): {bill: Bill} | {error: string} {
+  const name = f.name.trim();
+  if (!name) return {error: "Give this bill a name, e.g. Rent"};
+  if (!(f.amount > 0)) return {error: "Enter how much it is, e.g. 650"};
+  if (f.freq === "monthly" && !f.day) return {error: "Pick the day it goes out"};
+  if (f.freq !== "monthly" && !f.date) return {error: "Pick the next date it goes out"};
+  const bill: Bill = {id, name: name.slice(0, 40), amount: r2(f.amount), varies: f.varies, freq: f.freq, from: old?.from || {kind: "main"}};
+  if (f.freq === "monthly") bill.day = f.day!; else bill.date = f.date;
+  if (f.method) bill.method = f.method;
+  if (old?.cat) bill.cat = old.cat;
+  return {bill};
 }

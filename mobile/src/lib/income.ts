@@ -1,4 +1,5 @@
 import {addDays, isoD, lastOfMonth, parseD, workingBefore} from "./dates";
+import {r2} from "./money";
 import type {Ctx, Income, IncomeFreq, IsoDate} from "./types";
 
 export const FREQ: Record<IncomeFreq, string> = {
@@ -86,4 +87,33 @@ export function cycleStart(ctx: Ctx): IsoDate {
 export function incomeForMonth(ctx: Ctx, k: string) {
   const from = k + "-01", to = lastOfMonth(k);
   return ctx.state.incomes.reduce((sum, s) => sum + occurrences(s, from, to).length * lowAmt(s), 0);
+}
+
+export const needsDate = (f: IncomeFreq) => !["monthly-lastworking", "monthly-lastfri"].includes(f);
+export const dateLabel = (f: IncomeFreq) =>
+  f === "oneoff" ? "When do you expect it?" : f === "monthly-date" ? "Next pay date (sets the day of the month)" : "Next pay date";
+
+export interface IncomeForm {
+  name: string; type: Income["type"]; freq: IncomeFreq; date: IsoDate;
+  varies: boolean; amount: number; low: number; typical: number; main: boolean;
+}
+
+/** Turns the form into an income, with the same rules and messages as the web app. */
+export function buildIncome(f: IncomeForm, old: Income | undefined, id: string, t: IsoDate): {src: Income} | {error: string} {
+  const name = f.name.trim();
+  if (!name) return {error: "Give this income a name, e.g. Pharmacy"};
+  if (needsDate(f.freq) && !f.date) return {error: "Add the next date this money arrives"};
+  const src: Income = {id, name: name.slice(0, 40), type: f.type, freq: f.freq, varies: f.varies, since: old?.since || t};
+  if (f.freq === "oneoff" && f.date && f.date < src.since!) src.since = f.date;
+  if (["weekly", "fortnightly", "fourweekly", "oneoff"].includes(f.freq)) src.date = f.date;
+  if (f.freq === "monthly-date") src.day = parseD(f.date).getDate();
+  if (f.varies) {
+    if (!(f.low >= 0)) return {error: "Enter the lowest amount you'd expect"};
+    src.low = r2(f.low); src.typical = Number.isNaN(f.typical) ? r2(f.low) : r2(Math.max(f.typical, f.low));
+  } else {
+    if (!(f.amount > 0)) return {error: "Enter how much arrives each time, after tax"};
+    src.amount = r2(f.amount);
+  }
+  src.main = f.freq !== "oneoff" && f.main;
+  return {src};
 }
