@@ -1,0 +1,9 @@
+{
+  "name": "money-tracker",
+  "private": true,
+  "type": "module",
+  "description": "Personal money tracker: what can I spend today?",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

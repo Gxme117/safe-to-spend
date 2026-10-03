@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en-GB" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Money tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<button id="frameBtn" class="btn ghost small frame-btn" type="button" hidden></button>
+<div class="device" id="device">
+<div class="island" aria-hidden="true"></div>
+<div class="screen" id="screen">
+<div class="statusbar" aria-hidden="true"><span id="sbTime" class="num">9:41</span><span class="sb-icons">
+  <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+  <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 2.2c2.4 0 4.6.9 6.3 2.5l1.2-1.3A10.6 10.6 0 0 0 8 .4 10.6 10.6 0 0 0 .5 3.4l1.2 1.3A9 9 0 0 1 8 2.2zm0 3.6c1.4 0 2.7.5 3.7 1.4l1.2-1.3A7.1 7.1 0 0 0 8 4a7.1 7.1 0 0 0-4.9 1.9l1.2 1.3c1-.9 2.3-1.4 3.7-1.4zM8 9.4c.5 0 1 .2 1.3.5L8 11.3 6.7 9.9c.3-.3.8-.5 1.3-.5z"/></svg>
+  <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2"/><rect x="24.5" y="4.5" width="1.5" height="4" rx=".75" opacity=".4"/></svg>
+</span></div>
+<header class="top">
+  <div class="top-id">
+    <button id="acctBtn" class="avatar" type="button" aria-label="Your account"><span id="acctInit" aria-hidden="true"></span></button>
+    <div class="top-title">
+      <div class="date-row"><h1 id="monthTitle">This month</h1><div class="day-nav" aria-label="Choose a day"><button type="button" id="dayPrev" aria-label="Previous day">‹</button><button type="button" id="dayNext" aria-label="Next day">›</button><button type="button" id="calBtn" aria-label="Open calendar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16.5" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg></button></div></div>
+      <p id="balanceLine" class="muted num"></p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <div class="tabs" role="tablist" aria-label="View">
+      <button role="tab" id="tabMonth" aria-selected="true" type="button">Day</button>
+      <button role="tab" id="tabPlan" aria-selected="false" type="button">Month</button>
+      <button role="tab" id="tabYear" aria-selected="false" type="button">Future</button>
+    </div>
+    <button id="syncBtn" class="btn ghost theme-btn" type="button" aria-label="Refresh from your bank"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg></button>
+    <button id="themeBtn" class="btn ghost theme-btn" type="button" aria-label="Switch to dark mode"></button>
+    <button id="openSettings" class="btn ghost" type="button" aria-label="Settings"><svg class="gear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="set-txt">Settings</span></button>
+  </div>
+</header>
+
+<main class="today-view" id="monthView">
+    <div class="hero-wrap wallet" id="wallet"><div class="wcard" id="bankCard" hidden role="button" tabindex="0" aria-label="Show your Monzo card"></div><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
+    <div id="everydayRow"></div>
+    <div id="shortTodo"></div>
+    <div id="declineTodo"></div>
+    <div id="askTx"></div>
+    <div id="checkin"></div>
+    <div class="panel">
+      <div class="panel-head"><h2 id="todayHead">Spent today</h2><button class="btn primary small" type="button" id="openAdd">Add payment</button></div>
+      <ul id="todayList" class="tx"></ul>
+    </div>
+</main>
+
+<main class="today-view" id="planView" hidden>
+    <div class="panel" id="cycleSum" hidden></div>
+    <div class="panel" id="cycleCard"></div>
+    <div class="panel" id="comingCard"></div>
+    <div class="panel" id="billsPanel">
+      <div class="panel-head"><h2>Bills</h2><div style="display:flex;gap:var(--s3);align-items:baseline"><span id="billsSum" class="muted num"></span><button class="btn ghost small" type="button" data-bill-wiz id="addBillBtn" hidden>Add bill</button></div></div>
+      <div id="billsBody"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Everyday</h2><div style="display:flex;gap:10px;align-items:baseline"><span id="budgetSum" class="muted num"></span><button class="btn ghost small" type="button" data-plan>Plan</button></div></div>
+      <ul id="cats" class="cats"></ul>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Payments this month</h2></div>
+      <div id="monthSum" class="month-sum num"></div>
+      <ul id="txList" class="tx"></ul>
+      <button type="button" class="link-btn" id="txMore" hidden></button>
+    </div>
+</main>
+
+<dialog id="addDlg" aria-labelledby="addTitle">
+  <form id="addForm" class="dlg" autocomplete="off">
+      <h2 id="addTitle">Add a payment</h2>
+      <div class="seg" role="radiogroup" aria-label="Transaction type">
+        <label><input type="radio" name="kind" value="expense" checked><span>Spent</span></label>
+        <label><input type="radio" name="kind" value="income"><span>Received</span></label>
+      </div>
+      <div class="fields">
+        <label class="field"><span>Amount</span>
+          <div class="money"><em>£</em><input id="fAmt" inputmode="decimal" placeholder="0.00" required></div>
+        </label>
+        <label class="field"><span>Category</span><select id="fCat"></select></label>
+        <label class="field"><span>Note</span><input id="fNote" placeholder="e.g. Tesco"></label>
+        <label class="field"><span>Date</span><input id="fDate" type="date" required></label>
+      </div>
+      <div class="dlg-foot"><button class="btn ghost" type="button" id="addCancel">Cancel</button><button class="btn primary" type="submit">Add payment</button></div>
+    </form>
+</dialog>
+
+<section class="year" id="yearView" hidden>
+  <div class="year-bar">
+    <div class="yr-switch">
+      <button type="button" id="yrPrev" aria-label="Previous year">‹</button>
+      <b id="yrLabel" class="num">2026</b>
+      <button type="button" id="yrNext" aria-label="Next year">›</button>
+    </div>
+    <form class="usual" id="usualForm">
+      <label for="usualPay" class="muted">Usual monthly pay</label>
+      <div class="money"><em>£</em><input id="usualPay" inputmode="decimal" placeholder="0"></div>
+      <button class="btn ghost small" type="submit">Save</button>
+    </form>
+  </div>
+  <div class="tiles" id="tiles"></div>
+  <div class="panel chart">
+    <div class="panel-head"><h2>Left over each month</h2><span class="muted" style="font-size:.93rem">Money in minus money out</span></div>
+    <div id="chart"></div>
+    <div class="key"><span><i class="a"></i>What happened</span><span><i class="p"></i>Your plan</span></div>
+  </div>
+  <div id="goal" class="panel"></div>
+  <div class="sheet-wrap"><table class="sheet" id="sheet"></table></div>
+  <p class="legend-note">Grey figures are your plan, and the others are what actually happened. Click any plan figure in this month or a future month to change it, and clear it to go back to the monthly budget. Underlined figures went over plan.</p>
+</section>
+
+<dialog id="settings" aria-labelledby="setTitle">
+  <form id="setForm" class="dlg" method="dialog">
+    <h2 id="setTitle">Settings</h2>
+    <div>
+      <p class="hint muted" style="margin:0 0 var(--s3)">Look. Tap one to try it straight away.</p>
+      <div class="looks" id="looks" role="radiogroup" aria-label="Look"></div>
+    </div>
+    <div class="two">
+      <label class="field"><span>Current balance</span>
+        <div class="money"><em>£</em><input id="sBal" inputmode="decimal" placeholder="0.00"></div>
+      </label>
+      <label class="field"><span>Next payday</span><input id="sPay" type="date"></label>
+    </div>
+    <p class="hint muted">Change the balance to match your bank app. Everything you add after that updates it.</p>
+    <div class="two">
+      <label class="field"><span>Savings goal</span><input id="sGoalName" placeholder="e.g. Emergency fund"></label>
+      <label class="field"><span>Goal amount</span>
+        <div class="money"><em>£</em><input id="sGoalTarget" inputmode="decimal" placeholder="0"></div>
+      </label>
+    </div>
+    <div>
+      <div class="panel-head"><h2>Monthly budgets</h2><button id="addCat" class="btn ghost small" type="button">Add category</button></div>
+      <p class="hint muted" style="margin:calc(-1 * var(--s2)) 0 var(--s3)">Tick "Bill" for fixed payments like rent. They're set aside before working out what's safe to spend.</p>
+      <div id="catRows" class="catrows"></div>
+    </div>
+    <div class="dlg-foot">
+      <button class="btn ghost" type="button" id="cancelSet">Cancel</button>
+      <button class="btn primary" type="submit" id="saveSet">Save settings</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="incomeDlg" aria-labelledby="incTitle">
+  <form id="incForm" class="dlg">
+    <h2 id="incTitle">Add income</h2>
+    <div class="two">
+      <label class="field"><span>Name</span><input id="iName" placeholder="e.g. Pharmacy" required></label>
+      <label class="field"><span>Where it comes from</span><select id="iType">
+        <option value="work">Work</option><option value="business">Side business</option><option value="student">Student Finance</option>
+        <option value="benefits">Benefits</option><option value="family">Family or friends</option><option value="other">Other</option></select></label>
+    </div>
+    <div class="two">
+      <label class="field"><span>How often</span><select id="iFreq">
+        <option value="monthly-lastworking">Monthly, last working day</option><option value="monthly-date">Monthly on a date</option>
+        <option value="monthly-lastfri">Monthly, last Friday</option><option value="fourweekly">Every 4 weeks</option>
+        <option value="fortnightly">Every 2 weeks</option><option value="weekly">Every week</option><option value="oneoff">Just once</option></select></label>
+      <label class="field" id="iDateWrap"><span id="iDateLbl">Next pay date</span><input id="iDate" type="date"></label>
+    </div>
+    <div>
+      <p class="hint muted" style="margin:0 0 var(--s2)" id="iVarQ">Is it the same amount every time?</p>
+      <div class="radios"><label><input type="radio" name="iVar" value="fixed" checked> <span id="iVarA">Same every time</span></label><label><input type="radio" name="iVar" value="varies"> <span id="iVarB">It changes</span></label></div>
+    </div>
+    <div class="two" id="iFixedWrap">
+      <label class="field"><span id="iAmtLbl">Amount after tax</span><div class="money"><em>£</em><input id="iAmt" inputmode="decimal" placeholder="0.00"></div></label>
+    </div>
+    <div class="two" id="iVarWrap" hidden>
+      <label class="field"><span>Lowest you'd expect</span><div class="money"><em>£</em><input id="iLow" inputmode="decimal" placeholder="0.00"></div></label>
+      <label class="field"><span>Usual amount</span><div class="money"><em>£</em><input id="iTyp" inputmode="decimal" placeholder="0.00"></div></label>
+    </div>
+    <p class="hint muted" id="iVarHint" hidden style="margin-top:calc(-1 * var(--s2))">Your forecast uses the lowest amount, so a good month is a bonus rather than a shortfall.</p>
+    <label class="check" id="iMainWrap"><input type="checkbox" id="iMain"> This is my main pay. It sets your payday countdown.</label>
+    <div class="dlg-foot split">
+      <button class="btn ghost" type="button" id="iDelete">Remove</button>
+      <div style="display:flex;gap:var(--s3);margin-left:auto"><button class="btn ghost" type="button" id="iCancel">Cancel</button><button class="btn primary" type="submit">Save income</button></div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="billWiz" aria-labelledby="bwTitle">
+  <form id="bwForm" class="dlg" novalidate>
+    <div id="bwBody" class="wiz-q"></div>
+    <div class="dlg-foot split">
+      <button class="btn ghost" type="button" id="bwBack">Back</button>
+      <button class="btn primary" type="submit" id="bwNext">Next</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="acctDlg" aria-labelledby="acctName">
+  <div class="dlg">
+    <div class="acct-head"><span class="avatar lg" id="acctBig" aria-hidden="true"></span><div><h2 id="acctName">Your account</h2><p class="muted" style="margin:0" id="acctSub"></p></div></div>
+    <ul class="pots" id="acctRows"></ul>
+    <div class="panel" id="potsPanel" hidden>
+      <div class="panel-head"><h2>Your pots</h2><button class="btn ghost small" type="button" id="refreshBank">Refresh</button></div>
+      <p id="potsWhen" class="muted pot-when"></p>
+      <div id="potsBody"></div>
+    </div>
+    <div class="panel" id="incomePanel">
+      <div class="panel-head"><h2>Income</h2><div style="display:flex;gap:var(--s2)"><button id="addOneOff" class="btn ghost small" type="button">Add one-off</button><button id="addIncome" class="btn ghost small" type="button">Add regular</button></div></div>
+      <p id="incomeSum" class="inc-sum muted num"></p>
+      <ul id="incomeList" class="inc"></ul>
+      <div id="oneOffWrap" hidden><h2 style="margin:var(--s4) 0 var(--s2)">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
+    </div>
+    <div class="dlg-foot split"><button class="btn ghost" type="button" id="acctSettings">Settings</button><button class="btn primary" type="button" id="acctClose">Done</button></div>
+  </div>
+</dialog>
+
+<dialog id="calDlg" aria-labelledby="calTitle">
+  <div class="dlg">
+    <div class="cal-head"><button type="button" class="btn ghost small" id="calPrev" aria-label="Previous month">‹</button><h2 id="calTitle"></h2><button type="button" class="btn ghost small" id="calNext" aria-label="Next month">›</button></div>
+    <p class="cal-total num" id="calTotal"></p>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="dlg-foot split"><button type="button" class="btn ghost" id="calToday">Today</button><button type="button" class="btn primary" id="calClose">Done</button></div>
+  </div>
+</dialog>
+
+<dialog id="planDlg" aria-labelledby="planTitle">
+  <form id="planForm" class="dlg" novalidate>
+    <div id="planBody" class="wiz-q"></div>
+    <div class="dlg-foot split"><button class="btn ghost" type="button" id="planBack">Back</button><button class="btn primary" type="submit" id="planNext">Next</button></div>
+  </form>
+</dialog>
+
+<dialog id="jobDlg" aria-labelledby="jobTitle">
+  <form id="jobForm" class="dlg">
+    <h2 id="jobTitle">Give this money a job</h2>
+    <p id="jobText" class="muted" style="margin:0"></p>
+    <label class="field"><span id="jobLbl">Put towards your savings goal</span><div class="money"><em>£</em><input id="jobAmt" inputmode="decimal"></div></label>
+    <div class="dlg-foot">
+      <button class="btn ghost" type="button" id="jobKeep">Keep it to spend</button>
+      <button class="btn good" type="submit" id="jobSave">Save it</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+</div>
+<div class="home-ind" aria-hidden="true"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
