@@ -56,11 +56,12 @@
 .cal-day:focus-visible{outline:2px solid var(--focus)}
 .cal-total{font-size:.93rem;color:var(--muted);margin:0}
 /* month: payday-to-payday calendar */
-.mc-big{display:flex;align-items:flex-start;line-height:1;margin:var(--s2) 0 0;font-family:var(--display);font-weight:800;font-size:2rem;letter-spacing:-.02em}
+.mc-big{display:flex;align-items:flex-start;line-height:1;margin:var(--s3) 0 0;font-family:var(--display);font-weight:800;font-size:2rem;letter-spacing:-.02em}
 .mc-big .int,.mc-big .pence{display:block;line-height:1}
 .mc-big .pence{font-size:.5em;margin-left:.06em;margin-top:.16em}
 @supports (text-box: trim-both cap alphabetic){.mc-big .int,.mc-big .pence{text-box:trim-both cap alphabetic}.mc-big .pence{margin-top:0}}
-.mc-sub{margin:var(--s2) 0 var(--s4);font-size:.93rem;color:var(--muted)}
+.mc-lead{margin:0;font-weight:700}
+.mc-sub{margin:var(--s2) 0 0;font-size:.93rem;color:var(--muted)}
 .mc-stats{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-bottom:var(--s5)}
 .mc-stats div{display:grid;gap:2px;padding:var(--s3);border-radius:10px;background:color-mix(in srgb,var(--ink) 5%,transparent)}
 .mc-stats span{font-size:.75rem;color:var(--muted);font-weight:600}
@@ -662,6 +663,7 @@ html.framed dialog{max-width:416px}
 </main>
 
 <main class="today-view" id="planView" hidden>
+    <div class="panel" id="cycleSum" hidden></div>
     <div class="panel" id="cycleCard"></div>
     <div class="panel" id="comingCard"></div>
     <div class="panel" id="billsPanel">
@@ -1759,7 +1761,7 @@ html.framed dialog{max-width:416px}
   function renderHero(c) {
     const h = $("#hero");
     if (!loaded) return;
-    $("#cycleCard").hidden = $("#comingCard").hidden = true;
+    $("#cycleCard").hidden = $("#comingCard").hidden = $("#cycleSum").hidden = true;
     h.classList.remove("flippable", "flipped"); h.removeAttribute("role"); h.removeAttribute("tabindex"); h.removeAttribute("aria-label");
     $("#bankCard").hidden = true; $("#wallet").classList.remove("has-peek", "swap");
     if (!state) {
@@ -1941,10 +1943,15 @@ html.framed dialog{max-width:416px}
       }
       cells += `<button type="button" class="${cls.join(" ")}" data-mday="${d}" aria-label="${esc(label)}"><b>${n}</b><small>${note}</small></button>`;
     }
-    cyc.innerHTML = `
-      <div class="panel-head"><h2>${free >= 0 ? "Free until payday" : "Short before payday"}</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
+    // the money summary sits in its own card above the calendar
+    const sum = $("#cycleSum");
+    sum.hidden = false;
+    sum.innerHTML = `
+      <p class="mc-lead">${free >= 0 ? "Free until payday" : "Short before payday"}</p>
       <p class="mc-big num${free < 0 ? " neg" : ""}"><span class="int">${free < 0 ? "−" : ""}£${fw.toLocaleString("en-GB")}</span><span class="pence">.${pad(fp)}</span></p>
-      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills. Spend it whenever suits you` : `Your bills before payday are more than you have`}</p>
+      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills. Spend it whenever suits you` : `Your bills before payday are more than you have`}</p>`;
+    cyc.innerHTML = `
+      <div class="panel-head"><h2>Payday to payday</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
       <div class="mc-grid" role="group" aria-label="Payday to payday calendar">${cells}</div>
       <div class="mc-key"><span><i class="k-zero"></i>No-spend day</span><span><i class="k-bill"></i>Bill due</span><span><i class="k-pay"></i>Payday</span></div>
       <p class="mc-detail" id="mcDetail" hidden></p>`;
