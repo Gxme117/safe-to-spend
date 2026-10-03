@@ -37,7 +37,10 @@ export function PaydayCalendar({ctx, c: calc}: {ctx: Ctx; c: Calc}) {
               accessibilityState={{selected: sel?.d === d.d}}
               style={[styles.cell, {borderColor: d.today ? c.ink : "transparent", borderWidth: d.today ? 2 : 1}, cellStyle(d), sel?.d === d.d && {borderColor: c.ink, borderWidth: 2}]}>
               <T weight="bold" size={14} style={{color: inkFor(d)}}>{d.n}</T>
-              <T size={10} weight="semibold" style={{color: d.kinds.includes("pay") ? c.good : inkFor(d), fontFamily: font.semibold}} lines={1}>{d.note}</T>
+              <View style={{flexDirection: "row", alignItems: "center", gap: 2}}>
+                {d.kinds.includes("bill") ? <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: c.ink}} /> : null}
+                <T size={10} weight="semibold" style={{color: d.kinds.includes("pay") ? c.good : inkFor(d), fontFamily: font.semibold}} lines={1}>{d.note}</T>
+              </View>
             </Pressable>
           </View>
         ))}

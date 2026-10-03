@@ -24,7 +24,7 @@ export default function TabsLayout() {
       ),
     }}>
       <Tabs.Screen name="index" options={{title: "Day", headerTitle: longDate(today), tabBarIcon: ({color}) => <Icon name="day" color={color} />}} />
-      <Tabs.Screen name="month" options={{title: "Month", headerTitle: "Payday to payday", tabBarIcon: ({color}) => <Icon name="month" color={color} />}} />
+      <Tabs.Screen name="month" options={{title: "Month", tabBarIcon: ({color}) => <Icon name="month" color={color} />}} />
     </Tabs>
   );
 }

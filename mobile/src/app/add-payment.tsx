@@ -25,8 +25,8 @@ export default function AddPayment() {
   if (!r) return null;
   const {ctx, c} = r;
   const {bills, categories, incomes} = ctx.state;
-  // a category that a bill already covers is picked through the bill instead
-  const spendCats = categories.filter(x => !x.fixed || !bills.some(b => b.cat === x.id));
+  // once there are bills, fixed costs are picked through the bill (that's what marks it paid), not a category
+  const spendCats = bills.length ? categories.filter(x => !x.fixed) : categories;
   const on = (k: NonNullable<Pick>["kind"], id: string) => pick?.kind === k && pick.id === id;
   const choose = (p: Pick) => { setPick(p); setError(""); };
 
