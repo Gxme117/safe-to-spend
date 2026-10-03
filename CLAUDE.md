@@ -37,5 +37,7 @@ The money model and design rules above apply to both. For Expo itself, follow `m
 - `src/db/`: payments in SQLite (`tx` table, amounts in whole pence, migrations via `PRAGMA user_version`). Pence to pounds happens only in `db/transactions.ts`.
 - `src/store/`: Zustand. The settings doc (same shape as the web `state` doc) persists through `expo-sqlite/kv-store`. Payments are written to SQLite before the store updates.
 - `src/app/`: routes only (Expo Router). Tests never go in here, or they become routes.
+- Blur: React Native's `filter: blur()` is behind an off-by-default flag on iOS, so it does nothing here. For a CSS `blur(Npx)`, draw the text with `react-native-svg` through `<FeGaussianBlur stdDeviation={N}>` (see `SoftAmount` in `components/Hero.tsx`). Don't fake it with stacked copies.
+- Taps on text controls (like the balance eye) don't dim; only the thing that changes animates. Keep show/hide fades short (about .1s): a crossfade reads slower than the web's growing blur.
 - Not in v1: Monzo (the `host:monzo` connector only exists inside Claude), savings pots, declines, the Future view.
 - Before calling a change done: `cd mobile && npm test && npm run typecheck && npm run lint`. Run it with `npx expo start` (Expo Go or the iOS simulator).

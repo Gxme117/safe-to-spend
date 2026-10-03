@@ -27,19 +27,19 @@ export function PaydayCalendar({ctx, c: calc}: {ctx: Ctx; c: Calc}) {
 
   return (
     <Card>
-      <CardHead title="Payday to payday" right={<T muted size={14}>Day {dayNo} of {total}</T>} />
+      <CardHead title="Payday to payday" right={<T muted size="sm">Day {dayNo} of {total}</T>} />
       <View style={styles.grid} accessibilityRole="list" accessibilityLabel="Payday to payday calendar">
-        {DOW.map((d, i) => <View key={`h${i}`} style={styles.cellBox}><T muted size={12} weight="semibold" style={{textAlign: "center"}}>{d}</T></View>)}
+        {DOW.map((d, i) => <View key={`h${i}`} style={styles.cellBox}><T muted size="xs" weight="semibold" style={{textAlign: "center"}}>{d}</T></View>)}
         {Array.from({length: lead}, (_, i) => <View key={`b${i}`} style={styles.cellBox} />)}
         {days.map(d => (
           <View key={d.d} style={styles.cellBox}>
             <Pressable onPress={() => setSel(sel?.d === d.d ? null : d)} accessibilityRole="button" accessibilityLabel={d.label}
               accessibilityState={{selected: sel?.d === d.d}}
               style={[styles.cell, {borderColor: d.today ? c.ink : "transparent", borderWidth: d.today ? 2 : 1}, cellStyle(d), sel?.d === d.d && {borderColor: c.ink, borderWidth: 2}]}>
-              <T weight="bold" size={14} style={{color: inkFor(d)}}>{d.n}</T>
+              <T weight="bold" size="sm" style={{color: inkFor(d)}}>{d.n}</T>
               <View style={{flexDirection: "row", alignItems: "center", gap: 2}}>
                 {d.kinds.includes("bill") ? <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: c.ink}} /> : null}
-                <T size={10} weight="semibold" style={{color: d.kinds.includes("pay") ? c.good : inkFor(d), fontFamily: font.semibold}} lines={1}>{d.note}</T>
+                <T size="xs" weight="semibold" style={{color: d.kinds.includes("pay") ? c.good : inkFor(d), fontFamily: font.semibold}} lines={1}>{d.note}</T>
               </View>
             </Pressable>
           </View>
@@ -50,7 +50,7 @@ export function PaydayCalendar({ctx, c: calc}: {ctx: Ctx; c: Calc}) {
         <Key colour={c.ink} label="Bill due" dot />
         <Key colour={c.goodSoft} border={c.good} label="Payday" />
       </View>
-      {sel ? <View accessibilityLiveRegion="polite"><T size={14}>{dayDetail(ctx, calc, sel)}</T></View> : null}
+      {sel ? <View accessibilityLiveRegion="polite"><T size="sm">{dayDetail(ctx, calc, sel)}</T></View> : null}
     </Card>
   );
 }
@@ -59,7 +59,7 @@ function Key({colour, border, label, dot}: {colour: string; border?: string; lab
   return (
     <View style={{flexDirection: "row", alignItems: "center", gap: s[1]}}>
       <View style={{width: dot ? 6 : 12, height: dot ? 6 : 12, borderRadius: dot ? 3 : 4, backgroundColor: colour, borderWidth: border ? 1 : 0, borderColor: border}} />
-      <T muted size={12}>{label}</T>
+      <T muted size="xs">{label}</T>
     </View>
   );
 }

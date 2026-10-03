@@ -57,3 +57,10 @@ test("settings persist; payments stay in SQLite", async () => {
   expect(saved.state.state.balance).toBe(1000);
   expect(saved.state.txs).toBeUndefined();
 });
+
+test("your name is trimmed, and clearing it removes it", () => {
+  store().setName("  Sam ");
+  expect(store().state!.name).toBe("Sam");
+  store().setName("   ");
+  expect(store().state!.name).toBeUndefined();
+});

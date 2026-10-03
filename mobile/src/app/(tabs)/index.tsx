@@ -3,7 +3,8 @@ import {ScrollView, View} from "react-native";
 import {CheckinCard, ShortCard} from "@/components/Cards";
 import {Hero} from "@/components/Hero";
 import {TxRow} from "@/components/TxRow";
-import {Button, Card, CardHead, T} from "@/components/ui";
+import {Button, Card, CardHead, PageTitle, T} from "@/components/ui";
+import {longDate} from "@/lib/dates";
 import type {Calc} from "@/lib/calc";
 import {money} from "@/lib/money";
 import {useCalc} from "@/store/useCalc";
@@ -16,7 +17,8 @@ export default function DayScreen() {
   const {ctx, c} = r;
   const spentToday = ctx.txs.filter(it => it.date === c.t).sort((a, b) => b.created - a.created);
   return (
-    <ScrollView contentContainerStyle={{padding: s[4], gap: s[4], paddingBottom: s[7]}}>
+    <ScrollView contentContainerStyle={{padding: s[4], paddingTop: s[2], gap: s[4], paddingBottom: s[7]}}>
+      <PageTitle>{longDate(c.t)}</PageTitle>
       <Hero ctx={ctx} c={c} />
       <CheckinCard ctx={ctx} />
       <ShortCard c={c} />
@@ -41,8 +43,8 @@ function EverydayChips({c: calc}: {c: Calc}) {
         : <View style={{flexDirection: "row", flexWrap: "wrap", gap: s[2]}}>
             {calc.everyday.map(e => (
               <View key={e.x.id} style={{flexDirection: "row", gap: s[2], borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingVertical: s[2], paddingHorizontal: s[3]}}>
-                <T size={14}>{e.x.name}</T>
-                <T size={14} weight="bold">{e.left < 0 ? `${money(-e.left)} over` : `${money(e.left)} left`}</T>
+                <T size="sm">{e.x.name}</T>
+                <T size="sm" weight="bold">{e.left < 0 ? `${money(-e.left)} over` : `${money(e.left)} left`}</T>
               </View>
             ))}
           </View>}

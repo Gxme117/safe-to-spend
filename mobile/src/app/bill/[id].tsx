@@ -83,7 +83,7 @@ function DayGrid({value, onChange}: {value: number | "last" | null; onChange: (d
             <View key={n} style={{width: `${100 / 7}%`, padding: 2}}>
               <Pressable onPress={() => onChange(n)} accessibilityRole="radio" accessibilityState={{checked: on}} accessibilityLabel={ord(n)}
                 style={{height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: on ? c.ink : "transparent", borderWidth: 1, borderColor: on ? c.ink : c.line}}>
-                <T weight="bold" size={14} style={{color: on ? c.bg : c.ink, fontFamily: font.bold}}>{n}</T>
+                <T weight="bold" size="sm" style={{color: on ? c.bg : c.ink, fontFamily: font.bold}}>{n}</T>
               </Pressable>
             </View>
           );

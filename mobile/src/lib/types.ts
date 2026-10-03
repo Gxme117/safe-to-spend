@@ -71,6 +71,7 @@ export interface Tx {
 }
 
 export interface AppState {
+  name?: string;          // what the app calls you; optional
   balance: number;
   balanceSetAt: number;   // payments created after this change the balance
   balanceAsOf: IsoDate;

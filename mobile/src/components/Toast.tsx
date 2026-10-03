@@ -21,7 +21,7 @@ export function Toast() {
   return (
     <View pointerEvents="none" style={{position: "absolute", left: s[4], right: s[4], bottom: insets.bottom + 72, alignItems: "center"}}>
       <View style={{backgroundColor: toast.good ? c.accent : c.ink, borderRadius: radius.control, paddingVertical: s[3], paddingHorizontal: s[4]}}>
-        <T weight="semibold" size={15} style={{color: toast.good ? c.accentInk : c.bg, fontFamily: font.semibold, textAlign: "center"}}>{toast.msg}</T>
+        <T weight="semibold" size="md" style={{color: toast.good ? c.accentInk : c.bg, fontFamily: font.semibold, textAlign: "center"}}>{toast.msg}</T>
       </View>
     </View>
   );

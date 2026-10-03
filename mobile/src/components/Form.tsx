@@ -20,7 +20,7 @@ export function Form({children, error, submit, onSubmit, onRemove, removeLabel =
         {children}
       </ScrollView>
       <View style={{paddingHorizontal: s[4], paddingTop: s[3], paddingBottom: Math.max(insets.bottom, s[4]), gap: s[3], borderTopWidth: 1, borderTopColor: c.line}}>
-        {error ? <View accessibilityLiveRegion="assertive"><T weight="semibold" size={14}>{error}</T></View> : null}
+        {error ? <View accessibilityLiveRegion="assertive"><T weight="semibold" size="sm">{error}</T></View> : null}
         <View style={{flexDirection: "row", gap: s[3]}}>
           {onRemove ? <Button kind="ghost" label={removeLabel} onPress={onRemove} /> : null}
           <View style={{flex: 1}}><Button label={submit} onPress={onSubmit} /></View>

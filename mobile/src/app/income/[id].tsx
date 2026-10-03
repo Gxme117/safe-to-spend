@@ -69,7 +69,7 @@ export default function IncomeScreen() {
             <View style={{flex: 1}}><Field label="Lowest you'd expect"><Input prefix="£" value={low} onChangeText={setLow} keyboardType="decimal-pad" placeholder="0.00" /></Field></View>
             <View style={{flex: 1}}><Field label="Usual amount"><Input prefix="£" value={typical} onChangeText={setTypical} keyboardType="decimal-pad" placeholder="0.00" /></Field></View>
           </View>
-          <T muted size={13}>Your forecast uses the lowest amount, so a good month is a bonus rather than a shortfall.</T>
+          <T muted size="sm">Your forecast uses the lowest amount, so a good month is a bonus rather than a shortfall.</T>
         </>
       ) : (
         <Field label={one ? "Amount" : "Amount after tax"}><Input prefix="£" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" /></Field>

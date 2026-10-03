@@ -90,7 +90,7 @@ export default function AddPayment() {
       <Field label="Note (optional)">
         <Input value={note} onChangeText={setNote} placeholder="e.g. Shoes, haircut, deposit" maxLength={80} />
       </Field>
-      {kind === "income" ? <T muted size={13}>Pay from your main income is confirmed on the Day tab when it lands.</T> : null}
+      {kind === "income" ? <T muted size="sm">Pay from your main income is confirmed on the Day tab when it lands.</T> : null}
     </Form>
   );
 }

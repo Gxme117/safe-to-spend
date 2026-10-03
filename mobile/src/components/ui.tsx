@@ -1,16 +1,28 @@
 import type {ReactNode} from "react";
 import {Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle} from "react-native";
-import {font, radius, s} from "@/theme/tokens";
+import {font, radius, s, textSize, type TextSize} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 
 /** Text in Manrope, coloured for the current theme. */
-export function T({children, style, muted, weight = "regular", size = 16, lines, fit}: {
-  children: ReactNode; style?: StyleProp<TextStyle>; muted?: boolean; weight?: keyof typeof font; size?: number; lines?: number; fit?: boolean;
+export function T({children, style, muted, weight = "regular", size = "md", lines, fit}: {
+  children: ReactNode; style?: StyleProp<TextStyle>; muted?: boolean; weight?: keyof typeof font; size?: TextSize; lines?: number; fit?: boolean;
 }) {
   const {c} = useTheme();
+  const px = textSize[size];
   return (
     <Text numberOfLines={lines} adjustsFontSizeToFit={fit} minimumFontScale={fit ? 0.75 : undefined}
-      style={[{fontFamily: font[weight], fontSize: size, color: muted ? c.muted : c.ink, lineHeight: Math.round(size * 1.4)}, style]}>
+      style={[{fontFamily: font[weight], fontSize: px, color: muted ? c.muted : c.ink, lineHeight: Math.round(px * 1.4)}, style]}>
+      {children}
+    </Text>
+  );
+}
+
+/** The big title at the top of a page. Long dates ("Wednesday 30 September") shrink to fit narrow phones rather than get cut off. */
+export function PageTitle({children}: {children: string}) {
+  const {c} = useTheme();
+  return (
+    <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} accessibilityRole="header"
+      style={{fontFamily: font.heavy, fontSize: textSize.xl, lineHeight: Math.round(textSize.xl * 1.2), color: c.ink}}>
       {children}
     </Text>
   );
@@ -24,7 +36,7 @@ export function Card({children, style}: {children: ReactNode; style?: StyleProp<
 export function CardHead({title, right}: {title: string; right?: ReactNode}) {
   return (
     <View style={styles.head}>
-      <T weight="bold" size={18} style={{flex: 1}}>{title}</T>
+      <T weight="bold" size="lg" style={{flex: 1}}>{title}</T>
       {right}
     </View>
   );
@@ -42,7 +54,7 @@ export function Button({label, onPress, kind = "primary", small, disabled, acces
     <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{disabled}}
       style={({pressed}) => [styles.btn, small && styles.btnSmall, {backgroundColor: bg, borderColor: kind === "ghost" ? c.line : bg, opacity: disabled ? 0.4 : pressed ? 0.7 : 1}]}>
-      <Text style={{fontFamily: font.bold, fontSize: small ? 14 : 16, color: fg}}>{label}</Text>
+      <Text style={{fontFamily: font.bold, fontSize: textSize[small ? "sm" : "md"], color: fg}}>{label}</Text>
     </Pressable>
   );
 }
@@ -52,7 +64,7 @@ export function Chip({label, on, onPress, accessibilityLabel}: {label: string; o
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{selected: !!on}} accessibilityLabel={accessibilityLabel ?? label}
       style={({pressed}) => [styles.chip, {backgroundColor: on ? c.ink : "transparent", borderColor: on ? c.ink : c.line, opacity: pressed ? 0.7 : 1}]}>
-      <Text style={{fontFamily: font.semibold, fontSize: 14, color: on ? c.bg : c.ink}}>{label}</Text>
+      <Text style={{fontFamily: font.semibold, fontSize: textSize.sm, color: on ? c.bg : c.ink}}>{label}</Text>
     </Pressable>
   );
 }
@@ -60,9 +72,9 @@ export function Chip({label, on, onPress, accessibilityLabel}: {label: string; o
 export function Field({label, hint, children}: {label: string; hint?: string; children: ReactNode}) {
   return (
     <View style={{gap: s[2]}}>
-      <T weight="semibold" size={14}>{label}</T>
+      <T weight="semibold" size="sm">{label}</T>
       {children}
-      {hint ? <T muted size={13}>{hint}</T> : null}
+      {hint ? <T muted size="sm">{hint}</T> : null}
     </View>
   );
 }
@@ -72,9 +84,9 @@ export function Input(props: TextInputProps & {prefix?: string}) {
   const {prefix, style, ...rest} = props;
   return (
     <View style={[styles.input, {borderColor: c.line, backgroundColor: c.bg}]}>
-      {prefix ? <Text style={{fontFamily: font.bold, fontSize: 17, color: c.muted}}>{prefix}</Text> : null}
+      {prefix ? <Text style={{fontFamily: font.bold, fontSize: textSize.md, color: c.muted}}>{prefix}</Text> : null}
       <TextInput placeholderTextColor={c.muted} {...rest}
-        style={[{flex: 1, fontFamily: font.semibold, fontSize: 17, color: c.ink, paddingVertical: s[3]}, style]} />
+        style={[{flex: 1, fontFamily: font.semibold, fontSize: textSize.md, color: c.ink, paddingVertical: s[3]}, style]} />
     </View>
   );
 }
@@ -88,7 +100,7 @@ export function Row({name, meta, amount, good, onPress, onLongPress, accessibili
     <View style={styles.row}>
       <View style={{flex: 1, gap: 2}}>
         <T weight="semibold" lines={1}>{name}</T>
-        {meta ? <T muted size={13} lines={1}>{meta}</T> : null}
+        {meta ? <T muted size="sm" lines={1}>{meta}</T> : null}
       </View>
       {amount ? <T weight="bold" style={[{fontVariant: ["tabular-nums"]}, good && {color: c.good}]}>{amount}</T> : null}
     </View>

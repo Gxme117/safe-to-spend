@@ -33,7 +33,7 @@ export default function SettingsScreen() {
         <Field label="How much is in your account right now?" hint={`The balance your bank app shows. Last set ${niceDate(ctx.state.balanceAsOf)}. Payments you log after this change it.`}>
           <Input prefix="£" value={bal} onChangeText={v => { setBal(v); setError(""); }} keyboardType="decimal-pad" selectTextOnFocus accessibilityLabel="Your balance" />
         </Field>
-        {error ? <T weight="semibold" size={14}>{error}</T> : null}
+        {error ? <T weight="semibold" size="sm">{error}</T> : null}
         <Button label="Update balance" onPress={saveBalance} />
       </Card>
 
@@ -47,12 +47,12 @@ export default function SettingsScreen() {
             ))}
           </View>
         ) : <T muted>No income yet. Your payday is worked out from it.</T>}
-        {c.payday ? <T muted size={14}>Next payday: {niceDate(c.payday)}.</T> : null}
+        {c.payday ? <T muted size="sm">Next payday: {niceDate(c.payday)}.</T> : null}
       </Card>
 
       <Card>
         <CardHead title="Everyday amounts" right={<Button small kind="ghost" label="Plan" onPress={() => router.push("/everyday")} />} />
-        <T muted size={14}>{c.everyday.length ? `${money(c.everyday.reduce((a, e) => a + e.x.budget, 0))} a month across ${c.everyday.map(e => e.x.name).join(", ")}.` : "None set yet."}</T>
+        <T muted size="sm">{c.everyday.length ? `${money(c.everyday.reduce((a, e) => a + e.x.budget, 0))} a month across ${c.everyday.map(e => e.x.name).join(", ")}.` : "None set yet."}</T>
       </Card>
 
       <Card>
@@ -60,8 +60,6 @@ export default function SettingsScreen() {
         <Choice<ThemePref> options={[{key: "system", label: "Match phone"}, {key: "light", label: "Light"}, {key: "dark", label: "Dark"}]}
           value={theme} onChange={t => useMoney.getState().setTheme(t)} />
       </Card>
-
-      <T muted size={13} style={{textAlign: "center"}}>Your data stays on this phone.</T>
     </ScrollView>
   );
 }

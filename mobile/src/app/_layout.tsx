@@ -6,7 +6,7 @@ import {useEffect} from "react";
 import {AppState} from "react-native";
 import {Toast} from "@/components/Toast";
 import {useMoney} from "@/store/useMoney";
-import {font} from "@/theme/tokens";
+import {font, textSize} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -34,7 +34,7 @@ export default function RootLayout() {
       <StatusBar style={dark ? "light" : "dark"} />
       <Stack screenOptions={{
         headerStyle: {backgroundColor: c.bg}, headerTintColor: c.ink, headerShadowVisible: false,
-        headerTitleStyle: {fontFamily: font.bold}, contentStyle: {backgroundColor: c.bg},
+        headerTitleStyle: {fontFamily: font.bold, fontSize: textSize.lg}, contentStyle: {backgroundColor: c.bg},
       }}>
         <Stack.Protected guard={!hasState}>
           <Stack.Screen name="setup" options={{headerShown: false}} />
@@ -46,6 +46,7 @@ export default function RootLayout() {
           <Stack.Screen name="bill/[id]" options={modal("Bill")} />
           <Stack.Screen name="everyday" options={modal("Everyday")} />
           <Stack.Screen name="settings" options={modal("Settings")} />
+          <Stack.Screen name="account" options={modal("Account")} />
         </Stack.Protected>
       </Stack>
       <Toast />

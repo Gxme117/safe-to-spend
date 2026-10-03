@@ -1,7 +1,7 @@
 import Storage from "expo-sqlite/kv-store";
 import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
-import {deleteTx, insertTx, listSince} from "@/db/transactions";
+import {deleteAllTx, deleteTx, insertTx, listSince} from "@/db/transactions";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
 import {r2} from "@/lib/money";
@@ -23,8 +23,10 @@ interface MoneyStore {
   notify(msg: string, good?: boolean): void;
   setTheme(t: ThemePref): void;
 
-  setup(balance: number): void;
+  setup(balance: number, income?: Income): void;
   setBalance(balance: number): void;
+  setName(name: string): void;
+  reset(): Promise<void>;
   saveIncome(src: Income): void;
   removeIncome(id: string): void;
   saveBill(b: Bill): void;
@@ -63,8 +65,12 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     notify(msg, good = false) { set({toast: {id: Date.now(), msg, good}}); },
     setTheme(theme) { set({theme}); },
 
-    setup(balance) { set({state: newState(r2(balance), today(), Date.now())}); },
+    // one write, so the app never renders a state without the pay that sets payday
+    setup(balance, income) { set({state: {...newState(r2(balance), today(), Date.now()), incomes: income ? [income] : []}}); },
+    // payments go first, so a failure leaves everything as it was
+    async reset() { await deleteAllTx(); set({state: null, txs: []}); },
     setBalance(balance) { patch(() => ({balance: r2(balance), balanceSetAt: Date.now(), balanceAsOf: today()})); },
+    setName(name) { patch(() => ({name: name.trim() || undefined})); },
 
     saveIncome(src) {
       patch(s => {

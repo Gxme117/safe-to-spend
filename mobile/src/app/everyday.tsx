@@ -46,7 +46,7 @@ export default function EverydayScreen() {
       <T muted>{"Set what you spend on every month, like groceries or coffee. What's left of each amount is kept aside until payday, so your daily number shows what's truly free."}</T>
       {rows.map((r, i) => (
         <Card key={r.cat.id} style={{gap: s[3]}}>
-          <T weight="bold" size={17}>{r.cat.name}</T>
+          <T weight="bold" size="md">{r.cat.name}</T>
           <Choice options={[{key: "every", label: "Everyday"}, {key: "free", label: "Free"}]} value={r.everyday ? "every" : "free"} onChange={k => set(i, {everyday: k === "every"})} />
           {r.everyday ? <Input prefix="£" value={r.amount} onChangeText={v => set(i, {amount: v})} keyboardType="decimal-pad" placeholder="A month" accessibilityLabel={`${r.cat.name} a month`} /> : null}
         </Card>

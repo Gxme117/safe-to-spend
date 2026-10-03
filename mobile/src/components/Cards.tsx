@@ -46,9 +46,9 @@ function Checkin({p, more, today}: {p: Pending; more: number; today: string}) {
     <Card>
       <View style={{flexDirection: "row", alignItems: "center", gap: s[2]}}>
         <TodoDot />
-        <T weight="semibold" size={14}>{isToday ? "Payday check" : "Missed payday check"}</T>
+        <T weight="semibold" size="sm">{isToday ? "Payday check" : "Missed payday check"}</T>
       </View>
-      <T weight="bold" size={18}>Did your {src.name} {src.type === "work" ? "pay" : "money"} arrive?</T>
+      <T weight="bold" size="lg">Did your {src.name} {src.type === "work" ? "pay" : "money"} arrive?</T>
       <T muted>Due {isToday ? "today" : niceDate(p.date)}. {expect} Confirm the amount that actually landed so your balance stays real.</T>
       <Input prefix="£" value={amt} onChangeText={setAmt} keyboardType="decimal-pad" placeholder={String(usualAmt(src))} accessibilityLabel="Amount that arrived" />
       <View style={{flexDirection: "row", flexWrap: "wrap", gap: s[2]}}>
@@ -56,7 +56,7 @@ function Checkin({p, more, today}: {p: Pending; more: number; today: string}) {
         <Button kind="ghost" label="Not yet" onPress={() => snooze(p.key)} />
         <Button kind="ghost" label="It's not coming" onPress={notComing} />
       </View>
-      {more ? <T muted size={13}>{more} more to check after this.</T> : null}
+      {more ? <T muted size="sm">{more} more to check after this.</T> : null}
     </Card>
   );
 }
@@ -68,9 +68,9 @@ export function ShortCard({c}: {c: Calc}) {
     <Card>
       <View style={{flexDirection: "row", alignItems: "center", gap: s[2]}}>
         <TodoDot />
-        <T weight="semibold" size={14}>Short for bills and everyday</T>
+        <T weight="semibold" size="sm">Short for bills and everyday</T>
       </View>
-      <T weight="bold" size={18}>You need {money(c.short)} more</T>
+      <T weight="bold" size="lg">You need {money(c.short)} more</T>
       <T muted>
         You have {money(c.balance)} to spend, but {c.everydayLeft ? `bills (${money(c.billsLeft)}) and everyday (${money(c.everydayLeft)}) need` : "bills need"} {money(c.need)} before payday.
       </T>

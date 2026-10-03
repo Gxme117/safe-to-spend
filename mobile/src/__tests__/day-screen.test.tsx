@@ -1,6 +1,7 @@
-import {render, screen} from "@testing-library/react-native";
+import {fireEvent, render, screen} from "@testing-library/react-native";
 import DayScreen from "@/app/(tabs)/index";
 import {baseState, TODAY, tx} from "@/lib/__tests__/fixtures";
+import {longDate} from "@/lib/dates";
 import type {AppState, Tx} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
 
@@ -16,6 +17,7 @@ const show = (txs: Tx[], state: AppState = baseState()) => {
 
 test("shows today's number and why, in one line", async () => {
   await show([groceries]);
+  expect(screen.getByRole("header", {name: longDate(TODAY)})).toBeOnTheScreen();
   expect(screen.getByText("Safe to spend today")).toBeOnTheScreen();
   expect(screen.getByLabelText("£16")).toBeOnTheScreen();
   expect(screen.getByText("Lasts you until payday, Fri 30 Oct")).toBeOnTheScreen();
@@ -37,4 +39,12 @@ test("short: says how much is needed and what to do", async () => {
   await show([groceries], baseState({bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}]}));
   expect(screen.getByText("You need £400 more")).toBeOnTheScreen();
   expect(screen.getByText("£400 short for bills and everyday")).toBeOnTheScreen();
+});
+
+test("the eye hides the total balance and shows it again", async () => {
+  await show([groceries]);
+  await fireEvent.press(screen.getByRole("button", {name: /^Total balance £.+ Tap to hide$/}));
+  expect(screen.getByRole("button", {name: "Total balance hidden. Tap to show"})).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", {name: "Total balance hidden. Tap to show"}));
+  expect(screen.getByRole("button", {name: /Tap to hide$/})).toBeOnTheScreen();
 });

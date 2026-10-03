@@ -14,8 +14,8 @@ export function SplitBar({c: calc}: {c: Calc}) {
   return (
     <View style={{gap: s[2], marginTop: s[2], paddingTop: s[4], borderTopWidth: 1, borderTopColor: c.line}}>
       <View style={{flexDirection: "row", justifyContent: "space-between"}}>
-        <T weight="bold" size={14}>Where your {money(sp.total)} is</T>
-        {sp.short ? <T weight="heavy" size={14}>{money(sp.short)} short</T> : null}
+        <T weight="bold" size="sm">Where your {money(sp.total)} is</T>
+        {sp.short ? <T weight="heavy" size="sm">{money(sp.short)} short</T> : null}
       </View>
       <View accessible accessibilityRole="image" accessibilityLabel={sp.parts.map(p => `${p.label} ${money(p.amount)}`).join(", ")}
         style={{flexDirection: "row", gap: 2, height: 12, borderRadius: 6, overflow: "hidden", backgroundColor: c.line}}>
@@ -25,8 +25,8 @@ export function SplitBar({c: calc}: {c: Calc}) {
         {sp.parts.map(p => (
           <View key={p.key} style={{flexDirection: "row", alignItems: "center", gap: s[1]}}>
             <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: colour[p.key]}} />
-            <T muted size={12}>{p.label}</T>
-            <T weight="bold" size={12}>{money(p.amount)}</T>
+            <T muted size="xs">{p.label}</T>
+            <T weight="bold" size="xs">{money(p.amount)}</T>
           </View>
         ))}
       </View>

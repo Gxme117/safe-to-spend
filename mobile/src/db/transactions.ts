@@ -33,3 +33,8 @@ export async function insertTx(t: Tx) {
 export async function deleteTx(id: string) {
   await (await db()).runAsync("DELETE FROM tx WHERE id = ?", id);
 }
+
+/** Deletes every payment: used when starting again. */
+export async function deleteAllTx() {
+  await (await db()).runAsync("DELETE FROM tx");
+}
