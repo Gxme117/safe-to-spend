@@ -687,6 +687,7 @@ body{background:transparent}
 #hero .back{aspect-ratio:auto}
 #hero .front .wc-bottom .lead{margin:0}
 #hero .front .wc-bottom .sub{margin-top:var(--s3) !important}
+.row-btns{display:flex;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s4)}
 #hero .one-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:none}
 .wcard{position:absolute;left:0;right:0;top:0;z-index:1;aspect-ratio:1.586;box-sizing:border-box;border-radius:14px;padding:var(--s4) var(--s5) var(--s5);display:flex;flex-direction:column;justify-content:space-between;
   background:linear-gradient(140deg,#FF4F40,#FF4F40);color:#fff;cursor:pointer;box-shadow:0 1px 0 rgba(255,255,255,.08) inset,0 6px 16px rgba(0,0,0,.18);transition:transform .5s cubic-bezier(.2,.75,.2,1)}
@@ -768,6 +769,7 @@ html.framed dialog{max-width:416px}
 <main class="today-view" id="monthView">
     <div class="hero-wrap wallet" id="wallet"><div class="wcard" id="bankCard" hidden role="button" tabindex="0" aria-label="Show your Monzo card"></div><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
     <div id="everydayRow"></div>
+    <div id="shortTodo"></div>
     <div id="askTx"></div>
     <div id="checkin"></div>
     <div class="panel">
@@ -1201,7 +1203,10 @@ html.framed dialog{max-width:416px}
     for (const k in months) for (const it of months[k]) if (it.type === "expense" && !it.billId && it.date >= cycleFrom && it.date <= t) spentCycle[it.cat] = (spentCycle[it.cat] || 0) + it.amount;
     const everyday = cats.filter(x => catGroup(x) === "everyday").map(x => ({x, spent: r2(spentCycle[x.id] || 0), left: r2((x.budget || 0) - (spentCycle[x.id] || 0))}));
     const everydayLeft = r2(everyday.reduce((s, e) => s + Math.max(0, e.left), 0));
-    return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, billsDue, daysLeft, payday, everyday, everydayLeft, cycleFrom};
+    const need = r2(billsLeft + everydayLeft);                       // what you need to pay before payday
+    const savings = bank() ? r2(bank().pots.filter(p => p.role === "save").reduce((s, p) => s + (p.balance || 0), 0)) : 0;
+    const short = balance == null ? 0 : r2(Math.max(0, need - balance));   // bills and everyday come first; savings is the back-up
+    return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, billsDue, daysLeft, payday, everyday, everydayLeft, cycleFrom, need, savings, short};
   }
 
   /* ---------- pots (synced from the bank) ---------- */
@@ -1706,6 +1711,23 @@ html.framed dialog{max-width:416px}
   }
   const manualTotalSafe = () => (state && Array.isArray(state.manualCards)) ? state.manualCards.reduce((s2, m) => s2 + (+m.balance || 0), 0) : 0;
 
+  /* ---------- short for bills and everyday: say so, and how to fix it ---------- */
+  function renderShort(c) {
+    const box = $("#shortTodo");
+    if (!state || !c.short || viewDay) { box.innerHTML = ""; box.dataset.key = ""; return; }
+    const key = `${c.short}|${c.savings}`;
+    if (box.dataset.key === key && box.innerHTML) return;
+    box.dataset.key = key;
+    const cover = Math.min(c.short, c.savings);
+    box.innerHTML = `<details class="panel checkin todo"><summary><span class="todo-dot" aria-hidden="true"></span><span class="todo-txt">${cover >= c.short ? "Cover bills from savings" : "Short for bills and everyday"}<small>${money(c.short)} short before payday</small></span></summary>
+      <h2>You need ${money(c.short)} more</h2>
+      <p class="muted">You have ${money(c.balance)} to spend, but ${c.everydayLeft ? `bills (${money(c.billsLeft)}) and everyday (${money(c.everydayLeft)}) need` : "bills need"} ${money(c.need)} before payday.</p>
+      ${c.savings > 0 ? `<p>${cover >= c.short ? `Bills and everyday come first. Move <b>${money(c.short)}</b> from savings into your spending money and you're covered.` : `Moving all your savings (${money(c.savings)}) would cover part of it. The other ${money(r2(c.short - c.savings))} would need cutting from everyday amounts.`}</p>` : `<p>Lower an everyday amount in Plan, or wait until payday for the rest.</p>`}
+      <div class="row-btns"><button class="btn primary" type="button" id="shortMoved">I've moved it</button><button class="btn ghost" type="button" data-plan>Change everyday</button></div>
+    </details>`;
+    $("#shortMoved").onclick = () => { if (mcp) refreshBank(); else toast("Once it's moved, tap refresh in the desktop app so the app sees it."); };
+  }
+
   /* ---------- everyday: Day tab at a glance ---------- */
   function renderEveryday(c) {
     const box = $("#everydayRow");
@@ -2057,7 +2079,7 @@ html.framed dialog{max-width:416px}
     tt.style.whiteSpace = "nowrap"; tt.style.fontSize = "";
     for (let px = parseFloat(getComputedStyle(tt).fontSize); tt.scrollWidth > tt.clientWidth + 1 && px > 22; ) { px -= 1; tt.style.fontSize = px + "px"; }
     $("#balanceLine").hidden = true;
-    renderPots(); renderBills(c); renderEveryday(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderSplit(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
+    renderPots(); renderBills(c); renderEveryday(c); renderShort(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderSplit(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
   function renderHero(c) {
@@ -2187,7 +2209,7 @@ html.framed dialog{max-width:416px}
         <p class="sub one-line" style="margin-bottom:0">${day.count ? `${day.count} ${day.count === 1 ? "payment" : "payments"}${day.bills ? `, ${money(day.bills)} of it bills` : ""}` : "Nothing spent. A no-spend day"}</p>` : `
         <p class="lead">Safe to spend today</p>
         <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
-        <p class="sub one-line" style="margin-bottom:0">${perDay < 0 ? `${money(-free)} short for bills before payday` : todayLine}</p>`}
+        <p class="sub one-line" style="margin-bottom:0">${perDay < 0 ? (c.savings >= c.short ? `${money(c.short)} short. Cover it from savings` : `${money(c.short)} short for bills and everyday`) : todayLine}</p>`}
         </div>
       </div>
       <div class="face back${heroFlipped && chocStep !== 0 ? " asked" : ""}${!heroFlipped || chocStep === 0 || chocStep === "a" ? " intro" : ""}" aria-hidden="${!heroFlipped}">
@@ -2256,7 +2278,7 @@ html.framed dialog{max-width:416px}
     sum.innerHTML = `
       <p class="mc-lead">${free >= 0 ? "Free until payday" : "Short before payday"}</p>
       <p class="mc-big num${free < 0 ? " neg" : ""}"><span class="int">${free < 0 ? "−" : ""}£${fw.toLocaleString("en-GB")}</span><span class="pence">.${pad(fp)}</span></p>
-      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills${c.everydayLeft ? ` and ${money(c.everydayLeft)} of everyday` : ""}. Spend it whenever suits you` : `Your bills before payday are more than you have`}</p>
+      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills${c.everydayLeft ? ` and ${money(c.everydayLeft)} of everyday` : ""}. Spend it whenever suits you` : `You have ${money(c.balance)} but need ${money(c.need)} for bills and everyday.${c.savings >= c.short ? ` Move ${money(c.short)} from savings to cover it.` : c.savings > 0 ? ` Savings can cover ${money(c.savings)} of it.` : ""}`}</p>
       <div id="moneySplit"></div>`;
     cyc.innerHTML = `
       <div class="panel-head"><h2>Payday to payday</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
