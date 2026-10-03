@@ -517,7 +517,7 @@ body{background:transparent}
 :root[data-mode="dark"] .wcard{background:linear-gradient(140deg,#4A4A52,#2A2A2F);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .wcard:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 .wc-row{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s3)}
-.wc-name{font-family:var(--display);font-weight:800;font-size:1.2rem;letter-spacing:-.01em}
+.wc-mono{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;flex:none;font-family:var(--display);font-weight:800;font-size:1.2rem;background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
 .wc-foot{display:flex;gap:var(--s5);font-size:.93rem}
 .wc-foot div{display:grid;gap:2px}
 .wc-foot b{font-weight:700}
@@ -1175,7 +1175,7 @@ html.framed dialog{max-width:416px}
     const aside = b.pots.filter(p => p.role !== "spend").reduce((s, p) => s + (p.balance || 0), 0);
     const at = new Date(b.asOf);
     card.innerHTML = `
-      <div class="wc-row">${balBtn("Balance", total)}<span class="wc-name">${esc(b.source || "Bank")}</span></div>
+      <div class="wc-row">${balBtn("Balance", total)}<span class="wc-mono" role="img" aria-label="${esc(b.source || "Bank")}">${esc((b.source || "B").trim().charAt(0).toUpperCase())}</span></div>
       <div class="wc-foot">
         <div><span class="bal-lab">Spending money</span><b class="num">${money(c.balance)}</b></div>
         <div><span class="bal-lab">Set aside</span><b class="num">${money(r2(aside))}</b></div>
