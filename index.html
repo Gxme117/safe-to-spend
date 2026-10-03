@@ -581,7 +581,8 @@ html.framed .island{display:block;position:absolute;top:24px;left:50%;transform:
 html.framed .statusbar{font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;display:flex;position:sticky;top:0;z-index:5;height:56px;align-items:center;justify-content:space-between;padding:4px 34px 0 52px;font-size:.93rem;font-weight:600;color:var(--ink);background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 html.framed .sb-icons{display:flex;gap:6px;align-items:center}
 html.framed .sb-icons svg{fill:var(--ink)}
-html.framed .home-ind{display:block;position:sticky;bottom:8px;width:134px;height:5px;border-radius:3px;background:var(--ink);margin:4px auto 8px;opacity:.85}
+html.framed .home-ind{display:block;position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:7;width:140px;height:5px;border-radius:3px;background:var(--ink);opacity:.85;pointer-events:none}
+html.framed .screen{padding-bottom:34px;box-sizing:border-box}
 html.framed .top{padding-top:4px}
 html.framed dialog{max-width:416px}
 </style>
@@ -807,8 +808,8 @@ html.framed dialog{max-width:416px}
 </dialog>
 
 <div id="toast" role="status" aria-live="polite"></div>
-<div class="home-ind" aria-hidden="true"></div>
 </div>
+<div class="home-ind" aria-hidden="true"></div>
 </div>
 
 <script>
