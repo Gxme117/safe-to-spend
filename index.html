@@ -75,7 +75,16 @@
 .pl-title{font-size:1.2rem;margin:0}
 .pl-hint{margin:0;font-size:.93rem;color:var(--muted)}
 .pl-group{border-radius:14px;padding:var(--s4);display:grid;gap:var(--s3)}
-.pl-group.ev,.pl-group.sv{background:color-mix(in srgb,var(--good-fill) 38%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--good) 35%,transparent)}
+.pl-group.ev,.pl-group.sv{--on:var(--btn-ink,#000);--ac:var(--btn-bg,var(--good-fill));background:var(--ac);color:var(--on)}
+.pl-group.ev .pl-head span,.pl-group.sv .pl-head span,.pl-group.ev .pl-empty,.pl-group.ev .pl-amts label span,.pl-group.sv .pl-big>span:first-child{color:inherit;opacity:.72}
+.pl-group.ev .pl-add input{background:rgba(255,255,255,.8);color:#000;border:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.pl-group.ev .pl-add input::placeholder{color:rgba(0,0,0,.45)}
+.pl-group.ev .pl-add button{background:var(--on);color:var(--ac)}
+.pl-group.ev .pl-money,.pl-group.sv .pl-money{background:rgba(255,255,255,.85);box-shadow:none}
+.pl-group.ev .pl-money input,.pl-group.sv .pl-money input{color:#000}
+.pl-group.ev .pl-money em,.pl-group.sv .pl-money em{color:rgba(0,0,0,.5)}
+.pl-group.ev .pl-amts li{border-top-color:rgba(0,0,0,.12)}
+.pl-group.ev .pl-total{border-top-color:rgba(0,0,0,.25)}
 .pl-group.fr{background:color-mix(in srgb,var(--ink) 4%,transparent)}
 .pl-group.bl{background:transparent;box-shadow:inset 0 0 0 1px var(--line);opacity:.75}
 .pl-head{display:flex;gap:var(--s3);align-items:flex-start}
@@ -85,7 +94,8 @@
 .pl-group.bl .pl-head b{font-weight:700}
 .pl-chips{display:flex;flex-wrap:wrap;gap:var(--s2)}
 .pl-chip{all:unset;cursor:pointer;padding:8px 14px;border-radius:999px;font-weight:700;font-size:.93rem;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 1px var(--line)}
-.pl-group.ev .pl-chip{background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);box-shadow:none}
+.pl-group.ev .pl-chip{background:var(--on);color:var(--ac);box-shadow:none}
+.pl-group.ev .pl-chip:focus-visible{outline-color:var(--on)}
 .pl-chip:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .pl-empty{font-size:.93rem;color:var(--muted)}
 .pl-list{margin:0;font-size:.93rem;color:var(--muted)}
