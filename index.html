@@ -34,6 +34,27 @@
 }
 .top-id{display:flex;align-items:center;gap:var(--s3);min-width:0}
 .top-title{min-width:0}
+.date-row{display:flex;align-items:center;gap:var(--s2)}
+.date-row h1{flex:1;min-width:0}
+.day-nav{display:flex;gap:var(--s1);flex:none}
+.day-nav button{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:1.2rem;font-weight:700;line-height:1;display:grid;place-items:center;cursor:pointer;padding:0}
+.day-nav button:disabled{opacity:.35;cursor:default}
+.day-nav button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* calendar */
+.cal-head{display:flex;align-items:center;justify-content:space-between}
+.cal-head h2{margin:0}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--s1)}
+.cal-dow{font-size:.75rem;color:var(--muted);text-align:center;font-weight:600;padding-bottom:var(--s1)}
+.cal-day{all:unset;box-sizing:border-box;display:grid;align-content:start;justify-items:center;gap:2px;min-height:52px;padding:var(--s2) 2px;border-radius:10px;cursor:pointer;text-align:center}
+.cal-day b{font-size:.93rem;font-weight:700}
+.cal-day small{font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.cal-day.has small{color:var(--ink);font-weight:600}
+.cal-day.today{background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000)}
+.cal-day.today small{color:inherit}
+.cal-day.sel{box-shadow:inset 0 0 0 2px var(--ink)}
+.cal-day:disabled,.cal-day[aria-disabled="true"]{opacity:.3;cursor:default}
+.cal-day:focus-visible{outline:2px solid var(--focus)}
+.cal-total{font-size:.93rem;color:var(--muted);margin:0}
 .avatar{width:44px;height:44px;flex:none;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:.93rem;font-weight:800;display:grid;place-items:center;padding:0;cursor:pointer;overflow:hidden}
 .avatar svg{width:22px;height:22px}
 .avatar:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -509,6 +530,8 @@ body{background:transparent}
 #hero .why-next svg{flex:none;opacity:.6}
 :root[data-accent="glow"] #hero .back{background:#000;color:#fff}
 #hero .flip-ic{position:absolute;top:var(--s4);right:var(--s4);opacity:.45}
+#hero.noflip{cursor:default}
+#hero.noflip .front .flip-ic{display:none}
 /* wallet: credit-card shaped cards, the bank's card peeking out above ours */
 .wallet{position:relative;--peek:52px}
 .wallet.has-peek{padding-top:var(--peek)}
@@ -577,7 +600,7 @@ html.framed dialog{max-width:416px}
   <div class="top-id">
     <button id="acctBtn" class="avatar" type="button" aria-label="Your account"><span id="acctInit" aria-hidden="true"></span></button>
     <div class="top-title">
-      <h1 id="monthTitle">This month</h1>
+      <div class="date-row"><h1 id="monthTitle">This month</h1><div class="day-nav" aria-label="Choose a day"><button type="button" id="dayPrev" aria-label="Previous day">‹</button><button type="button" id="dayNext" aria-label="Next day">›</button><button type="button" id="calBtn" aria-label="Open calendar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16.5" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg></button></div></div>
       <p id="balanceLine" class="muted num"></p>
     </div>
   </div>
@@ -598,7 +621,7 @@ html.framed dialog{max-width:416px}
     <div id="askTx"></div>
     <div id="checkin"></div>
     <div class="panel">
-      <div class="panel-head"><h2>Spent today</h2><button class="btn primary small" type="button" id="openAdd">Add payment</button></div>
+      <div class="panel-head"><h2 id="todayHead">Spent today</h2><button class="btn primary small" type="button" id="openAdd">Add payment</button></div>
       <ul id="todayList" class="tx"></ul>
     </div>
 </main>
@@ -759,6 +782,15 @@ html.framed dialog{max-width:416px}
       <div id="oneOffWrap" hidden><h2 style="margin:var(--s4) 0 var(--s2)">Coming up</h2><ul id="oneOffList" class="inc"></ul></div>
     </div>
     <div class="dlg-foot split"><button class="btn ghost" type="button" id="acctSettings">Settings</button><button class="btn primary" type="button" id="acctClose">Done</button></div>
+  </div>
+</dialog>
+
+<dialog id="calDlg" aria-labelledby="calTitle">
+  <div class="dlg">
+    <div class="cal-head"><button type="button" class="btn ghost small" id="calPrev" aria-label="Previous month">‹</button><h2 id="calTitle"></h2><button type="button" class="btn ghost small" id="calNext" aria-label="Next month">›</button></div>
+    <p class="cal-total num" id="calTotal"></p>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="dlg-foot split"><button type="button" class="btn ghost" id="calToday">Today</button><button type="button" class="btn primary" id="calClose">Done</button></div>
   </div>
 </dialog>
 
@@ -1205,6 +1237,52 @@ html.framed dialog{max-width:416px}
     if (e.target.closest("#bankCard")) $("#wallet").classList.add("swap");
   }, true);
   $("#bankCard").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#wallet").classList.add("swap"); } });
+  /* ---------- looking back at other days ---------- */
+  let viewDay = null;   // null means today
+  function daySummary(d) {
+    subscribeMonth(d.slice(0, 7));
+    const items = (months[d.slice(0, 7)] || []).filter(it => it.date === d && it.type === "expense");
+    const billIds = new Set((state.categories || []).filter(x => x.fixed).map(x => x.id));
+    return {spent: r2(items.reduce((s, it) => s + it.amount, 0)), count: items.length,
+      bills: r2(items.filter(it => it.billId || billIds.has(it.cat)).reduce((s, it) => s + it.amount, 0))};
+  }
+  function goDay(d) {
+    const t = today();
+    viewDay = !d || d >= t ? null : d;
+    if (view !== "month") setView("month"); else render();
+  }
+  $("#dayPrev").onclick = () => goDay(addDays(viewDay || today(), -1));
+  $("#dayNext").onclick = () => goDay(addDays(viewDay || today(), 1));
+  let calMonth = null;
+  function renderCal() {
+    const t = today(), sel = viewDay || t, key = calMonth;
+    subscribeMonth(key);
+    const items = (months[key] || []).filter(it => it.type === "expense");
+    const per = {};
+    for (const it of items) per[it.date] = r2((per[it.date] || 0) + it.amount);
+    const first = parseD(key + "-01"), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    const lead = (first.getDay() + 6) % 7;   // weeks start on Monday
+    $("#calTitle").textContent = first.toLocaleDateString("en-GB", {month: "long", year: "numeric"});
+    $("#calTotal").textContent = `Spent ${money(r2(Object.values(per).reduce((s, v) => s + v, 0)))} this month so far. Tap a day to see it.`;
+    let html = ["M", "T", "W", "T", "F", "S", "S"].map(d => `<span class="cal-dow" aria-hidden="true">${d}</span>`).join("");
+    html += "<span></span>".repeat(lead);
+    for (let i = 1; i <= dim; i++) {
+      const d = `${key}-${pad(i)}`, fut = d > t, amt = per[d];
+      html += `<button type="button" class="cal-day${d === t ? " today" : ""}${d === sel ? " sel" : ""}${amt ? " has" : ""}" data-day="${d}" ${fut ? 'aria-disabled="true" tabindex="-1"' : ""} aria-label="${niceDate(d)}${amt ? `, spent ${money(amt)}` : ""}"><b>${i}</b><small>${fut ? "" : amt ? "£" + Math.round(amt) : "–"}</small></button>`;
+    }
+    $("#calGrid").innerHTML = html;
+    $("#calNext").disabled = key >= t.slice(0, 7);
+    $("#calPrev").disabled = key <= addMonths(t.slice(0, 7), -11);
+  }
+  $("#calBtn").onclick = () => { calMonth = (viewDay || today()).slice(0, 7); renderCal(); $("#calDlg").showModal(); };
+  $("#calPrev").onclick = () => { calMonth = addMonths(calMonth, -1); renderCal(); };
+  $("#calNext").onclick = () => { calMonth = addMonths(calMonth, 1); renderCal(); };
+  $("#calClose").onclick = () => $("#calDlg").close();
+  $("#calToday").onclick = () => { $("#calDlg").close(); goDay(null); };
+  $("#calGrid").addEventListener("click", e => {
+    const b = e.target.closest(".cal-day"); if (!b || b.getAttribute("aria-disabled") === "true") return;
+    $("#calDlg").close(); goDay(b.dataset.day);
+  });
   let heroFlipped = false;
   // count up to the daily number when it first appears, and from the old figure to the new one when it changes
   let heroShown = null, heroAnim = 0, heroCounting = null;
@@ -1280,7 +1358,7 @@ html.framed dialog{max-width:416px}
     plan.forEach(([k, d]) => { t += d; chocTimers.push(setTimeout(() => setChoc(k), t)); });
   }
   function flipHero() {
-    const h = $("#hero"); if (!h.classList.contains("flippable")) return;
+    const h = $("#hero"); if (!h.classList.contains("flippable") || h.classList.contains("noflip")) return;
     heroFlipped = !heroFlipped;
     h.classList.toggle("flipped", heroFlipped);
     h.querySelector(".front").setAttribute("aria-hidden", heroFlipped);
@@ -1633,7 +1711,9 @@ html.framed dialog{max-width:416px}
     const c = calc();
     // today's date, short weekday + full month: "Sat 3 October"
     const tt = $("#monthTitle");
-    tt.textContent = parseD(c.t).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "long"}).replace(",", "");   // "Sat 3 October"
+    tt.textContent = parseD(viewDay || c.t).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "long"}).replace(",", "");   // "Sat 3 October"
+    $("#dayNext").disabled = !viewDay || viewDay >= c.t;
+    $("#dayPrev").disabled = (viewDay || c.t) <= addDays(c.t, -330);
     // long dates like "Wednesday 30 September" ease down a little to stay on one line
     tt.style.whiteSpace = "nowrap"; tt.style.fontSize = "";
     for (let px = parseFloat(getComputedStyle(tt).fontSize); tt.scrollWidth > tt.clientWidth + 1 && px > 22; ) { px -= 1; tt.style.fontSize = px + "px"; }
@@ -1746,7 +1826,10 @@ html.framed dialog{max-width:416px}
     const totalBal = r2(c.balance + (bank() ? bank().pots.filter(p => p.role !== "spend").reduce((s, p) => s + (p.balance || 0), 0) : 0));
     renderBankCard(c, totalBal);
     const FLIP = '<svg class="flip-ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg>';
+    const dayMode = viewDay && viewDay !== c.t, day = dayMode ? daySummary(viewDay) : null;
+    if (dayMode) heroFlipped = false;   // the explanation is about today, so past days don't flip
     h.classList.add("flippable");
+    h.classList.toggle("noflip", !!dayMode);
     h.setAttribute("role", "button"); h.setAttribute("tabindex", "0");
     h.setAttribute("aria-label", heroFlipped ? "Days until payday. Tap to show today's amount." : "Safe to spend today. Tap to show days until payday.");
     h.classList.toggle("flipped", heroFlipped);
@@ -1754,10 +1837,13 @@ html.framed dialog{max-width:416px}
       <div class="face front" aria-hidden="${heroFlipped}">
         ${FLIP}
         <div class="wc-top">${balBtn("Total balance", totalBal)}</div>
-        <div class="wc-bottom">
+        <div class="wc-bottom">${dayMode ? `
+        <p class="lead">Spent that day</p>
+        <p class="big num pos" aria-label="${money(day.spent)} spent"><span class="int">£${Math.floor(day.spent).toLocaleString("en-GB")}</span><span class="pence">.${pad(Math.round((day.spent - Math.floor(day.spent)) * 100) % 100)}</span></p>
+        <p class="sub" style="margin-bottom:0">${day.count ? `${day.count} ${day.count === 1 ? "payment" : "payments"}${day.bills ? `, including ${money(day.bills)} in bills` : ""}.` : "Nothing spent. A no-spend day."}</p>` : `
         <p class="lead">Safe to spend today</p>
         <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
-        <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills before payday are ${money(-free)} more than you have.` : todayLine}</p>
+        <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills before payday are ${money(-free)} more than you have.` : todayLine}</p>`}
         </div>
       </div>
       <div class="face back${heroFlipped && chocStep !== 0 ? " asked" : ""}${!heroFlipped || chocStep === 0 || chocStep === "a" ? " intro" : ""}" aria-hidden="${!heroFlipped}">
@@ -1788,7 +1874,7 @@ html.framed dialog{max-width:416px}
 
     fitBig();
     sizeFlip();
-    countHero(perDay < 0 ? -pd : pd);
+    countHero(dayMode ? day.spent : (perDay < 0 ? -pd : pd));
     if (heroCounting) heroCounting();
 
     // MONTH: payday to payday
@@ -1897,8 +1983,9 @@ html.framed dialog{max-width:416px}
         <span class="amt ${inflow ? "in" : ""}">${inflow ? "+" : "−"}${money(it.amount)}</span>
         <button class="x" type="button" data-del="${esc(it.id)}" aria-label="Delete ${esc(title)}">×</button></li>`;
     };
-    const tod = items.filter(it => it.date === c.t && it.type === "expense");
-    $("#todayList").innerHTML = tod.length ? tod.map(row).join("") : `<li style="display:block;border:0"><p class="empty" style="margin:0">Nothing spent today.</p></li>`;
+    const vd = viewDay || c.t, dayItems = (months[vd.slice(0, 7)] || []).filter(it => it.date === vd && it.type === "expense").sort((a, b) => (b.created || 0) - (a.created || 0));
+    $("#todayHead").textContent = vd === c.t ? "Spent today" : `Spent on ${niceDate(vd)}`;
+    $("#todayList").innerHTML = dayItems.length ? dayItems.map(row).join("") : `<li style="display:block;border:0"><p class="empty" style="margin:0">Nothing spent ${vd === c.t ? "today" : "that day"}.</p></li>`;
     $("#txMore").hidden = items.length <= 5;
     $("#txMore").textContent = txAll ? "Show fewer" : `Show all ${items.length}`;
     $("#txList").innerHTML = (txAll ? items : items.slice(0, 5)).map(it => {
@@ -2152,10 +2239,10 @@ html.framed dialog{max-width:416px}
     $("#tabYear").setAttribute("aria-selected", v === "year");
     render();
   }
-  $("#tabMonth").onclick = () => setView("month");
+  $("#tabMonth").onclick = () => { viewDay = null; setView("month"); };
   $("#tabYear").onclick = () => setView("year");
   $("#tabPlan").onclick = () => setView("plan");
-  $("#openAdd").onclick = () => { if (!$("#fDate").value) $("#fDate").value = today(); $("#addDlg").showModal(); setTimeout(() => $("#fAmt").focus(), 30); };
+  $("#openAdd").onclick = () => { $("#fDate").value = viewDay || today(); $("#addDlg").showModal(); setTimeout(() => $("#fAmt").focus(), 30); };
   $("#addCancel").onclick = () => $("#addDlg").close();
   $("#txMore").onclick = () => { txAll = !txAll; render(); };
 
