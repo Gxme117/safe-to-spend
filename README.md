@@ -35,6 +35,30 @@ won't work outside Claude.
 `mobile/` is a phone version of the core of the app, built with Expo, React Native and TypeScript.
 It keeps everything on the phone (SQLite) and you type your balance in rather than connecting Monzo.
 
+<p>
+  <img src="mobile/docs/day.png" width="240" alt="Day tab: safe to spend today, £14.52, with £6.52 left after £8 spent">
+  <img src="mobile/docs/month.png" width="240" alt="Month tab: £392 free until payday, where the money is, and the payday-to-payday calendar">
+  <img src="mobile/docs/day-dark.png" width="240" alt="Day tab in dark mode">
+</p>
+
+### How it works
+
+The daily number is (spending money − bills due before payday − what's left of everyday amounts) ÷ days to payday.
+
+1. **Engine** (`src/lib/`): pure TypeScript with no React or storage. It works out pay and bill dates (pay moves earlier off weekends and bank holidays, bills move later), pay check-ins, the daily number, the calendar and the split. Every function takes `{state, payments, today}`, so it's straightforward to unit test. It was checked against the original web app's engine on the same inputs.
+2. **Storage** (`src/db/`): payments go in a SQLite table as whole pence, so totals never pick up floating-point errors. Schema changes are versioned migrations.
+3. **State** (`src/store/`): a Zustand store holds settings (income, bills, categories) and saves them on the phone. A payment is written to the database before the screen shows it, and a failed write shows a message instead.
+4. **Screens** (`src/app/`): Expo Router tabs (Day, Month) and modal forms. They read from the engine and contain no money logic.
+
+Rules it follows: money only counts once it has arrived (payday asks "did it land?"), and it never scolds. A big day just lowers the days after.
+
+### Roadmap
+
+- **v1** (now): on-device app, manual balance.
+- **v2**: Supabase sign-in and Postgres sync, with SQLite still the offline source.
+- **v3**: server-side logic (Edge Functions).
+- **v4**: Open Banking, so the balance and payments come in automatically.
+
 ```sh
 cd mobile
 npm install
