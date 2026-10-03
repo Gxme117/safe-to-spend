@@ -61,11 +61,23 @@
 .mc-big .pence{font-size:.5em;margin-left:.06em;margin-top:.16em}
 @supports (text-box: trim-both cap alphabetic){.mc-big .int,.mc-big .pence{text-box:trim-both cap alphabetic}.mc-big .pence{margin-top:0}}
 .mc-lead{margin:0;font-weight:700}
-/* the most important card on Month carries the accent, like the card on Day */
-#cycleSum{background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-color:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
-#cycleSum .mc-lead,#cycleSum .mc-sub{color:inherit;opacity:.8}
-#cycleSum .mc-big{color:inherit}
-:root[data-accent="glow"] #cycleSum{background:var(--shine-bg) padding-box,var(--prism) border-box;border:1.5px solid transparent;box-shadow:var(--glow-box)}
+/* the calendar carries the accent on Month */
+#cycleCard{--ac-bg:var(--btn-bg,var(--good-fill));--ac-ink:var(--btn-ink,#000);background:var(--ac-bg);color:var(--ac-ink);border-color:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
+#cycleCard h2,#cycleCard .mc-day b{color:inherit}
+#cycleCard .muted,#cycleCard .mc-dow,#cycleCard .mc-key,#cycleCard .mc-day small{color:inherit;opacity:.72}
+#cycleCard .mc-day.spent small,#cycleCard .mc-day.bill small{opacity:1}
+#cycleCard .mc-day.none{opacity:.3}
+#cycleCard .mc-day.zero{background:var(--ac-ink);color:var(--ac-bg)}
+#cycleCard .mc-day.zero small{opacity:1}
+#cycleCard .mc-day.pay{background:transparent;border:2px solid var(--ac-ink)}
+#cycleCard .mc-day.pay small{color:inherit;opacity:1}
+#cycleCard .mc-day.today{border-color:var(--ac-ink)}
+#cycleCard .mc-day.bill small::before,#cycleCard .mc-key .k-bill{background:var(--ac-ink)}
+#cycleCard .mc-key .k-zero{background:var(--ac-ink)}
+#cycleCard .mc-key .k-pay{background:transparent;box-shadow:inset 0 0 0 1.5px var(--ac-ink)}
+#cycleCard .mc-detail{background:color-mix(in srgb,var(--ac-ink) 9%,transparent)}
+#cycleCard .mc-day.sel{box-shadow:0 0 0 2px var(--ac-ink)}
+:root[data-accent="glow"] #cycleCard{background:var(--shine-bg) padding-box,var(--prism) border-box;border:1.5px solid transparent;box-shadow:var(--glow-box)}
 /* numbers that are yours to use, or coming in, are in the accent */
 .mc-day.pay b,.mc-day.zero b{color:inherit}
 #comingCard .pamt.good-txt,#cats .left.good-txt{font-weight:800}
