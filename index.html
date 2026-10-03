@@ -55,6 +55,40 @@
 .cal-day:disabled,.cal-day[aria-disabled="true"]{opacity:.3;cursor:default}
 .cal-day:focus-visible{outline:2px solid var(--focus)}
 .cal-total{font-size:.93rem;color:var(--muted);margin:0}
+/* month: payday-to-payday calendar */
+.mc-big{display:flex;align-items:flex-start;line-height:1;margin:var(--s2) 0 0;font-family:var(--display);font-weight:800;font-size:2rem;letter-spacing:-.02em}
+.mc-big .int,.mc-big .pence{display:block;line-height:1}
+.mc-big .pence{font-size:.5em;margin-left:.06em;margin-top:.16em}
+@supports (text-box: trim-both cap alphabetic){.mc-big .int,.mc-big .pence{text-box:trim-both cap alphabetic}.mc-big .pence{margin-top:0}}
+.mc-sub{margin:var(--s2) 0 var(--s5);font-size:.93rem;color:var(--muted)}
+.mc-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--s1)}
+.mc-dow{font-size:.75rem;color:var(--muted);text-align:center;font-weight:600;padding-bottom:var(--s1)}
+.mc-day{all:unset;box-sizing:border-box;display:grid;align-content:start;justify-items:center;gap:2px;min-height:48px;padding:6px 2px;border-radius:10px;cursor:pointer;text-align:center;border:1px solid transparent}
+.mc-day b{font-size:.93rem;font-weight:700}
+.mc-day small{font-size:.75rem;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.mc-day.none{opacity:.35}
+.mc-day.best{background:color-mix(in srgb,var(--good-fill) 45%,transparent)}
+.mc-day.best small{color:var(--ink)}
+.mc-day.zero{background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000)}
+.mc-day.zero small{color:inherit}
+.mc-day.over{background:var(--ink);color:var(--surface)}
+.mc-day.over small{color:inherit;opacity:.8}
+.mc-day.bill small{color:var(--ink)}
+.mc-day.bill small::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ink);margin-right:3px;vertical-align:1px}
+.mc-day.today{border-color:var(--ink);border-width:2px}
+.mc-day.pay{background:var(--good-soft);border-color:var(--good)}
+.mc-day.pay small{color:var(--good)}
+.mc-day.low{border:2px dashed var(--ink)}
+.mc-day.sel{box-shadow:0 0 0 2px var(--focus)}
+.mc-day:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.mc-key{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);margin-top:var(--s3);font-size:.75rem;color:var(--muted)}
+.mc-key span{display:inline-flex;align-items:center;gap:6px}
+.mc-key i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.mc-key .k-best{background:color-mix(in srgb,var(--good-fill) 45%,transparent)}
+.mc-key .k-over{background:var(--ink)}
+.mc-key .k-bill{border-radius:50%;background:var(--ink);width:6px;height:6px}
+.mc-key .k-low{border:1.5px dashed var(--ink)}
+.mc-detail{margin:var(--s3) 0 0;font-size:.93rem;padding:var(--s3);border-radius:10px;background:color-mix(in srgb,var(--ink) 5%,transparent)}
 .avatar{width:44px;height:44px;flex:none;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:.93rem;font-weight:800;display:grid;place-items:center;padding:0;cursor:pointer;overflow:hidden}
 .avatar svg{width:22px;height:22px}
 .avatar:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -1886,25 +1920,63 @@ html.framed dialog{max-width:416px}
     // MONTH: payday to payday
     const cyc = $("#cycleCard");
     cyc.hidden = false;
+    // --- where your money is heading: walk each day to payday at your real pace
+    const pastDays = [];
+    for (let d = start > tracked ? start : tracked; d < c.t; d = addDays(d, 1)) pastDays.push(d);
+    // early in the cycle a single big day shouldn't swing everything: missing days count as "on plan" until there's a week of history
+    const PACE_DAYS = 7, spentSoFar = pastDays.reduce((s2, d) => s2 + (spentOn[d] || 0), 0);
+    const pace = r2((spentSoFar + allowance * Math.max(0, PACE_DAYS - pastDays.length)) / Math.max(pastDays.length, PACE_DAYS));
+    const dueOn = {};
+    for (const x of (c.billsDue || [])) (dueOn[x.d] = dueOn[x.d] || []).push(x.b);
+    const proj = {};
+    let bal = c.balance, runOut = null, low = {d: c.t, v: Infinity};
+    for (let d = c.t; d < c.payday; d = addDays(d, 1)) {
+      bal -= (dueOn[d] || []).reduce((s2, b2) => s2 + (b2.amount || 0), 0);
+      bal -= d === c.t ? Math.max(0, pace - spentToday) : pace;
+      proj[d] = r2(bal);
+      if (bal < 0 && !runOut) runOut = d;
+      if (bal < low.v) low = {d, v: r2(bal)};
+    }
+    if (low.v === Infinity) low = {d: c.t, v: c.balance};
+    const brokest = runOut || low.d;
+    const lowAbs = Math.abs(low.v), lw = Math.floor(lowAbs), lp = Math.round((lowAbs - lw) * 100) % 100;
+    // --- the calendar: payday to payday, weeks start on Monday
+    const first = parseD(start), lead = (first.getDay() + 6) % 7;
+    let cells = ["M", "T", "W", "T", "F", "S", "S"].map(d => `<span class="mc-dow" aria-hidden="true">${d}</span>`).join("") + "<span></span>".repeat(lead);
+    for (let d = start; d <= c.payday; d = addDays(d, 1)) {
+      const n = +d.slice(8), cls = ["mc-day"], spent = spentOn[d] || 0;
+      let note = "", label = niceDate(d);
+      if (d === c.payday) { cls.push("pay"); note = "Pay"; label += ", payday"; }
+      else if (d < c.t) {
+        if (d < tracked) { cls.push("none"); }
+        else if (!spent) { cls.push("best", "zero"); note = "★"; label += ", no-spend day"; }
+        else { cls.push(spent <= allowance ? "best" : "over"); note = "£" + Math.round(spent); label += `, spent ${money(spent)}`; }
+      } else {
+        const due = (dueOn[d] || []).reduce((s2, b2) => s2 + (b2.amount || 0), 0);
+        if (due) { cls.push("bill"); note = "£" + Math.round(due); label += `, ${(dueOn[d] || []).map(b2 => b2.name).join(" and ")} due`; }
+        if (d === c.t) { cls.push("today"); label += ", today"; if (!due && spent) note = "£" + Math.round(spent); }
+        if (d === brokest) { cls.push("low"); label += ", lowest point"; }
+      }
+      cells += `<button type="button" class="${cls.join(" ")}" data-mday="${d}" aria-label="${esc(label)}"><b>${n}</b><small>${note}</small></button>`;
+    }
     cyc.innerHTML = `
-      <div class="panel-head"><h2>Payday to payday</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
-      <p class="sub" style="margin-top:0">${free >= 0
-        ? `You have ${money(free)} free across ${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"}, after the bills below. Payday is ${niceDate(c.payday)}.`
-        : `Your bills still to pay are ${money(-free)} more than your money. Payday is ${niceDate(c.payday)}.`}</p>
-      <div class="runway" role="img" aria-label="Money split: ${money(billsW)} for bills, ${money(freeW)} free">
-        ${billsW ? `<i class="bills" style="flex:${billsW}"></i>` : ""}${freeW ? `<i class="free" style="flex:${freeW}"></i>` : ""}
-      </div>
-      <div class="legend num">
-        <span><i class="dot bills"></i>Bills still to pay ${money(c.billsLeft)}</span>
-        <span><i class="dot free"></i>Free to spend ${money(Math.max(free, 0))}</span>
-      </div>
-      <div class="cycle">
-        <div class="cycle-ends"><span>${start < c.t ? `Paid <b>${niceDate(start)}</b>` : `<b>Today</b>`}</span><span class="pay">Payday <b>${niceDate(c.payday)}</b></span></div>
-        <div class="days" role="img" aria-label="Day ${dayNo} of ${total} until payday">${ticks}</div>
-        <div class="dow" aria-hidden="true">${dows}</div>
-        <div class="cycle-key"><span><i class="ca" style="background:var(--good-fill)"></i>Under your daily amount</span><span><i class="ov" style="background:var(--ink)"></i>Over</span><span><i style="background:var(--line)"></i>Still to come</span></div>
-        <p class="days-cap muted">${cap}</p>
-      </div>`;
+      <div class="panel-head"><h2>${runOut ? "You'd run short" : "Lowest point before payday"}</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
+      <p class="mc-big num${low.v < 0 ? " neg" : ""}"><span class="int">${low.v < 0 ? "−" : ""}£${lw.toLocaleString("en-GB")}</span><span class="pence">.${pad(lp)}</span></p>
+      <p class="mc-sub">${runOut ? `At ${money(pace)} a day you'd hit £0 on ${niceDate(runOut)}` : `${niceDate(low.d)}, if you keep spending about ${money(pace)} a day`}</p>
+      <div class="mc-grid" role="group" aria-label="Payday to payday calendar">${cells}</div>
+      <div class="mc-key"><span><i class="k-best"></i>Under your daily amount</span><span><i class="k-over"></i>Over</span><span><i class="k-bill"></i>Bill due</span><span><i class="k-low"></i>Lowest point</span></div>
+      <p class="mc-detail" id="mcDetail" hidden></p>`;
+    cyc.querySelector(".mc-grid").onclick = e => {
+      const btn = e.target.closest(".mc-day"); if (!btn) return;
+      const d = btn.dataset.mday;
+      if (d < c.t || d === c.t) { viewDay = d === c.t ? null : d; setView("month"); return; }
+      const bl = dueOn[d] || [], det = $("#mcDetail");
+      cyc.querySelectorAll(".mc-day.sel").forEach(x => x.classList.remove("sel")); btn.classList.add("sel");
+      det.hidden = false;
+      det.innerHTML = d === c.payday
+        ? `<b>${niceDate(d)}</b>: payday. ${mainSrc ? `${esc(mainSrc.name)} pays at least ${money(mainSrc.varies ? mainSrc.low : (mainSrc.amount || 0))}.` : ""}`
+        : `<b>${niceDate(d)}</b>: ${bl.length ? bl.map(b2 => `${esc(b2.name)} ${money(b2.amount || 0)}`).join(", ") + " due. " : "No bills. "}About ${money(Math.max(proj[d] ?? 0, -9e9))} left by the end of the day.`;
+    };
 
     // MONTH: what's coming, in date order
     const com = $("#comingCard");
