@@ -62,7 +62,7 @@
 @supports (text-box: trim-both cap alphabetic){.mc-big .int,.mc-big .pence{text-box:trim-both cap alphabetic}.mc-big .pence{margin-top:0}}
 .mc-lead{margin:0;font-weight:700}
 /* where your money is */
-.split{display:grid;gap:var(--s2);padding:0 var(--s1)}
+.split{display:grid;gap:var(--s2);margin-top:var(--s5);padding-top:var(--s4);border-top:1px solid var(--line)}
 .split-head{display:flex;justify-content:space-between;font-size:.93rem;font-weight:700}
 .split-short{color:var(--ink);font-weight:800}
 .split-bar{display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden;background:var(--line)}
@@ -756,7 +756,6 @@ html.framed dialog{max-width:416px}
 
 <main class="today-view" id="monthView">
     <div class="hero-wrap wallet" id="wallet"><div class="wcard" id="bankCard" hidden role="button" tabindex="0" aria-label="Show your Monzo card"></div><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
-    <div id="moneySplit"></div>
     <div id="everydayRow"></div>
     <div id="askTx"></div>
     <div id="checkin"></div>
@@ -1678,8 +1677,8 @@ html.framed dialog{max-width:416px}
 
   /* ---------- where your money is: one bar split by group, like iPhone Storage ---------- */
   function renderSplit(c) {
-    const box = $("#moneySplit");
-    if (!state || c.balance == null || viewDay || !c.payday) { box.innerHTML = ""; return; }
+    const box = $("#moneySplit"); if (!box) return;
+    if (!state || c.balance == null || !c.payday) { box.innerHTML = ""; return; }
     const saved = bank() ? r2(bank().pots.filter(p => p.role !== "spend").reduce((s2, p) => s2 + (p.balance || 0), 0)) : 0;
     const total = r2(c.balance + saved + manualTotalSafe());
     const billsA = r2(Math.max(0, Math.min(c.billsLeft, Math.max(c.balance, 0))));
@@ -2033,7 +2032,7 @@ html.framed dialog{max-width:416px}
     tt.style.whiteSpace = "nowrap"; tt.style.fontSize = "";
     for (let px = parseFloat(getComputedStyle(tt).fontSize); tt.scrollWidth > tt.clientWidth + 1 && px > 22; ) { px -= 1; tt.style.fontSize = px + "px"; }
     $("#balanceLine").hidden = true;
-    renderPots(); renderBills(c); renderSplit(c); renderEveryday(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
+    renderPots(); renderBills(c); renderEveryday(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderSplit(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
   function renderHero(c) {
@@ -2232,7 +2231,8 @@ html.framed dialog{max-width:416px}
     sum.innerHTML = `
       <p class="mc-lead">${free >= 0 ? "Free until payday" : "Short before payday"}</p>
       <p class="mc-big num${free < 0 ? " neg" : ""}"><span class="int">${free < 0 ? "−" : ""}£${fw.toLocaleString("en-GB")}</span><span class="pence">.${pad(fp)}</span></p>
-      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills${c.everydayLeft ? ` and ${money(c.everydayLeft)} of everyday` : ""}. Spend it whenever suits you` : `Your bills before payday are more than you have`}</p>`;
+      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills${c.everydayLeft ? ` and ${money(c.everydayLeft)} of everyday` : ""}. Spend it whenever suits you` : `Your bills before payday are more than you have`}</p>
+      <div id="moneySplit"></div>`;
     cyc.innerHTML = `
       <div class="panel-head"><h2>Payday to payday</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
       <div class="mc-grid" role="group" aria-label="Payday to payday calendar">${cells}</div>
