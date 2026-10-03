@@ -61,6 +61,33 @@
 .mc-big .pence{font-size:.5em;margin-left:.06em;margin-top:.16em}
 @supports (text-box: trim-both cap alphabetic){.mc-big .int,.mc-big .pence{text-box:trim-both cap alphabetic}.mc-big .pence{margin-top:0}}
 .mc-lead{margin:0;font-weight:700}
+/* everyday at a glance */
+.ev-row .panel-head{margin-bottom:var(--s3)}
+.ev-chips{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.ev-chip{display:inline-flex;gap:var(--s2);align-items:baseline;padding:6px 12px;border-radius:999px;background:color-mix(in srgb,var(--good-fill) 35%,transparent);font-size:.93rem}
+.ev-chip b{font-weight:800;color:var(--good)}
+.ev-chip.over{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+.ev-chip.over b{color:var(--ink)}
+/* planner */
+.plan-list{list-style:none;margin:0;padding:0;display:grid}
+.plan-list li{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);padding:var(--s3) 0;border-top:1px solid var(--line)}
+.plan-list li:first-child{border-top:0}
+.plan-list label{display:grid;gap:2px;font-weight:600}
+.plan-list small{font-size:.75rem;color:var(--muted);font-weight:400}
+.plan-list .money{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:10px;padding:0 10px;width:110px}
+.plan-list .money input{border:0;background:none;width:100%;height:40px;font:inherit;font-weight:700;color:var(--ink)}
+.seg-mini{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px}
+.seg-mini button{all:unset;cursor:pointer;padding:6px 12px;border-radius:999px;font-size:.93rem;font-weight:600}
+.seg-mini button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.plan-add{display:flex;gap:var(--s2)}
+.plan-add input{flex:1;height:40px;border:1px solid var(--line);border-radius:10px;padding:0 12px;font:inherit;background:var(--surface);color:var(--ink)}
+.plan-sum{list-style:none;margin:0;padding:0}
+.plan-sum li{display:flex;justify-content:space-between;padding:var(--s2) 0;border-top:1px solid var(--line)}
+.plan-sum li:first-child{border-top:0}
+.plan-free{border-radius:14px;padding:var(--s5);background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);display:grid;gap:var(--s2)}
+.plan-free span{font-weight:700}
+.plan-free .mc-big{margin:0}
+.plan-free small{font-size:.93rem;opacity:.8}
 /* the calendar carries the accent on Month */
 #cycleCard{--ac-bg:var(--btn-bg,var(--good-fill));--ac-ink:var(--btn-ink,#000);background:var(--ac-bg);color:var(--ac-ink);border-color:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
 #cycleCard h2,#cycleCard .mc-day b{color:inherit}
@@ -674,6 +701,7 @@ html.framed dialog{max-width:416px}
 
 <main class="today-view" id="monthView">
     <div class="hero-wrap wallet" id="wallet"><div class="wcard" id="bankCard" hidden role="button" tabindex="0" aria-label="Show your Monzo card"></div><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
+    <div id="everydayRow"></div>
     <div id="askTx"></div>
     <div id="checkin"></div>
     <div class="panel">
@@ -691,7 +719,7 @@ html.framed dialog{max-width:416px}
       <div id="billsBody"></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h2>Budgets</h2><span id="budgetSum" class="muted num"></span></div>
+      <div class="panel-head"><h2>Everyday</h2><div style="display:flex;gap:10px;align-items:baseline"><span id="budgetSum" class="muted num"></span><button class="btn ghost small" type="button" data-plan>Plan</button></div></div>
       <ul id="cats" class="cats"></ul>
     </div>
     <div class="panel">
@@ -849,6 +877,13 @@ html.framed dialog{max-width:416px}
     <div class="cal-grid" id="calGrid"></div>
     <div class="dlg-foot split"><button type="button" class="btn ghost" id="calToday">Today</button><button type="button" class="btn primary" id="calClose">Done</button></div>
   </div>
+</dialog>
+
+<dialog id="planDlg" aria-labelledby="planTitle">
+  <form id="planForm" class="dlg" novalidate>
+    <div id="planBody" class="wiz-q"></div>
+    <div class="dlg-foot split"><button class="btn ghost" type="button" id="planBack">Back</button><button class="btn primary" type="submit" id="planNext">Next</button></div>
+  </form>
 </dialog>
 
 <dialog id="jobDlg" aria-labelledby="jobTitle">
@@ -1055,6 +1090,15 @@ html.framed dialog{max-width:416px}
   }
 
   /* ---------- derived ---------- */
+  // every category belongs to one group: bills (fixed), everyday (monthly amount you choose), or free
+  // nothing becomes Everyday until you choose it in the planner, so your number doesn't change by surprise
+  function catGroup(x) { return x.group || (x.fixed ? "bills" : "free"); }
+  function cycleStart(t) {
+    const src = incomes().find(s => s.main) || incomes().find(s => s.freq !== "oneoff");
+    if (!src) return t;
+    const past = occurrences(src, addDays(t, -45), t);
+    return past.length ? past[past.length - 1] : t;
+  }
   function calc() {
     const t = today(), cur = t.slice(0, 7);
     const items = months[cur] || [];
@@ -1086,7 +1130,12 @@ html.framed dialog{max-width:416px}
     } else {
       for (const c of cats) if (c.fixed) billsLeft += Math.max(0, (c.budget || 0) - (spent[c.id] || 0));
     }
-    return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, billsDue, daysLeft, payday};
+    // everyday: what's left of each monthly amount since the last payday is kept aside, not counted as free
+    const cycleFrom = cycleStart(t), spentCycle = {};
+    for (const k in months) for (const it of months[k]) if (it.type === "expense" && !it.billId && it.date >= cycleFrom && it.date <= t) spentCycle[it.cat] = (spentCycle[it.cat] || 0) + it.amount;
+    const everyday = cats.filter(x => catGroup(x) === "everyday").map(x => ({x, spent: r2(spentCycle[x.id] || 0), left: r2((x.budget || 0) - (spentCycle[x.id] || 0))}));
+    const everydayLeft = r2(everyday.reduce((s, e) => s + Math.max(0, e.left), 0));
+    return {t, cur, items, cats, spent, spentTotal, inTotal, savedMonth, balance, billsLeft, billsDue, daysLeft, payday, everyday, everydayLeft, cycleFrom};
   }
 
   /* ---------- pots (synced from the bank) ---------- */
@@ -1571,6 +1620,112 @@ html.framed dialog{max-width:416px}
     });
   }
 
+  /* ---------- everyday: Day tab at a glance ---------- */
+  function renderEveryday(c) {
+    const box = $("#everydayRow");
+    if (!state || c.balance == null || viewDay) { box.innerHTML = ""; return; }
+    if (!c.everyday.length) {
+      box.innerHTML = `<div class="panel ev-row"><div class="panel-head"><h2>Everyday</h2><button class="btn ghost small" type="button" data-plan>Plan</button></div><p class="muted" style="margin:0">Set what you spend on every month, like groceries or coffee, and your daily number shows what's truly free.</p></div>`;
+      return;
+    }
+    box.innerHTML = `<div class="panel ev-row"><div class="panel-head"><h2>Everyday</h2><button class="btn ghost small" type="button" data-plan>Plan</button></div>
+      <div class="ev-chips">${c.everyday.map(e => `<span class="ev-chip${e.left < 0 ? " over" : ""}"><span>${esc(e.x.name)}</span><b class="num">${e.left < 0 ? `${money(-e.left)} over` : `${money(e.left)} left`}</b></span>`).join("")}</div></div>`;
+  }
+
+  /* ---------- plan your month: groups, everyday amounts, savings, then your free money ---------- */
+  let plan = null;
+  function openPlan() {
+    if (!state) return toast("Finish setting up first.");
+    const billCats = new Set(bills().map(b => b.cat).filter(Boolean));
+    plan = {step: "groups", save: state.saveMonthly ?? "", cats: JSON.parse(JSON.stringify(state.categories || [])).map(x => ({...x, group: billCats.has(x.id) || x.fixed ? "bills" : (x.group || ((x.budget || 0) > 0 ? "everyday" : "free"))})), adding: ""};
+    drawPlan(); $("#planDlg").showModal();
+  }
+  function lastCycleSpend() {
+    const t = today(), from = addDays(cycleStart(t), -31), to = addDays(cycleStart(t), -1), out = {};
+    for (const k in months) for (const it of months[k]) if (it.type === "expense" && it.date >= from && it.date <= to) out[it.cat] = (out[it.cat] || 0) + it.amount;
+    return out;
+  }
+  function planNumbers() {
+    const income = r2(incomes().filter(x => x.freq !== "oneoff").reduce((s, x) => s + perMonth(x), 0));
+    const billsM = r2(bills().reduce((s, b) => s + billMonthly(b), 0) || plan.cats.filter(x => x.group === "bills").reduce((s, x) => s + (x.budget || 0), 0));
+    const every = r2(plan.cats.filter(x => x.group === "everyday").reduce((s, x) => s + (+x.budget || 0), 0));
+    const save = r2(+plan.save || 0);
+    return {income, billsM, every, save, free: r2(income - billsM - save - every)};
+  }
+  function capturePlan() {
+    if (!plan) return;
+    document.querySelectorAll("#planBody [data-amt]").forEach(inp => { const x = plan.cats.find(k => k.id === inp.dataset.amt); if (x) { const v = num(inp.value); x.budget = Number.isNaN(v) ? 0 : r2(v); } });
+    const sv = $("#planSave"); if (sv) plan.save = sv.value;
+    const ad = $("#planAdd"); if (ad) plan.adding = ad.value;
+  }
+  function drawPlan() {
+    const body = $("#planBody"), back = $("#planBack"), next = $("#planNext");
+    back.textContent = plan.step === "groups" ? "Not now" : "Back";
+    if (plan.step === "groups") {
+      const bill = plan.cats.filter(x => x.group === "bills"), rest = plan.cats.filter(x => x.group !== "bills");
+      body.innerHTML = `<h2 id="planTitle">Where does your money go?</h2>
+        <p class="muted">Everyday is what you spend on every month but choose how much, like groceries, laundry or coffee. Free is everything else.</p>
+        ${bill.length ? `<p class="pot-group" style="margin:0">Bills, set up separately: ${bill.map(x => esc(x.name)).join(", ")}</p>` : ""}
+        <ul class="plan-list">${rest.map(x => `<li><span>${esc(x.name)}</span><span class="seg-mini">
+          <button type="button" data-grp="everyday" data-id="${esc(x.id)}" aria-pressed="${x.group === "everyday"}">Everyday</button>
+          <button type="button" data-grp="free" data-id="${esc(x.id)}" aria-pressed="${x.group === "free"}">Free</button></span></li>`).join("")}</ul>
+        <div class="plan-add"><input id="planAdd" placeholder="Add one, e.g. Coffee" value="${esc(plan.adding)}" aria-label="New everyday category"><button type="button" class="btn ghost small" data-add-cat>Add</button></div>`;
+      next.textContent = "Next";
+      return;
+    }
+    if (plan.step === "amounts") {
+      const ev = plan.cats.filter(x => x.group === "everyday"), last = lastCycleSpend();
+      body.innerHTML = `<h2 id="planTitle">How much do you want to spend each month?</h2>
+        <p class="muted">${ev.length ? "A rough amount is fine. You can change it any time." : "Nothing is set as Everyday. Go back to choose some, or carry on."}</p>
+        <ul class="plan-list amounts">${ev.map(x => `<li><label for="amt-${esc(x.id)}"><span>${esc(x.name)}</span>${last[x.id] ? `<small>Last month ${money(last[x.id])}</small>` : ""}</label>
+          <span class="money"><em>£</em><input id="amt-${esc(x.id)}" data-amt="${esc(x.id)}" inputmode="decimal" placeholder="0" value="${x.budget ? x.budget : (last[x.id] ? Math.round(last[x.id]) : "")}"></span></li>`).join("")}</ul>`;
+      next.textContent = "Next";
+      return;
+    }
+    if (plan.step === "savings") {
+      body.innerHTML = `<h2 id="planTitle">How much do you save each month?</h2>
+        <p class="muted">The money you move into savings on payday. Leave it at 0 if you don't yet.</p>
+        <label class="field bigmoney"><span>Savings each month</span><span class="money"><em>£</em><input id="planSave" inputmode="decimal" placeholder="0" value="${esc(plan.save)}"></span></label>`;
+      next.textContent = "See my free money";
+      return;
+    }
+    const n = planNumbers(), fAbs = Math.abs(n.free), fw = Math.floor(fAbs), fp = Math.round((fAbs - fw) * 100) % 100;
+    const row = (k, v, sign) => `<li><span>${k}</span><b class="num">${sign}${money(v)}</b></li>`;
+    body.innerHTML = `<h2 id="planTitle">Your free money</h2>
+      <ul class="plan-sum">${row("Pay you can count on", n.income, "")}${row("Bills", n.billsM, "−")}${row("Savings", n.save, "−")}${row("Everyday", n.every, "−")}</ul>
+      <div class="plan-free"><span>${n.free >= 0 ? "Free each month" : "Short each month"}</span><p class="mc-big num"><span class="int">${n.free < 0 ? "−" : ""}£${fw.toLocaleString("en-GB")}</span><span class="pence">.${pad(fp)}</span></p>
+      <small>${n.free >= 0 ? `About ${money(r2(n.free / 30))} a day to spend however you like` : "Trim an everyday amount or your savings to balance it"}</small></div>`;
+    next.textContent = "Done";
+  }
+  function planNext() {
+    capturePlan();
+    const order = ["groups", "amounts", "savings", "summary"], i = order.indexOf(plan.step);
+    if (plan.step !== "summary") { plan.step = order[i + 1]; return drawPlan(); }
+    const cats = plan.cats.map(x => { const o = {...x}; if (o.group === "bills") delete o.group; else { o.fixed = false; } if (o.group === "free") o.budget = o.budget || 0; return o; });
+    saveState({...state, categories: cats, saveMonthly: r2(+plan.save || 0)});
+    $("#planDlg").close();
+    toast("Plan saved. Your daily number now shows your free money", true);
+  }
+  $("#planForm").addEventListener("submit", e => { e.preventDefault(); planNext(); });
+  $("#planBack").onclick = () => {
+    capturePlan();
+    const order = ["groups", "amounts", "savings", "summary"], i = order.indexOf(plan.step);
+    if (i <= 0) return $("#planDlg").close();
+    plan.step = order[i - 1]; drawPlan();
+  };
+  $("#planBody").addEventListener("click", e => {
+    const g = e.target.closest("[data-grp]");
+    if (g) { capturePlan(); const x = plan.cats.find(k => k.id === g.dataset.id); if (x) x.group = g.dataset.grp; return drawPlan(); }
+    if (e.target.closest("[data-add-cat]")) {
+      capturePlan();
+      const name = (plan.adding || "").trim().slice(0, 30); if (!name) return toast("Type a name first, e.g. Coffee");
+      if (plan.cats.some(k => k.name.toLowerCase() === name.toLowerCase())) return toast(`${name} is already there`);
+      plan.cats.push({id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + uid6().slice(0, 4), name, budget: 0, fixed: false, group: "everyday"});
+      plan.adding = ""; drawPlan();
+    }
+  });
+  document.addEventListener("click", e => { if (e.target.closest("[data-plan]")) openPlan(); });
+
   /* ---------- bills walkthrough ---------- */
   let wiz = null;
   function openWiz(editId) {
@@ -1775,7 +1930,7 @@ html.framed dialog{max-width:416px}
     tt.style.whiteSpace = "nowrap"; tt.style.fontSize = "";
     for (let px = parseFloat(getComputedStyle(tt).fontSize); tt.scrollWidth > tt.clientWidth + 1 && px > 22; ) { px -= 1; tt.style.fontSize = px + "px"; }
     $("#balanceLine").hidden = true;
-    renderPots(); renderBills(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
+    renderPots(); renderBills(c); renderEveryday(c); renderAsk(c); renderCheckin(c); renderIncome(c); renderHero(c); renderCatSelect(c); renderCats(c); renderTx(c); renderGoal(c); renderYear();
   }
 
   function renderHero(c) {
@@ -1832,10 +1987,10 @@ html.framed dialog{max-width:416px}
         ${c.daysLeft === 0 ? "" : '<button class="btn primary" type="button" data-add-income>Add income</button>'}`;
       return;
     }
-    const free = c.balance - c.billsLeft;
+    const free = c.balance - c.billsLeft - c.everydayLeft;   // free money: after bills and what's left of your everyday amounts
     const perDay = free / c.daysLeft;
     const pd = r2(Math.abs(perDay)), whole = Math.floor(pd), pence = Math.round((pd - whole) * 100);
-    const billsW = Math.max(0, Math.min(c.billsLeft, Math.max(c.balance, 0)));
+    const billsW = Math.max(0, Math.min(c.billsLeft + c.everydayLeft, Math.max(c.balance, 0)));
     const freeW = Math.max(0, free);
     // pay cycle: from the last payday to the next one
     const mainSrc = incomes().find(s => s.main) || incomes().find(s => s.freq !== "oneoff");
@@ -1847,7 +2002,12 @@ html.framed dialog{max-width:416px}
     }
     const flexible = new Set(c.cats.filter(x => !x.fixed).map(x => x.id));
     const spentOn = {};
-    for (const k in months) for (const it of months[k]) if (it.type === "expense" && !it.needsCat && !it.billId && !c.cats.find(x => x.id === it.cat && x.fixed)) spentOn[it.date] = (spentOn[it.date] || 0) + it.amount;
+    const spentAllOn = {};   // everything you spent each day (for the calendar)
+    for (const k in months) for (const it of months[k]) if (it.type === "expense" && !it.needsCat && !it.billId && !c.cats.find(x => x.id === it.cat && x.fixed)) {
+      spentAllOn[it.date] = (spentAllOn[it.date] || 0) + it.amount;
+      const cx = c.cats.find(x => x.id === it.cat);
+      if (!cx || catGroup(cx) !== "everyday") spentOn[it.date] = (spentOn[it.date] || 0) + it.amount;   // free spending only
+    }
     const allowance = Math.max(0, perDay);
     const tracked = state.balanceAsOf || c.t;
     const total = Math.min(dayDiff(start, c.payday), 62);
@@ -1913,8 +2073,8 @@ html.framed dialog{max-width:416px}
           for (let y = 100, k = 0; y > 0; y -= 6.25, k++) zig += ` L${k % 2 ? 6 : 0},${Math.max(0, y - 6.25).toFixed(2)}`;
           const WRAPPER = zig + " Z";
           const caps = free > 0
-            ? [`Your money is one bar: <b>${money(c.balance)}</b>`, `Bills snap off their bit first: <b>${money(c.billsLeft)}</b>`, `<b>${money(free)}</b> left, broken into ${n} ${n === 1 ? "piece" : "pieces"}`, `One piece a day. Today's is <b>${money(pd)}</b>`]
-            : [`Your money is one bar: <b>${money(c.balance)}</b>`, `Bills want <b>${money(c.billsLeft)}</b>`, `That's <b>${money(-free)}</b> more than the whole bar`, `No pieces left to share until payday`];
+            ? [`Your money is one bar: <b>${money(c.balance)}</b>`, `${c.everydayLeft ? "Bills and everyday snap off first" : "Bills snap off their bit first"}: <b>${money(r2(c.billsLeft + c.everydayLeft))}</b>`, `<b>${money(free)}</b> left, broken into ${n} ${n === 1 ? "piece" : "pieces"}`, `One piece a day. Today's is <b>${money(pd)}</b>`]
+            : [`Your money is one bar: <b>${money(c.balance)}</b>`, `Bills${c.everydayLeft ? " and everyday" : ""} want <b>${money(r2(c.billsLeft + c.everydayLeft))}</b>`, `That's <b>${money(-free)}</b> more than the whole bar`, `No pieces left to share until payday`];
           return `<div class="choc s${heroFlipped ? chocStep : 0}" role="img" aria-label="${caps.map(x => x.replace(/<[^>]+>/g, "")).join(". ")}.">
             <div class="choc-stage">
               <div class="choc-bar">
@@ -1949,7 +2109,7 @@ html.framed dialog{max-width:416px}
     const first = parseD(start), lead = (first.getDay() + 6) % 7;
     let cells = ["M", "T", "W", "T", "F", "S", "S"].map(d => `<span class="mc-dow" aria-hidden="true">${d}</span>`).join("") + "<span></span>".repeat(lead);
     for (let d = start; d <= c.payday; d = addDays(d, 1)) {
-      const n = +d.slice(8), cls = ["mc-day"], spent = spentOn[d] || 0;
+      const n = +d.slice(8), cls = ["mc-day"], spent = spentAllOn[d] || 0;
       let note = "", label = niceDate(d);
       if (d === c.payday) { cls.push("pay"); note = "Pay"; label += ", payday"; }
       else if (d < c.t) {
@@ -1969,7 +2129,7 @@ html.framed dialog{max-width:416px}
     sum.innerHTML = `
       <p class="mc-lead">${free >= 0 ? "Free until payday" : "Short before payday"}</p>
       <p class="mc-big num${free < 0 ? " neg" : ""}"><span class="int">${free < 0 ? "−" : ""}£${fw.toLocaleString("en-GB")}</span><span class="pence">.${pad(fp)}</span></p>
-      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills. Spend it whenever suits you` : `Your bills before payday are more than you have`}</p>`;
+      <p class="mc-sub">${free >= 0 ? `After ${money(c.billsLeft)} of bills${c.everydayLeft ? ` and ${money(c.everydayLeft)} of everyday` : ""}. Spend it whenever suits you` : `Your bills before payday are more than you have`}</p>`;
     cyc.innerHTML = `
       <div class="panel-head"><h2>Payday to payday</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
       <div class="mc-grid" role="group" aria-label="Payday to payday calendar">${cells}</div>
@@ -2020,12 +2180,14 @@ html.framed dialog{max-width:416px}
     const list = $("#cats");
     if (!state) { list.innerHTML = `<li class="empty">Your budgets will show here once you're set up.</li>`; $("#budgetSum").textContent = ""; return; }
     const total = c.cats.reduce((s, x) => s + (x.budget || 0), 0);
-    $("#budgetSum").textContent = `${money(bills().length ? c.cats.filter(x => !bills().some(b => b.cat === x.id) && !x.fixed).reduce((s, x) => s + (x.budget || 0), 0) : total)} a month`;
+    $("#budgetSum").textContent = `${money(c.cats.filter(x => catGroup(x) === "everyday").reduce((s, x) => s + (x.budget || 0), 0))} a month`;
     const known = new Set(c.cats.map(x => x.id));
     const billCats = new Set(bills().map(b => b.cat).filter(Boolean));
-    const shown = bills().length ? c.cats.filter(x => !billCats.has(x.id) && !(x.fixed && !(c.spent[x.id]))) : c.cats;
+    const shown = c.cats.filter(x => catGroup(x) === "everyday");
+    const spentSince = {};
+    for (const e of c.everyday) spentSince[e.x.id] = e.spent;
     const rows = shown.map(x => {
-      const sp = c.spent[x.id] || 0, b = x.budget || 0, left = b - sp;
+      const sp = spentSince[x.id] || 0, b = x.budget || 0, left = b - sp;
       const pct = b ? Math.min(100, sp / b * 100) : (sp ? 100 : 0);
       let cls = "cat", leftTxt;
       if (x.fixed) {
@@ -2045,7 +2207,7 @@ html.framed dialog{max-width:416px}
     if (orphan) rows.push(`<li class="cat"><div class="cat-top"><span class="name">Removed categories</span><span class="left">${money(orphan)} spent</span></div></li>`);
     const baseIncome = incomes().reduce((s, x) => s + perMonth(x), 0);
     if (incomes().length && total > baseIncome) rows.push(`<li class="note">Your budgets add up to ${money(total - baseIncome)} more than the ${money(baseIncome)} a month you can count on. Trim a budget or add missing income.</li>`);
-    list.innerHTML = rows.join("") || `<li class="empty">No categories yet. Add some in Settings.</li>`;
+    list.innerHTML = rows.join("") || `<li class="empty">Nothing set yet. Tap Plan to choose what you spend on every month, like groceries or coffee.</li>`;
   }
 
   function catLabel(it, c) {
