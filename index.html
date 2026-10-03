@@ -61,6 +61,14 @@
 .mc-big .pence{font-size:.5em;margin-left:.06em;margin-top:.16em}
 @supports (text-box: trim-both cap alphabetic){.mc-big .int,.mc-big .pence{text-box:trim-both cap alphabetic}.mc-big .pence{margin-top:0}}
 .mc-lead{margin:0;font-weight:700}
+/* the most important card on Month carries the accent, like the card on Day */
+#cycleSum{background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-color:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
+#cycleSum .mc-lead,#cycleSum .mc-sub{color:inherit;opacity:.8}
+#cycleSum .mc-big{color:inherit}
+:root[data-accent="glow"] #cycleSum{background:var(--shine-bg) padding-box,var(--prism) border-box;border:1.5px solid transparent;box-shadow:var(--glow-box)}
+/* numbers that are yours to use, or coming in, are in the accent */
+.mc-day.pay b,.mc-day.zero b{color:inherit}
+#comingCard .pamt.good-txt,#cats .left.good-txt{font-weight:800}
 .mc-sub{margin:var(--s2) 0 0;font-size:.93rem;color:var(--muted)}
 .mc-stats{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-bottom:var(--s5)}
 .mc-stats div{display:grid;gap:2px;padding:var(--s3);border-radius:10px;background:color-mix(in srgb,var(--ink) 5%,transparent)}
