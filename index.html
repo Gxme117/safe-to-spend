@@ -504,6 +504,32 @@ body{background:transparent}
 #hero .why-next svg{flex:none;opacity:.6}
 :root[data-accent="glow"] #hero .back{background:#000;color:#fff}
 #hero .flip-ic{position:absolute;top:var(--s4);right:var(--s4);opacity:.45}
+/* wallet: credit-card shaped cards, the bank's card peeking out above ours */
+.wallet{position:relative;--peek:64px}
+.wallet.has-peek{padding-top:var(--peek)}
+.wallet #hero{position:relative;z-index:2;transition:transform .5s cubic-bezier(.2,.75,.2,1)}
+#hero .front{height:auto;aspect-ratio:1.586;display:flex;flex-direction:column;justify-content:space-between;padding:var(--s4) var(--s5) var(--s5)}
+#hero .back{aspect-ratio:auto}
+#hero .front .wc-bottom .lead{margin:0}
+#hero .front .wc-bottom .sub{margin-top:var(--s3) !important}
+.wcard{position:absolute;left:0;right:0;top:0;z-index:1;aspect-ratio:1.586;box-sizing:border-box;border-radius:14px;padding:var(--s4) var(--s5) var(--s5);display:flex;flex-direction:column;justify-content:space-between;
+  background:linear-gradient(140deg,#3A3A41,#1D1D21);color:#fff;cursor:pointer;box-shadow:0 1px 0 rgba(255,255,255,.08) inset,0 6px 16px rgba(0,0,0,.18);transition:transform .5s cubic-bezier(.2,.75,.2,1)}
+:root[data-mode="dark"] .wcard{background:linear-gradient(140deg,#4A4A52,#2A2A2F);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.wcard:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.wc-row{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s3)}
+.wc-name{font-family:var(--display);font-weight:800;font-size:1.2rem;letter-spacing:-.01em}
+.wc-foot{display:flex;gap:var(--s5);font-size:.93rem}
+.wc-foot div{display:grid;gap:2px}
+.wc-foot b{font-weight:700}
+.bal-btn{all:unset;display:grid;gap:2px;cursor:pointer;border-radius:6px}
+.bal-btn:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+.bal-lab{display:inline-flex;align-items:center;gap:6px;font-size:.75rem;font-weight:600;opacity:.75}
+.bal-amt{font-family:var(--display);font-weight:800;font-size:1.2rem;letter-spacing:-.01em;transition:filter .25s ease}
+.bal-amt.blur{filter:blur(7px)}
+/* tap the card behind: it comes forward and ours tucks behind */
+.wallet.swap .wcard{transform:translateY(var(--peek));z-index:3;cursor:default}
+.wallet.swap #hero{transform:translateY(calc(-1 * var(--peek))) scale(.97);cursor:pointer}
+@media (prefers-reduced-motion:reduce){.wallet #hero,.wcard{transition:none}}
 :root[data-accent="glow"] #hero .face{background:var(--shine-bg) padding-box,var(--prism) border-box;border:1.5px solid transparent;box-shadow:var(--glow-box)}
 @media (prefers-reduced-motion:reduce){#hero .flip{transition:none}}
 /* spacing that leads the eye: label sits tight on the number, the number gets room to breathe, the note trails off */
@@ -563,7 +589,7 @@ html.framed dialog{max-width:416px}
 </header>
 
 <main class="today-view" id="monthView">
-    <div class="hero-wrap"><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
+    <div class="hero-wrap wallet" id="wallet"><div class="wcard" id="bankCard" hidden role="button" tabindex="0" aria-label="Show your Monzo card"></div><div id="hero" class="panel hero"><p class="muted">Loading your money…</p></div></div>
     <div id="askTx"></div>
     <div id="checkin"></div>
     <div class="panel">
@@ -1136,6 +1162,43 @@ html.framed dialog{max-width:416px}
   $("#refreshBank").onclick = refreshBank;
   $("#syncBtn").onclick = refreshBank;
 
+  /* ---------- wallet: our card in front, the bank's card tucked behind (Apple Wallet style) ---------- */
+  let hideBal = false;
+  try { hideBal = localStorage.getItem("hideBal") === "1"; } catch (e) {}
+  const EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.9 8.3 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+  const balBtn = (label, amt) => `<button type="button" class="bal-btn" data-bal aria-pressed="${hideBal}" aria-label="${label} ${hideBal ? "hidden" : money(amt)}. Tap to ${hideBal ? "show" : "hide"}"><span class="bal-lab">${esc(label)}${hideBal ? EYE_OFF : EYE}</span><span class="bal-amt num${hideBal ? " blur" : ""}">${money(amt)}</span></button>`;
+  function renderBankCard(c, total) {
+    const card = $("#bankCard"), w = $("#wallet"), b = bank();
+    if (!b) { card.hidden = true; w.classList.remove("has-peek", "swap"); return; }
+    card.hidden = false; w.classList.add("has-peek");
+    const aside = b.pots.filter(p => p.role !== "spend").reduce((s, p) => s + (p.balance || 0), 0);
+    const at = new Date(b.asOf);
+    card.innerHTML = `
+      <div class="wc-row">${balBtn("Balance", total)}<span class="wc-name">${esc(b.source || "Bank")}</span></div>
+      <div class="wc-foot">
+        <div><span class="bal-lab">Spending money</span><b class="num">${money(c.balance)}</b></div>
+        <div><span class="bal-lab">Set aside</span><b class="num">${money(r2(aside))}</b></div>
+        <div><span class="bal-lab">Updated</span><b>${isoD(at) === today() ? at.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"}) : niceDate(isoD(at))}</b></div>
+      </div>`;
+  }
+  document.addEventListener("click", e => {
+    const bb = e.target.closest("[data-bal]");
+    const w = $("#wallet");
+    // a card tucked behind comes forward first; its balance only toggles once it's in front
+    if (bb && ((bb.closest("#bankCard") && !w.classList.contains("swap")) || (bb.closest("#hero") && w.classList.contains("swap")))) {
+      e.stopPropagation(); w.classList.toggle("swap", !!bb.closest("#bankCard")); return;
+    }
+    if (bb) {
+      e.stopPropagation();
+      hideBal = !hideBal;
+      try { localStorage.setItem("hideBal", hideBal ? "1" : "0"); } catch (er) {}
+      render();
+      return;
+    }
+    if (e.target.closest("#bankCard")) $("#wallet").classList.add("swap");
+  }, true);
+  $("#bankCard").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#wallet").classList.add("swap"); } });
   let heroFlipped = false;
   // count up to the daily number when it first appears, and from the old figure to the new one when it changes
   let heroShown = null, heroAnim = 0, heroCounting = null;
@@ -1220,7 +1283,10 @@ html.framed dialog{max-width:416px}
     if (heroFlipped) playChoc(); else resetChoc();
     h.setAttribute("aria-label", heroFlipped ? "Days until payday. Tap to show today's amount." : "Safe to spend today. Tap to show days until payday.");
   }
-  $("#hero").addEventListener("click", e => { if (!e.target.closest("button, a, input, form")) flipHero(); });
+  $("#hero").addEventListener("click", e => {
+    if ($("#wallet").classList.contains("swap")) { $("#wallet").classList.remove("swap"); return; }
+    if (!e.target.closest("button, a, input, form")) flipHero();
+  });
   $("#hero").addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target === $("#hero")) { e.preventDefault(); flipHero(); } });
   addEventListener("resize", () => fitBig());
 
@@ -1569,6 +1635,7 @@ html.framed dialog{max-width:416px}
     if (!loaded) return;
     $("#cycleCard").hidden = $("#comingCard").hidden = true;
     h.classList.remove("flippable", "flipped"); h.removeAttribute("role"); h.removeAttribute("tabindex"); h.removeAttribute("aria-label");
+    $("#bankCard").hidden = true; $("#wallet").classList.remove("has-peek", "swap");
     if (!state) {
       h.innerHTML = `
         <h2>Set up your tracker</h2>
@@ -1665,6 +1732,8 @@ html.framed dialog{max-width:416px}
     const nextUp = [...(c.billsDue || []).map(x => ({d: x.d, name: x.b.name, amt: money(x.b.amount || 0)})),
       ...(mainSrc && c.payday ? [{d: c.payday, name: `${mainSrc.name} pay`, amt: `+${money(mainSrc.varies ? mainSrc.low : (mainSrc.amount || 0))}`}] : [])]
       .sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
+    const totalBal = r2(c.balance + (bank() ? bank().pots.filter(p => p.role !== "spend").reduce((s, p) => s + (p.balance || 0), 0) : 0));
+    renderBankCard(c, totalBal);
     const FLIP = '<svg class="flip-ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg>';
     h.classList.add("flippable");
     h.setAttribute("role", "button"); h.setAttribute("tabindex", "0");
@@ -1673,9 +1742,12 @@ html.framed dialog{max-width:416px}
     h.innerHTML = `<div class="flip">
       <div class="face front" aria-hidden="${heroFlipped}">
         ${FLIP}
+        <div class="wc-top">${balBtn("Total balance", totalBal)}</div>
+        <div class="wc-bottom">
         <p class="lead">Safe to spend today</p>
         <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
         <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills before payday are ${money(-free)} more than you have.` : todayLine}</p>
+        </div>
       </div>
       <div class="face back${heroFlipped && chocStep !== 0 ? " asked" : ""}${!heroFlipped || chocStep === 0 || chocStep === "a" ? " intro" : ""}" aria-hidden="${!heroFlipped}">
         ${FLIP}
