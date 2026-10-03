@@ -446,7 +446,12 @@ body{background:transparent}
 #hero .flip{display:grid;align-items:start;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.2,.75,.2,1),height .35s ease}
 #hero.flipped .flip{transform:rotateY(180deg)}
 #hero .face{grid-area:1/1;position:relative;height:100%;box-sizing:border-box;overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--btn-bg,var(--good-fill));color:var(--btn-ink,#000);border-radius:14px;padding:var(--s6)}
-#hero .back{transform:rotateY(180deg)}
+#hero .back{transform:rotateY(180deg);--card-dark:#242428;background:var(--card-dark);color:#fff}
+:root[data-mode="dark"] #hero .back{box-shadow:inset 0 0 0 1px var(--line)}
+/* on the dark side the bar is drawn in white */
+#hero .back .choc{--sil:#fff}
+#hero .back .choc-chunk .wrap path{stroke:var(--card-dark)}
+#hero .back .choc-chunk span{color:var(--card-dark)}
 #hero .back .big.pos{color:var(--good)}
 /* back: the sum, drawn. spending money → bills | free → free shared into one slice per day */
 #hero .back .lead{margin-bottom:0}
