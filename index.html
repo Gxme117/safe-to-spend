@@ -60,7 +60,11 @@
 .mc-big .int,.mc-big .pence{display:block;line-height:1}
 .mc-big .pence{font-size:.5em;margin-left:.06em;margin-top:.16em}
 @supports (text-box: trim-both cap alphabetic){.mc-big .int,.mc-big .pence{text-box:trim-both cap alphabetic}.mc-big .pence{margin-top:0}}
-.mc-sub{margin:var(--s2) 0 var(--s5);font-size:.93rem;color:var(--muted)}
+.mc-sub{margin:var(--s2) 0 var(--s4);font-size:.93rem;color:var(--muted)}
+.mc-stats{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-bottom:var(--s5)}
+.mc-stats div{display:grid;gap:2px;padding:var(--s3);border-radius:10px;background:color-mix(in srgb,var(--ink) 5%,transparent)}
+.mc-stats span{font-size:.75rem;color:var(--muted);font-weight:600}
+.mc-stats b{font-size:1rem;font-weight:800}
 .mc-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--s1)}
 .mc-dow{font-size:.75rem;color:var(--muted);text-align:center;font-weight:600;padding-bottom:var(--s1)}
 .mc-day{all:unset;box-sizing:border-box;display:grid;align-content:start;justify-items:center;gap:2px;min-height:48px;padding:6px 2px;border-radius:10px;cursor:pointer;text-align:center;border:1px solid transparent}
@@ -1962,7 +1966,11 @@ html.framed dialog{max-width:416px}
     cyc.innerHTML = `
       <div class="panel-head"><h2>${runOut ? "You'd run short" : "Lowest point before payday"}</h2><span class="muted num">Day ${dayNo} of ${total}</span></div>
       <p class="mc-big num${low.v < 0 ? " neg" : ""}"><span class="int">${low.v < 0 ? "−" : ""}£${lw.toLocaleString("en-GB")}</span><span class="pence">.${pad(lp)}</span></p>
-      <p class="mc-sub">${runOut ? `At ${money(pace)} a day you'd hit £0 on ${niceDate(runOut)}` : `${niceDate(low.d)}, if you keep spending about ${money(pace)} a day`}</p>
+      <p class="mc-sub">${runOut ? `At your pace you'd hit £0 on ${niceDate(runOut)}` : `On ${niceDate(low.d)}, at your pace`}</p>
+      <div class="mc-stats num">
+        <div><span>Your pace</span><b>${money(pace)} a day</b></div>
+        <div><span>Safe to spend</span><b>${money(allowance)} a day</b></div>
+      </div>
       <div class="mc-grid" role="group" aria-label="Payday to payday calendar">${cells}</div>
       <div class="mc-key"><span><i class="k-best"></i>Under your daily amount</span><span><i class="k-over"></i>Over</span><span><i class="k-bill"></i>Bill due</span><span><i class="k-low"></i>Lowest point</span></div>
       <p class="mc-detail" id="mcDetail" hidden></p>`;
