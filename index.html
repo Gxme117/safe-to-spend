@@ -540,6 +540,7 @@ body{background:transparent}
 #hero .back{aspect-ratio:auto}
 #hero .front .wc-bottom .lead{margin:0}
 #hero .front .wc-bottom .sub{margin-top:var(--s3) !important}
+#hero .one-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:none}
 .wcard{position:absolute;left:0;right:0;top:0;z-index:1;aspect-ratio:1.586;box-sizing:border-box;border-radius:14px;padding:var(--s4) var(--s5) var(--s5);display:flex;flex-direction:column;justify-content:space-between;
   background:linear-gradient(140deg,#FF4F40,#FF4F40);color:#fff;cursor:pointer;box-shadow:0 1px 0 rgba(255,255,255,.08) inset,0 6px 16px rgba(0,0,0,.18);transition:transform .5s cubic-bezier(.2,.75,.2,1)}
 :root[data-mode="dark"] .wcard{background:linear-gradient(140deg,#FF4F40,#FF4F40);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
@@ -1817,10 +1818,10 @@ html.framed dialog{max-width:416px}
     // TODAY: one number and what it means for today
     const spentToday = spentOn[c.t] || 0;
     const todayLine = !spentToday
-      ? `Spend up to this each day and you'll last until payday, ${niceDate(c.payday)}.`
+      ? `Lasts you until payday, ${niceDate(c.payday)}`
       : spentToday <= allowance
-        ? `You've spent ${money(spentToday)} so far, so ${money(r2(allowance - spentToday))} is left for today.`
-        : `You've spent ${money(spentToday)}, ${money(r2(spentToday - allowance))} over. Tomorrow's amount will be a bit lower.`;
+        ? `${money(r2(allowance - spentToday))} left today after ${money(spentToday)} spent`
+        : `${money(r2(spentToday - allowance))} over today, so tomorrow gets less`;
     const nextUp = [...(c.billsDue || []).map(x => ({d: x.d, name: x.b.name, amt: money(x.b.amount || 0)})),
       ...(mainSrc && c.payday ? [{d: c.payday, name: `${mainSrc.name} pay`, amt: `+${money(mainSrc.varies ? mainSrc.low : (mainSrc.amount || 0))}`}] : [])]
       .sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
@@ -1841,10 +1842,10 @@ html.framed dialog{max-width:416px}
         <div class="wc-bottom">${dayMode ? `
         <p class="lead">Spent that day</p>
         <p class="big num pos" aria-label="${money(day.spent)} spent"><span class="int">£${Math.floor(day.spent).toLocaleString("en-GB")}</span><span class="pence">.${pad(Math.round((day.spent - Math.floor(day.spent)) * 100) % 100)}</span></p>
-        <p class="sub" style="margin-bottom:0">${day.count ? `${day.count} ${day.count === 1 ? "payment" : "payments"}${day.bills ? `, including ${money(day.bills)} in bills` : ""}.` : "Nothing spent. A no-spend day."}</p>` : `
+        <p class="sub one-line" style="margin-bottom:0">${day.count ? `${day.count} ${day.count === 1 ? "payment" : "payments"}${day.bills ? `, ${money(day.bills)} of it bills` : ""}` : "Nothing spent. A no-spend day"}</p>` : `
         <p class="lead">Safe to spend today</p>
         <p class="big num ${perDay < 0 ? "neg" : "pos"}" aria-label="${perDay < 0 ? "minus " : ""}${money(pd)} a day"><span class="int">${perDay < 0 ? "−" : ""}£${whole.toLocaleString("en-GB")}</span><span class="pence">.${pad(pence)}</span></p>
-        <p class="sub" style="margin-bottom:0">${perDay < 0 ? `Your bills before payday are ${money(-free)} more than you have.` : todayLine}</p>`}
+        <p class="sub one-line" style="margin-bottom:0">${perDay < 0 ? `${money(-free)} short for bills before payday` : todayLine}</p>`}
         </div>
       </div>
       <div class="face back${heroFlipped && chocStep !== 0 ? " asked" : ""}${!heroFlipped || chocStep === 0 || chocStep === "a" ? " intro" : ""}" aria-hidden="${!heroFlipped}">
@@ -1874,6 +1875,10 @@ html.framed dialog{max-width:416px}
     </div>`;
 
     fitBig();
+    document.querySelectorAll("#hero .one-line").forEach(el => {
+      el.style.fontSize = "";
+      for (let px = parseFloat(getComputedStyle(el).fontSize); el.scrollWidth > el.clientWidth + 1 && px > 12; ) { px -= .5; el.style.fontSize = px + "px"; }
+    });
     sizeFlip();
     countHero(dayMode ? day.spent : (perDay < 0 ? -pd : pd));
     if (heroCounting) heroCounting();
