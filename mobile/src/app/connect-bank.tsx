@@ -1,0 +1,102 @@
+import {router} from "expo-router";
+import * as Linking from "expo-linking";
+import {useEffect, useState} from "react";
+import {View} from "react-native";
+import {PotRoles, syncMessage} from "@/components/Bank";
+import {Form} from "@/components/Form";
+import {Field, Input, T} from "@/components/ui";
+import {authUrl, parseRedirect, REDIRECT_URI} from "@/lib/monzo";
+import {clientFromEnv, clientId, connect, hasClient, loginState, MonzoFail, saveClient, startLogin} from "@/services/monzo";
+import {useMoney} from "@/store/useMoney";
+import {s} from "@/theme/tokens";
+
+type Step = "client" | "paste" | "approve" | "pots";
+
+/** Connect your own Monzo account: your developer client, log in in Safari, paste the link back, approve in the Monzo app. */
+export default function ConnectBank() {
+  const bank = useMoney(st => st.state?.bank);
+  const [step, setStep] = useState<Step>("client");
+  const [id, setId] = useState("");
+  const [secret, setSecret] = useState("");
+  const [saved, setSaved] = useState(false);   // a secret is already in the Keychain
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    hasClient().then(async has => { setSaved(has); if (has) setId(await clientId()); }).catch(() => {});
+  }, []);
+  const fail = (msg: string) => { setError(msg); setBusy(false); };
+
+  const logIn = async () => {
+    if (!clientFromEnv && (!id.trim() || (!secret.trim() && !saved))) return setError("Paste your client ID and secret first");
+    setBusy(true);
+    try {
+      if (!clientFromEnv) await saveClient(id, secret);
+      const st = await startLogin();
+      await Linking.openURL(authUrl(id.trim(), st));
+      setStep("paste"); setError(""); setBusy(false);
+    } catch { fail("Couldn't open Monzo. Try again."); }
+  };
+
+  const paste = async () => {
+    const code = parseRedirect(link, await loginState());
+    if (!code) return setError("That isn't the link from this login. Copy the whole address from Safari, starting with your redirect URL");
+    setBusy(true);
+    try { await connect(code); setStep("approve"); setError(""); setBusy(false); }
+    catch (e) {
+      const k = e instanceof MonzoFail ? e.kind : "other";
+      fail(k === "offline" || k === "bad-client" ? syncMessage(k) : "Monzo didn't accept that link. Each link works once and only for a few minutes: log in again and paste the new one.");
+    }
+  };
+
+  const approved = async () => {
+    setBusy(true);
+    const r = await useMoney.getState().syncBank();
+    if ("error" in r) return fail(syncMessage(r.error) + (__DEV__ && r.detail ? `\n(${r.detail})` : ""));
+    setBusy(false); setError("");
+    const pots = useMoney.getState().state?.bank?.pots.length;
+    if (pots) setStep("pots"); else done();
+  };
+
+  const done = () => { router.back(); useMoney.getState().notify("Monzo connected. Your balance now comes from your bank", true); };
+
+  if (step === "client" && clientFromEnv) return (
+    <Form error={error} submit={busy ? "Opening Monzo…" : "Log in with Monzo"} onSubmit={busy ? () => {} : logIn}>
+      <T muted>Your Monzo client is set up on this phone. Log in, and Monzo emails you a link to finish.</T>
+    </Form>
+  );
+  if (step === "client") return (
+    <Form error={error} submit={busy ? "Opening Monzo…" : "Log in with Monzo"} onSubmit={busy ? () => {} : logIn}>
+      <T muted>{`This connects your own Monzo account through a personal developer client. Once, at developers.monzo.com: create a confidential client and set its redirect URL to ${REDIRECT_URI}.`}</T>
+      <Field label="Client ID">
+        <Input value={id} onChangeText={v => { setId(v); setError(""); }} autoCapitalize="none" autoCorrect={false} placeholder="oauth2client_…" accessibilityLabel="Client ID" />
+      </Field>
+      <Field label="Client secret" hint={saved ? "Saved on this phone. Leave blank to keep it." : "Kept in this phone's Keychain. Never sent anywhere but Monzo."}>
+        <Input value={secret} onChangeText={v => { setSecret(v); setError(""); }} autoCapitalize="none" autoCorrect={false} secureTextEntry accessibilityLabel="Client secret" />
+      </Field>
+    </Form>
+  );
+  if (step === "paste") return (
+    <Form error={error} submit={busy ? "Connecting…" : "Connect"} onSubmit={busy ? () => {} : paste}>
+      <T muted>{"Monzo emails you a login link. It has to open in Safari, where the login started: long-press the link in the email, copy it, and paste it into Safari's address bar (opened anywhere else, Monzo says the state doesn't match). Safari then ends on a page that says it can't connect. That's expected: copy the whole address from Safari and paste it here."}</T>
+      <Field label="The address from Safari">
+        <Input value={link} onChangeText={v => { setLink(v); setError(""); }} autoCapitalize="none" autoCorrect={false} placeholder="https://localhost/monzo?code=…" accessibilityLabel="The address from Safari" />
+      </Field>
+    </Form>
+  );
+  if (step === "approve") return (
+    <Form error={error} submit={busy ? "Checking…" : "I've approved it"} onSubmit={busy ? () => {} : approved}>
+      <T weight="bold" size="lg">One more step in the Monzo app</T>
+      <T muted>Monzo asks you to allow access before it shares anything. Open the Monzo app, approve the request, then come back here.</T>
+    </Form>
+  );
+  return (
+    <Form submit="Done" onSubmit={done}>
+      <View style={{gap: s[2]}}>
+        <T weight="bold" size="lg">Which pots are spending money?</T>
+        <T muted>Only your main account and pots marked as spending money count towards today&apos;s number. Savings stay out.</T>
+      </View>
+      {bank ? <PotRoles bank={bank} /> : null}
+    </Form>
+  );
+}

@@ -1,14 +1,19 @@
 import Storage from "expo-sqlite/kv-store";
 import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
-import {deleteAllTx, deleteTx, insertTx, listSince} from "@/db/transactions";
+import {deleteAllTx, deleteTx, insertMany, insertTx, listSince} from "@/db/transactions";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
+import {applySync, importTxs, setPotRole, syncSince} from "@/lib/monzo";
 import {r2} from "@/lib/money";
-import type {AppState, Bill, Category, Income, IsoDate, Tx} from "@/lib/types";
+import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
+import {disconnect, fetchBank, MonzoFail, type MonzoError} from "@/services/monzo";
 
 export type ThemePref = "system" | "light" | "dark";
 export interface Toast { id: number; msg: string; good: boolean }
+/** A sync either brings in some new payments, or says what went wrong ("not-saved": the phone couldn't store them). */
+export type SyncError = MonzoError | "not-saved";
+export type SyncResult = {added: number} | {error: SyncError; detail?: string};
 
 interface MoneyStore {
   state: AppState | null;     // the settings doc (persisted in kv-store)
@@ -17,6 +22,7 @@ interface MoneyStore {
   today: IsoDate;
   theme: ThemePref;
   toast: Toast | null;
+  syncing: boolean;           // a bank sync is running
 
   load(): Promise<void>;
   tick(): void;
@@ -38,6 +44,10 @@ interface MoneyStore {
   confirmPay(src: Income, date: IsoDate, amount: number): Promise<boolean>;
   snooze(key: string): void;
   skip(key: string): void;
+
+  syncBank(): Promise<SyncResult>;
+  setPotRole(id: string, role: PotRole): void;
+  disconnectBank(): Promise<void>;
 }
 
 // The sync kv-store API means the saved state is there on the first render: no flash of the setup screen.
@@ -55,7 +65,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     if (s) set({state: {...s, ...fn(s)}});
   };
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", toast: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", toast: null, syncing: false,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -104,6 +114,32 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     },
     snooze(key) { patch(s => ({snoozed: {...s.snoozed, [key]: today()}})); },
     skip(key) { patch(s => ({skipped: {...s.skipped, [key]: true}})); },
+
+    // One sync: balance, pots and new payments. Payments are saved first; if that fails, nothing changes.
+    async syncBank() {
+      const before = get().state;
+      if (get().syncing) return {error: "other", detail: "a sync is already running"};
+      if (!before) return {error: "other", detail: "the app isn't set up yet"};
+      set({syncing: true});
+      try {
+        const now = Date.now();
+        const got = await fetchBank(syncSince(before.bank, now));
+        const s = get().state;
+        if (!s) return {error: "other"};
+        let added: Tx[];
+        try { added = await insertMany(importTxs({state: s, txs: get().txs, today: today()}, got.txs, now, uid)); }
+        catch { return {error: "not-saved"}; }
+        set({state: applySync(s, got, now), txs: [...get().txs, ...added]});
+        return {added: added.length};
+      } catch (e) {
+        // the real reason, in the Expo terminal: the message on screen stays plain
+        console.warn("Monzo sync failed:", e instanceof Error ? e.message : e);
+        return {error: e instanceof MonzoFail ? e.kind : "other", detail: e instanceof Error ? e.message : String(e)};
+      } finally { set({syncing: false}); }
+    },
+    setPotRole(id, role) { const s = get().state; if (s) set({state: setPotRole(s, id, role)}); },
+    // the balance stays where it was: from here it's typed in again
+    async disconnectBank() { await disconnect(); patch(() => ({bank: undefined})); },
   };
 }, {
   name: "money-tracker",

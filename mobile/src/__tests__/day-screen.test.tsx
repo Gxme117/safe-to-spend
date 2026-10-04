@@ -48,3 +48,32 @@ test("the eye hides the total balance and shows it again", async () => {
   await fireEvent.press(screen.getByRole("button", {name: "Total balance hidden. Tap to show"}));
   expect(screen.getByRole("button", {name: /Tap to hide$/})).toBeOnTheScreen();
 });
+
+test("the bank card offers to connect Monzo, then shows spending money and what's set aside", async () => {
+  const first = await show([]);
+  // tucked behind, the card is one button; its own controls wait until it's in front
+  expect(screen.queryByRole("button", {name: "Connect Monzo"})).toBeNull();
+  await fireEvent.press(screen.getByRole("button", {name: "Show your bank card"}));
+  expect(await screen.findByRole("button", {name: "Connect Monzo"})).toBeOnTheScreen();
+  const bank = {source: "Monzo", accountId: "acc", main: 500, asOf: new Date().toISOString(),
+    pots: [{id: "p", name: "Holiday", balance: 300, role: "save" as const}]};
+  await first.unmount();
+  await show([], baseState({balance: 500, bank}));
+  await fireEvent.press(screen.getByRole("button", {name: "Show your bank card"}));
+  expect(await screen.findByRole("button", {name: "Sync with Monzo"})).toBeOnTheScreen();
+  expect(screen.getByText("Spending money")).toBeOnTheScreen();
+  expect(screen.getByText("Set aside")).toBeOnTheScreen();
+  expect(screen.getByText("£300")).toBeOnTheScreen();
+});
+
+test("spent today lists the newest payment first", async () => {
+  await show([tx({amount: 4, date: TODAY, note: "Coffee", created: 1}), tx({amount: 9, date: TODAY, note: "Lunch", created: 2})]);
+  const names = screen.getAllByText(/^(Coffee|Lunch)$/).map(n => n.props.children);
+  expect(names).toEqual(["Lunch", "Coffee"]);
+});
+
+test("a Monzo payment sorts by when it happened, not when it synced", async () => {
+  // the 3am one came in on a later sync, so it was saved last
+  await show([tx({amount: 9, date: TODAY, note: "Lunch", created: 2, paidAt: 5000}), tx({amount: 4, date: TODAY, note: "Kebab", created: 9, paidAt: 1000})]);
+  expect(screen.getAllByText(/^(Kebab|Lunch)$/).map(n => n.props.children)).toEqual(["Lunch", "Kebab"]);
+});

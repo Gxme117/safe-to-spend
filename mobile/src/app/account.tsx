@@ -1,12 +1,17 @@
 import {router} from "expo-router";
 import {useState} from "react";
 import {Alert, ScrollView} from "react-native";
+import {PotRoles} from "@/components/Bank";
 import {Button, Card, CardHead, Field, Input, T} from "@/components/ui";
+import {isoD, niceDate, pad} from "@/lib/dates";
 import {useMoney} from "@/store/useMoney";
 import {s} from "@/theme/tokens";
 
+const when = (iso: string) => { const d = new Date(iso); return `${niceDate(isoD(d))} at ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
 export default function AccountScreen() {
   const saved = useMoney(st => st.state?.name ?? "");
+  const bank = useMoney(st => st.state?.bank);
   const [name, setName] = useState(saved);
 
   const saveName = () => {
@@ -23,6 +28,13 @@ export default function AccountScreen() {
     }},
   ]);
 
+  const disconnect = () => Alert.alert("Disconnect Monzo?", "Your balance stays as it is now, and you type it in yourself from here. Your client ID and secret are removed from this phone.", [
+    {text: "Cancel", style: "cancel"},
+    {text: "Disconnect", style: "destructive", onPress: () => {
+      useMoney.getState().disconnectBank().then(() => useMoney.getState().notify("Monzo disconnected"), () => useMoney.getState().notify("That didn't disconnect. Try again."));
+    }},
+  ]);
+
   return (
     <ScrollView contentContainerStyle={{padding: s[4], gap: s[4], paddingBottom: s[7]}} keyboardShouldPersistTaps="handled">
       <Card>
@@ -35,8 +47,24 @@ export default function AccountScreen() {
       </Card>
 
       <Card>
+        <CardHead title="Bank" />
+        {bank ? (
+          <>
+            <T muted>Connected to Monzo. Last updated {when(bank.asOf)}.</T>
+            <PotRoles bank={bank} />
+            <Button kind="ghost" label="Disconnect Monzo" onPress={disconnect} />
+          </>
+        ) : (
+          <>
+            <T muted>Connect your Monzo account and your balance and pots update themselves. You still log payments here.</T>
+            <Button label="Connect Monzo" onPress={() => router.push("/connect-bank")} />
+          </>
+        )}
+      </Card>
+
+      <Card>
         <CardHead title="Your data" />
-        <T muted>Everything is stored on this phone. Nothing is sent anywhere.</T>
+        <T muted>{bank ? "Everything is stored on this phone. The app only talks to Monzo, to read your balance and pots." : "Everything is stored on this phone. Nothing is sent anywhere."}</T>
         <Button kind="ghost" label="Start again" onPress={startAgain} />
       </Card>
     </ScrollView>

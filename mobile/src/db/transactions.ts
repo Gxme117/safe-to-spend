@@ -9,13 +9,14 @@ const db = () => (opening ??= openDatabaseAsync("money.db").then(async d => { aw
 
 interface Row {
   id: string; type: TxType; amount_p: number; cat: string; note: string; date: string; created: number;
-  bill_id: string | null; for_date: string | null; src_id: string | null;
+  bill_id: string | null; for_date: string | null; src_id: string | null; monzo_id: string | null; needs_cat: number; paid_at: number | null;
 }
 
 // Pence in the database, pounds in the app: the conversion happens here and nowhere else.
 const fromRow = (r: Row): Tx => ({
   id: r.id, type: r.type, amount: fromPence(r.amount_p), cat: r.cat, note: r.note, date: r.date, created: r.created,
   ...(r.bill_id ? {billId: r.bill_id} : {}), ...(r.for_date ? {forDate: r.for_date} : {}), ...(r.src_id ? {srcId: r.src_id} : {}),
+  ...(r.monzo_id ? {monzoId: r.monzo_id} : {}), ...(r.needs_cat ? {needsCat: true} : {}), ...(r.paid_at ? {paidAt: r.paid_at} : {}),
 });
 
 export async function listSince(from: IsoDate): Promise<Tx[]> {
@@ -23,11 +24,23 @@ export async function listSince(from: IsoDate): Promise<Tx[]> {
   return rows.map(fromRow);
 }
 
+const INSERT = "INTO tx (id, type, amount_p, cat, note, date, created, bill_id, for_date, src_id, monzo_id, needs_cat, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+const values = (t: Tx) => [
+  t.id, t.type, toPence(t.amount), t.cat, t.note, t.date, t.created, t.billId ?? null, t.forDate ?? null, t.srcId ?? null,
+  t.monzoId ?? null, t.needsCat ? 1 : 0, t.paidAt ?? null,
+];
+
 export async function insertTx(t: Tx) {
-  await (await db()).runAsync(
-    "INSERT INTO tx (id, type, amount_p, cat, note, date, created, bill_id, for_date, src_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    t.id, t.type, toPence(t.amount), t.cat, t.note, t.date, t.created, t.billId ?? null, t.forDate ?? null, t.srcId ?? null,
-  );
+  await (await db()).runAsync("INSERT " + INSERT, ...values(t));
+}
+
+/** Saves a sync's payments all together or not at all. Returns the ones that were new (a Monzo id already saved is skipped). */
+export async function insertMany(txs: Tx[]): Promise<Tx[]> {
+  const d = await db(), added: Tx[] = [];
+  await d.withTransactionAsync(async () => {
+    for (const t of txs) if ((await d.runAsync("INSERT OR IGNORE " + INSERT, ...values(t))).changes) added.push(t);
+  });
+  return added;
 }
 
 export async function deleteTx(id: string) {

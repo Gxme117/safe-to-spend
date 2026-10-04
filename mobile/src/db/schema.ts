@@ -1,6 +1,6 @@
 import type {SQLiteDatabase} from "expo-sqlite";
 
-const VERSION = 1;
+const VERSION = 3;
 
 /** Brings the database up to VERSION, one step at a time (pattern from the expo-sqlite docs). */
 export async function migrate(db: SQLiteDatabase) {
@@ -27,6 +27,20 @@ export async function migrate(db: SQLiteDatabase) {
     `);
     v = 1;
   }
-  // if (v === 1) { next migration; v = 2; }
+  if (v === 1) {
+    // Payments imported from Monzo keep its id, so a sync never adds one twice.
+    await db.execAsync(`
+      ALTER TABLE tx ADD COLUMN monzo_id TEXT;
+      ALTER TABLE tx ADD COLUMN needs_cat INTEGER NOT NULL DEFAULT 0;
+      CREATE UNIQUE INDEX tx_monzo ON tx (monzo_id) WHERE monzo_id IS NOT NULL;
+    `);
+    v = 2;
+  }
+  if (v === 2) {
+    // When a Monzo payment actually happened, so lists order by that rather than by the sync that brought it in.
+    await db.execAsync("ALTER TABLE tx ADD COLUMN paid_at INTEGER");
+    v = 3;
+  }
+  // if (v === 3) { next migration; v = 4; }
   await db.execAsync(`PRAGMA user_version = ${VERSION}`);
 }

@@ -56,10 +56,10 @@ Rules it follows: money only counts once it has arrived (payday asks "did it lan
 
 ### Roadmap
 
-- **v1** (now): on-device app, manual balance.
+- **v1** (now): on-device app. Balance typed in, or synced from your own Monzo account (balance and pots, through a personal developer client).
 - **v2**: Supabase sign-in and Postgres sync, with SQLite still the offline source.
 - **v3**: server-side logic (Edge Functions).
-- **v4**: Open Banking, so the balance and payments come in automatically.
+- **v4**: Open Banking, so every bank's balance and payments come in automatically.
 
 ```sh
 cd mobile

@@ -5,14 +5,14 @@ export const s = {1: 4, 2: 8, 3: 12, 4: 16, 5: 24, 6: 32, 7: 48} as const;
 // The accent is light mint here for now; the web app still uses its green.
 const light = {
   bg: "#FFFFFF", surface: "#F4F4F4", ink: "#000000", muted: "#5E5E5E", line: "#D4D4D4",
-  good: "#0B7A54", accent: "#AAF0D1", accentInk: "#000000", goodSoft: "#E5FAF1",
+  good: "#0B7A54", accent: "#C3EADA", accentInk: "#000000", goodSoft: "#E5FAF1",
   soft: "#E6E6E6", amber: "#8C8C8C",
   splitBills: "#E5484D", splitEveryday: "#86D97A",
 };
 export type Palette = typeof light;
 const dark: Palette = {
   bg: "#17171A", surface: "#242428", ink: "#FFFFFF", muted: "#A1A1A8", line: "#3D3D42",
-  good: "#AAF0D1", accent: "#AAF0D1", accentInk: "#000000", goodSoft: "#123A2C",
+  good: "#C3EADA", accent: "#C3EADA", accentInk: "#000000", goodSoft: "#123A2C",
   soft: "#2C2C2E", amber: "#8E8E93",
   splitBills: "#FF6369", splitEveryday: "#86D97A",
 };

@@ -1,21 +1,23 @@
 import {router} from "expo-router";
 import {ScrollView, View} from "react-native";
+import {useAutoSync} from "@/components/Bank";
 import {CheckinCard, ShortCard} from "@/components/Cards";
 import {Hero} from "@/components/Hero";
 import {TxRow} from "@/components/TxRow";
 import {Button, Card, CardHead, PageTitle, T} from "@/components/ui";
 import {longDate} from "@/lib/dates";
 import type {Calc} from "@/lib/calc";
-import {money} from "@/lib/money";
+import {money, newestFirst} from "@/lib/money";
 import {useCalc} from "@/store/useCalc";
 import {radius, s} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 
 export default function DayScreen() {
   const r = useCalc();
+  useAutoSync();
   if (!r) return null;
   const {ctx, c} = r;
-  const spentToday = ctx.txs.filter(it => it.date === c.t).sort((a, b) => b.created - a.created);
+  const spentToday = ctx.txs.filter(it => it.date === c.t).sort(newestFirst);
   return (
     <ScrollView contentContainerStyle={{padding: s[4], paddingTop: s[2], gap: s[4], paddingBottom: s[7]}}>
       <PageTitle>{longDate(c.t)}</PageTitle>

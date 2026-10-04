@@ -47,6 +47,7 @@ export default function RootLayout() {
           <Stack.Screen name="everyday" options={modal("Everyday")} />
           <Stack.Screen name="settings" options={modal("Settings")} />
           <Stack.Screen name="account" options={modal("Account")} />
+          <Stack.Screen name="connect-bank" options={modal("Connect Monzo")} />
         </Stack.Protected>
       </Stack>
       <Toast />

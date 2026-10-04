@@ -4,6 +4,12 @@
 A personal finance app whose first job is answering **"what can I spend today?"**.
 Solo user (UK, Monzo), designed so a partner can be added later.
 
+## How to think about the work: the Pareto principle
+Before building anything, ask: what 20% of the effort gets 80% of the result?
+- Pick the version of a feature that delivers most of its value for the least work, ship that, and only go further if it's clearly worth it.
+- When suggesting or planning work, lead with the highest-leverage option and say what's being left out and why.
+- Don't polish edge cases or build for hypotheticals before the core loop ("what can I spend today?") is solid.
+
 ## How it runs
 - Published as a Claude artifact: one self-contained HTML file built from `src/` by `npm run build`.
 - Runtime APIs come from the artifact host, not the browser:
@@ -39,5 +45,6 @@ The money model and design rules above apply to both. For Expo itself, follow `m
 - `src/app/`: routes only (Expo Router). Tests never go in here, or they become routes.
 - Blur: React Native's `filter: blur()` is behind an off-by-default flag on iOS, so it does nothing here. For a CSS `blur(Npx)`, draw the text with `react-native-svg` through `<FeGaussianBlur stdDeviation={N}>` (see `SoftAmount` in `components/Hero.tsx`). Don't fake it with stacked copies.
 - Taps on text controls (like the balance eye) don't dim; only the thing that changes animates. Keep show/hide fades short (about .1s): a crossfade reads slower than the web's growing blur.
-- Not in v1: Monzo (the `host:monzo` connector only exists inside Claude), savings pots, declines, the Future view.
+- Monzo (balance, pots and payments): a personal Monzo developer client, no server. Client ID/secret and tokens live in the Keychain (`expo-secure-store`, `src/services/monzo.ts`), never in the repo or app state. Login: Safari, then paste the `https://localhost/monzo?code=…` address back (Expo Go can't catch a fixed redirect). A sync re-anchors `balance` to main account + `spend` pots; new pots start as `save`, so money only counts once you say so. New payments are imported too, and the Day tab syncs quietly on open if the last sync is over 15 minutes old. Pure logic is in `src/lib/monzo.ts`.
+- Not in v1: declines, the Future view.
 - Before calling a change done: `cd mobile && npm test && npm run typecheck && npm run lint`. Run it with `npx expo start` (Expo Go or the iOS simulator).

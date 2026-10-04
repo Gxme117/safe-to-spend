@@ -30,7 +30,7 @@ export default function SettingsScreen() {
     <ScrollView contentContainerStyle={{padding: s[4], gap: s[4], paddingBottom: s[7]}} keyboardShouldPersistTaps="handled">
       <Card>
         <CardHead title="Your balance" />
-        <Field label="How much is in your account right now?" hint={`The balance your bank app shows. Last set ${niceDate(ctx.state.balanceAsOf)}. Payments you log after this change it.`}>
+        <Field label="How much is in your account right now?" hint={`The balance your bank app shows. Last set ${niceDate(ctx.state.balanceAsOf)}. Payments you log after this change it.${ctx.state.bank ? " Your next Monzo sync replaces it." : ""}`}>
           <Input prefix="£" value={bal} onChangeText={v => { setBal(v); setError(""); }} keyboardType="decimal-pad" selectTextOnFocus accessibilityLabel="Your balance" />
         </Field>
         {error ? <T weight="semibold" size="sm">{error}</T> : null}

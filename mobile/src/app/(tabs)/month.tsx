@@ -8,7 +8,7 @@ import {Button, Card, CardHead, PageTitle, Row, T} from "@/components/ui";
 import {billMeta, billMonthly, nextBill} from "@/lib/bills";
 import {billsLine, comingUp, freeSummary} from "@/lib/calc";
 import {niceDate} from "@/lib/dates";
-import {money} from "@/lib/money";
+import {money, newestFirst} from "@/lib/money";
 import {useCalc} from "@/store/useCalc";
 import {s} from "@/theme/tokens";
 
@@ -20,7 +20,7 @@ export default function MonthScreen() {
   const sum = freeSummary(c);
   const coming = comingUp(ctx, c);
   const sorted = [...bills].sort((x, y) => (nextBill(x, c.t) || "9") < (nextBill(y, c.t) || "9") ? -1 : 1);
-  const thisMonth = ctx.txs.filter(it => it.date.slice(0, 7) === c.cur).sort((a, b) => b.date.localeCompare(a.date) || b.created - a.created);
+  const thisMonth = ctx.txs.filter(it => it.date.slice(0, 7) === c.cur).sort(newestFirst);
 
   return (
     <ScrollView contentContainerStyle={{padding: s[4], paddingTop: s[2], gap: s[4], paddingBottom: s[7]}}>

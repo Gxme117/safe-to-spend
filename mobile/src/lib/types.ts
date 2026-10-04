@@ -64,10 +64,13 @@ export interface Tx {
   cat: string;
   note: string;
   date: IsoDate;
-  created: number;  // ms since epoch
+  created: number;  // ms since epoch, when it was saved here (the balance counts payments saved after it was set)
+  paidAt?: number;  // ms since epoch, when the money moved, if that's different (Monzo payments): lists sort by this
   billId?: string;
   forDate?: IsoDate;
   srcId?: string;
+  monzoId?: string;   // imported from Monzo: never imported twice
+  needsCat?: boolean; // Monzo's category didn't match one of yours: ask, don't guess
 }
 
 export interface AppState {
@@ -80,6 +83,26 @@ export interface AppState {
   categories: Category[];
   skipped: Record<string, true>;   // `${incomeId}_${date}`: not coming
   snoozed: Record<string, IsoDate>; // `${incomeId}_${date}`: asked again tomorrow
+  bank?: Bank;                      // set once a bank is connected
+}
+
+/** "spend" pots count as spending money; "save" pots (savings, business) never do. */
+export type PotRole = "spend" | "save";
+export interface Pot {
+  id: string;
+  name: string;
+  balance: number;   // pounds, as of the last sync
+  role: PotRole;
+  goal?: number;
+}
+
+/** What the bank said at the last sync. The same shape as the web app's `state.bank`. */
+export interface Bank {
+  source: string;     // "Monzo"
+  accountId: string;
+  main: number;       // the main account, pounds
+  pots: Pot[];
+  asOf: string;       // ISO timestamp of the sync
 }
 
 /** Everything the engine needs. Passing it in (instead of reading globals) keeps every function testable. */

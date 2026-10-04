@@ -1,3 +1,5 @@
+import type {Tx} from "./types";
+
 export const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Adds thousands separators by hand: Hermes' toLocaleString isn't the same on every platform. */
@@ -26,3 +28,6 @@ export function parseAmount(v: string) {
 
 export const toPence = (pounds: number) => Math.round(pounds * 100);
 export const fromPence = (pence: number) => pence / 100;
+
+/** Newest payment first: by day, then by when the money moved (or was logged, for ones you add yourself). */
+export const newestFirst = (a: Tx, b: Tx) => b.date.localeCompare(a.date) || (b.paidAt ?? b.created) - (a.paidAt ?? a.created);

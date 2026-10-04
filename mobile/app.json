@@ -27,7 +27,8 @@
       "expo-font",
       "@react-native-community/datetimepicker",
       "expo-splash-screen",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-secure-store"
     ],
     "scheme": "moneytracker"
   }
