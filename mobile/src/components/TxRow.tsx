@@ -1,3 +1,4 @@
+import {router} from "expo-router";
 import {useState} from "react";
 import {Alert, Image, StyleSheet, View} from "react-native";
 import {niceDate} from "@/lib/dates";
@@ -15,7 +16,7 @@ export function txWhat(ctx: Ctx, it: Tx) {
   return ctx.state.categories.find(x => x.id === it.cat)?.name || "Other";
 }
 
-/** One payment. Hold to delete. */
+/** One payment. Tap a payment out to change what it was for; hold to delete. */
 export function TxRow({ctx, it, showDate}: {ctx: Ctx; it: Tx; showDate?: boolean}) {
   const what = txWhat(ctx, it);
   const income = it.type === "income";
@@ -26,7 +27,8 @@ export function TxRow({ctx, it, showDate}: {ctx: Ctx; it: Tx; showDate?: boolean
   ]);
   return (
     <Row name={it.note || what} leading={<MerchantLogo name={it.note || what} uri={it.logo} />} meta={meta || undefined} amount={income ? `+${money(it.amount)}` : `−${money(it.amount)}`} good={income}
-      onLongPress={remove} accessibilityHint="Hold to delete" />
+      onPress={income ? undefined : () => router.push(`/payment/${it.id}`)} onLongPress={remove}
+      accessibilityHint={income ? "Hold to delete" : "Tap to change what it was for. Hold to delete"} />
   );
 }
 

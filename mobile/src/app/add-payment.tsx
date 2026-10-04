@@ -7,6 +7,7 @@ import {Chip, Field, Input, T} from "@/components/ui";
 import {billFor} from "@/lib/bills";
 import {niceDate} from "@/lib/dates";
 import {money, parseAmount, r2} from "@/lib/money";
+import {spendCats} from "@/lib/payments";
 import type {Tx} from "@/lib/types";
 import {useCalc} from "@/store/useCalc";
 import {useMoney} from "@/store/useMoney";
@@ -24,9 +25,8 @@ export default function AddPayment() {
   const [error, setError] = useState("");
   if (!r) return null;
   const {ctx, c} = r;
-  const {bills, categories, incomes} = ctx.state;
-  // once there are bills, fixed costs are picked through the bill (that's what marks it paid), not a category
-  const spendCats = bills.length ? categories.filter(x => !x.fixed) : categories;
+  const {bills, incomes} = ctx.state;
+  const cats = spendCats(ctx.state);
   const on = (k: NonNullable<Pick>["kind"], id: string) => pick?.kind === k && pick.id === id;
   const choose = (p: Pick) => { setPick(p); setError(""); };
 
@@ -72,7 +72,7 @@ export default function AddPayment() {
           ) : null}
           <Field label={bills.length ? "Or spending" : "What was it for?"}>
             <View style={{flexDirection: "row", flexWrap: "wrap", gap: s[2]}}>
-              {spendCats.map(x => <Chip key={x.id} label={x.name} on={on("cat", x.id)} onPress={() => choose({kind: "cat", id: x.id})} />)}
+              {cats.map(x => <Chip key={x.id} label={x.name} on={on("cat", x.id)} onPress={() => choose({kind: "cat", id: x.id})} />)}
             </View>
           </Field>
         </>

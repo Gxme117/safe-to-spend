@@ -1,4 +1,4 @@
-import {insertTx} from "@/db/transactions";
+import {insertTx, updateFiling} from "@/db/transactions";
 import type {Income} from "@/lib/types";
 import {useMoney} from "../useMoney";
 
@@ -15,6 +15,7 @@ jest.mock("@/db/transactions", () => ({
   listSince: jest.fn(async () => []),
   insertTx: jest.fn(async () => {}),
   deleteTx: jest.fn(async () => {}),
+  updateFiling: jest.fn(async () => {}),
 }));
 
 const job = (o: Partial<Income>): Income => ({id: "a", name: "A", type: "work", freq: "monthly-lastworking", varies: false, amount: 1000, ...o});
@@ -48,6 +49,26 @@ test("if saving fails, nothing changes and you're told", async () => {
   (insertTx as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
   expect(await store().addTx({type: "expense", amount: 5, cat: "other", note: "", date: "2026-10-05"})).toBe(false);
   expect(store().txs).toHaveLength(0);
+  expect(store().toast?.msg).toBe("That didn't save. Try again.");
+});
+
+test("re-filing a payment saves it first, and moving it off a bill clears the bill", async () => {
+  await store().addTx({type: "expense", amount: 400, cat: "rent", note: "", date: "2026-10-05", billId: "rent", forDate: "2026-10-15", needsCat: true});
+  const id = store().txs[0].id;
+  expect(await store().refileTx(id, {cat: "groceries"})).toBe(true);
+  expect(updateFiling).toHaveBeenCalledWith(id, {cat: "groceries"});
+  const t = store().txs[0];
+  expect(t.cat).toBe("groceries");
+  expect(t).not.toHaveProperty("billId");
+  expect(t).not.toHaveProperty("forDate");
+  expect(t).not.toHaveProperty("needsCat");
+});
+
+test("if re-filing fails, the payment stays as it was", async () => {
+  await store().addTx({type: "expense", amount: 5, cat: "other", note: "", date: "2026-10-05"});
+  (updateFiling as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
+  expect(await store().refileTx(store().txs[0].id, {cat: "eating"})).toBe(false);
+  expect(store().txs[0].cat).toBe("other");
   expect(store().toast?.msg).toBe("That didn't save. Try again.");
 });
 

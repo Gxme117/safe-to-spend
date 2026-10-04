@@ -54,6 +54,11 @@ export async function backfill(fills: {monzoId: string; paidAt?: number; logo?: 
   });
 }
 
+/** Files a payment under a different bill or category. Once you've said what it was, it's no longer asked about. */
+export async function updateFiling(id: string, f: {cat: string; billId?: string; forDate?: IsoDate}) {
+  await (await db()).runAsync("UPDATE tx SET cat = ?, bill_id = ?, for_date = ?, needs_cat = 0 WHERE id = ?", f.cat, f.billId ?? null, f.forDate ?? null, id);
+}
+
 export async function deleteTx(id: string) {
   await (await db()).runAsync("DELETE FROM tx WHERE id = ?", id);
 }

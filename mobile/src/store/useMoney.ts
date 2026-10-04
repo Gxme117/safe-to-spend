@@ -1,11 +1,12 @@
 import Storage from "expo-sqlite/kv-store";
 import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
-import {backfill, deleteAllTx, deleteTx, insertMany, insertTx, listSince} from "@/db/transactions";
+import {backfill, deleteAllTx, deleteTx, insertMany, insertTx, listSince, updateFiling} from "@/db/transactions";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
 import {applySync, importTxs, missingDetails, setPotRole, syncSince} from "@/lib/monzo";
 import {r2} from "@/lib/money";
+import type {FilingPatch} from "@/lib/payments";
 import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
 import {disconnect, fetchBank, MonzoFail, type MonzoError} from "@/services/monzo";
 
@@ -41,6 +42,7 @@ interface MoneyStore {
 
   addTx(t: Omit<Tx, "id" | "created">): Promise<boolean>;
   removeTx(id: string): Promise<void>;
+  refileTx(id: string, f: FilingPatch): Promise<boolean>;
   confirmPay(src: Income, date: IsoDate, amount: number): Promise<boolean>;
   snooze(key: string): void;
   skip(key: string): void;
@@ -108,6 +110,19 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     async removeTx(id) {
       try { await deleteTx(id); } catch { get().notify(SAVE_FAILED); return; }
       set({txs: get().txs.filter(x => x.id !== id)});
+    },
+    async refileTx(id, f) {
+      try { await updateFiling(id, f); } catch { get().notify(SAVE_FAILED); return false; }
+      set({txs: get().txs.map(t => {
+        if (t.id !== id) return t;
+        // a payment moved off a bill no longer marks it paid
+        const n: Tx = {...t, ...f};
+        if (!f.billId) delete n.billId;
+        if (!f.forDate) delete n.forDate;
+        delete n.needsCat;
+        return n;
+      })});
+      return true;
     },
     confirmPay(src, date, amount) {
       return get().addTx({type: "income", amount, cat: src.id, srcId: src.id, forDate: date, note: "", date});

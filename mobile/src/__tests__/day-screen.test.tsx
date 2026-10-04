@@ -1,4 +1,5 @@
 import {fireEvent, render, screen} from "@testing-library/react-native";
+import {router} from "expo-router";
 import DayScreen from "@/app/(tabs)/index";
 import {baseState, TODAY, tx} from "@/lib/__tests__/fixtures";
 import {longDate} from "@/lib/dates";
@@ -7,7 +8,7 @@ import {useMoney} from "@/store/useMoney";
 
 jest.mock("expo-router", () => ({router: {push: jest.fn(), back: jest.fn()}}));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
-jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {})}));
+jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {}), updateFiling: jest.fn(async () => {})}));
 
 const groceries = tx({amount: 50, date: "2026-10-02", cat: "groceries"});
 const show = (txs: Tx[], state: AppState = baseState()) => {
@@ -76,4 +77,11 @@ test("a Monzo payment sorts by when it happened, not when it synced", async () =
   // the 3am one came in on a later sync, so it was saved last
   await show([tx({amount: 9, date: TODAY, note: "Lunch", created: 2, paidAt: 5000}), tx({amount: 4, date: TODAY, note: "Kebab", created: 9, paidAt: 1000})]);
   expect(screen.getAllByText(/^(Kebab|Lunch)$/).map(n => n.props.children)).toEqual(["Lunch", "Kebab"]);
+});
+
+test("tapping a payment opens it to choose what it was for", async () => {
+  const lunch = tx({amount: 9, date: TODAY, note: "Lunch", cat: "eating"});
+  await show([lunch]);
+  await fireEvent.press(screen.getByText("Lunch"));
+  expect(router.push).toHaveBeenCalledWith(`/payment/${lunch.id}`);
 });

@@ -42,6 +42,7 @@ export default function RootLayout() {
         <Stack.Protected guard={hasState}>
           <Stack.Screen name="(tabs)" options={{headerShown: false}} />
           <Stack.Screen name="add-payment" options={modal("Add a payment")} />
+          <Stack.Screen name="payment/[id]" options={modal("Payment")} />
           <Stack.Screen name="income/[id]" options={modal("Income")} />
           <Stack.Screen name="bill/[id]" options={modal("Bill")} />
           <Stack.Screen name="everyday" options={modal("Everyday")} />
