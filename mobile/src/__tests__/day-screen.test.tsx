@@ -85,3 +85,10 @@ test("tapping a payment opens it to choose what it was for", async () => {
   await fireEvent.press(screen.getByText("Lunch"));
   expect(router.push).toHaveBeenCalledWith(`/payment/${lunch.id}`);
 });
+
+test("money in can be tapped too, to say what it was", async () => {
+  const back = tx({type: "income", amount: 15, date: TODAY, note: "Sam", cat: "monzo-in"});
+  await show([back]);
+  await fireEvent.press(screen.getByText("Sam"));
+  expect(router.push).toHaveBeenCalledWith(`/payment/${back.id}`);
+});

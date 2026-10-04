@@ -3,20 +3,21 @@ import {useState} from "react";
 import {Alert, Image, StyleSheet, View} from "react-native";
 import {niceDate} from "@/lib/dates";
 import {money} from "@/lib/money";
+import {moneyInWhat} from "@/lib/payments";
 import type {Ctx, Tx} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
 import {radius} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 import {Row, T} from "./ui";
 
-/** What a payment was for: its bill, income source or category. */
+/** What a payment was for: its bill, category, pay, or what kind of money in it was. */
 export function txWhat(ctx: Ctx, it: Tx) {
   if (it.billId) return ctx.state.bills.find(b => b.id === it.billId)?.name || "Bill";
-  if (it.type === "income") return ctx.state.incomes.find(s => s.id === it.cat)?.name || "Money in";
+  if (it.type === "income") return moneyInWhat(ctx, it);
   return ctx.state.categories.find(x => x.id === it.cat)?.name || "Other";
 }
 
-/** One payment. Tap a payment out to change what it was for; hold to delete. */
+/** One payment. Tap to say what it was; hold to delete. */
 export function TxRow({ctx, it, showDate}: {ctx: Ctx; it: Tx; showDate?: boolean}) {
   const what = txWhat(ctx, it);
   const income = it.type === "income";
@@ -27,8 +28,8 @@ export function TxRow({ctx, it, showDate}: {ctx: Ctx; it: Tx; showDate?: boolean
   ]);
   return (
     <Row name={it.note || what} leading={<MerchantLogo name={it.note || what} uri={it.logo} />} meta={meta || undefined} amount={income ? `+${money(it.amount)}` : `−${money(it.amount)}`} good={income}
-      onPress={income ? undefined : () => router.push(`/payment/${it.id}`)} onLongPress={remove}
-      accessibilityHint={income ? "Hold to delete" : "Tap to change what it was for. Hold to delete"} />
+      onPress={() => router.push(`/payment/${it.id}`)} onLongPress={remove}
+      accessibilityHint={`Tap to ${income ? "say what this was" : "change what it was for"}. Hold to delete`} />
   );
 }
 

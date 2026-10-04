@@ -64,6 +64,17 @@ test("re-filing a payment saves it first, and moving it off a bill clears the bi
   expect(t).not.toHaveProperty("needsCat");
 });
 
+test("re-filing money in off pay or a refund forgets the payday and the category", async () => {
+  await store().addTx({type: "income", amount: 1800, cat: "job", srcId: "job", forDate: "2026-09-30", note: "", date: "2026-09-30"});
+  await store().addTx({type: "income", amount: 20, cat: "refund", refundOf: "groceries", note: "", date: "2026-10-05"});
+  const [pay, refund] = store().txs;
+  await store().refileTx(pay.id, {cat: "transfer"});
+  await store().refileTx(refund.id, {cat: "other-income"});
+  expect(store().txs[0]).not.toHaveProperty("srcId");
+  expect(store().txs[0]).not.toHaveProperty("forDate");
+  expect(store().txs[1]).not.toHaveProperty("refundOf");
+});
+
 test("if re-filing fails, the payment stays as it was", async () => {
   await store().addTx({type: "expense", amount: 5, cat: "other", note: "", date: "2026-10-05"});
   (updateFiling as jest.Mock).mockRejectedValueOnce(new Error("disk full"));

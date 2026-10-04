@@ -40,3 +40,35 @@ test("tapping a category files it straight away", async () => {
   expect(useMoney.getState().txs[0].cat).toBe("groceries");
   expect(useMoney.getState().toast?.msg).toBe("Filed under Groceries");
 });
+
+test("money in that hasn't been sorted asks what it was", async () => {
+  await show(tx({type: "income", amount: 40, date: TODAY, note: "Faster payment", cat: "monzo-in"}));
+  expect(screen.getByText("Not all money in is income. What was this?")).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: "Pharmacy"})).not.toBeSelected();
+  expect(screen.getByRole("button", {name: "Moving my own money"})).not.toBeSelected();
+});
+
+test("a refund asks which category, then goes back to it", async () => {
+  const it = tx({type: "income", amount: 40, date: TODAY, note: "Tesco", cat: "monzo-in"});
+  await show(it);
+  expect(screen.queryByText("What was refunded?")).toBeNull();
+  await fireEvent.press(screen.getByRole("button", {name: "Refund"}));
+  expect(updateFiling).not.toHaveBeenCalledWith(it.id, expect.anything());
+  await fireEvent.press(screen.getByRole("button", {name: "Groceries"}));
+  expect(updateFiling).toHaveBeenCalledWith(it.id, {cat: "refund", refundOf: "groceries"});
+  expect(useMoney.getState().txs[0]).toMatchObject({cat: "refund", refundOf: "groceries"});
+  expect(useMoney.getState().toast?.msg).toBe("Refund for Groceries. It's taken off what you spent there");
+});
+
+test("a refund opens showing what it was filed under", async () => {
+  await show(tx({type: "income", amount: 40, date: TODAY, cat: "refund", refundOf: "eating"}));
+  expect(screen.getByRole("button", {name: "Refund"})).toBeSelected();
+  expect(screen.getByRole("button", {name: "Eating out"})).toBeSelected();
+});
+
+test("tapping your pay counts it as that payday arriving", async () => {
+  const it = tx({type: "income", amount: 1800, date: "2026-09-30", note: "ACME LTD", cat: "monzo-in"});
+  await show(it);
+  await fireEvent.press(screen.getByRole("button", {name: "Pharmacy"}));
+  expect(updateFiling).toHaveBeenCalledWith(it.id, {cat: "job", srcId: "job", forDate: "2026-09-30"});
+});

@@ -115,10 +115,12 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
       try { await updateFiling(id, f); } catch { get().notify(SAVE_FAILED); return false; }
       set({txs: get().txs.map(t => {
         if (t.id !== id) return t;
-        // a payment moved off a bill no longer marks it paid
+        // a payment moved off a bill or a payday no longer marks it paid or arrived
         const n: Tx = {...t, ...f};
         if (!f.billId) delete n.billId;
         if (!f.forDate) delete n.forDate;
+        if (!f.srcId) delete n.srcId;
+        if (!f.refundOf) delete n.refundOf;
         delete n.needsCat;
         return n;
       })});

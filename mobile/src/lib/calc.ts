@@ -2,11 +2,19 @@ import {billDates, billPaid, billSource} from "./bills";
 import {addDays, dayDiff, niceDate, parseD} from "./dates";
 import {cycleStart, lowAmt, mainIncome, nextPayday, occurrences, usualAmt} from "./income";
 import {money, r2} from "./money";
-import type {Bill, Category, Ctx, Group, IsoDate} from "./types";
+import type {Bill, Category, Ctx, Group, IsoDate, Tx} from "./types";
 
 // Every category belongs to one group: bills (fixed), everyday (a monthly amount you choose), or free.
 // Nothing becomes Everyday until you choose it, so your number doesn't change by surprise.
 export const catGroup = (x: Category): Group => x.group || (x.fixed ? "bills" : "free");
+
+// A refund (or being paid back) comes off what was spent in its category: the money goes back where it came from.
+// Never below 0: a refund for something bought before this month can't make a category look negative.
+function addSpend(by: Record<string, number>, it: Tx) {
+  if (it.type === "expense") by[it.cat] = (by[it.cat] || 0) + it.amount;
+  else if (it.type === "income" && it.refundOf) by[it.refundOf] = (by[it.refundOf] || 0) - it.amount;
+}
+const clampSpend = (by: Record<string, number>) => { for (const k in by) by[k] = r2(Math.max(0, by[k])); };
 
 export interface EverydayLeft { x: Category; spent: number; left: number }
 
@@ -30,7 +38,8 @@ export function calc(ctx: Ctx): Calc {
   const {state, txs} = ctx, t = ctx.today, cur = t.slice(0, 7);
   const cats = state.categories;
   const spent: Record<string, number> = {};
-  for (const it of txs) if (it.date.slice(0, 7) === cur && it.type === "expense") spent[it.cat] = (spent[it.cat] || 0) + it.amount;
+  for (const it of txs) if (it.date.slice(0, 7) === cur) addSpend(spent, it);
+  clampSpend(spent);
 
   // the balance you typed in, plus everything logged since
   let balance = state.balance;
@@ -56,7 +65,8 @@ export function calc(ctx: Ctx): Calc {
 
   // everyday: what's left of each monthly amount since the last payday is kept aside, not counted as free
   const cycleFrom = cycleStart(ctx), spentCycle: Record<string, number> = {};
-  for (const it of txs) if (it.type === "expense" && !it.billId && it.date >= cycleFrom && it.date <= t) spentCycle[it.cat] = (spentCycle[it.cat] || 0) + it.amount;
+  for (const it of txs) if (!it.billId && it.date >= cycleFrom && it.date <= t) addSpend(spentCycle, it);
+  clampSpend(spentCycle);
   const everyday = cats.filter(x => catGroup(x) === "everyday").map(x => ({x, spent: r2(spentCycle[x.id] || 0), left: r2((x.budget || 0) - (spentCycle[x.id] || 0))}));
   const everydayLeft = r2(everyday.reduce((s, e) => s + Math.max(0, e.left), 0));
   const need = r2(billsLeft + everydayLeft);

@@ -113,3 +113,28 @@ describe("month view", () => {
     expect(billsLine(r)).toBe("£400 is due before payday on Fri 30 Oct, so it's held back from your spending money.");
   });
 });
+
+describe("money in that isn't income", () => {
+  test("a refund goes back to its category: Everyday left goes up, free stays the same", () => {
+    const refund = tx({type: "income", amount: 20, date: "2026-10-04", cat: "refund", refundOf: "groceries"});
+    const {r, h} = run(ctx({txs: [groceries, refund]}));
+    expect(r.balance).toBe(970);
+    expect(r.spent.groceries).toBe(30);
+    expect(r.everyday[0]).toMatchObject({spent: 30, left: 170});
+    expect(h).toMatchObject({free: 400, perDay: 16});
+  });
+
+  test("a refund bigger than what was spent this cycle doesn't make a category negative", () => {
+    const refund = tx({type: "income", amount: 80, date: "2026-10-04", cat: "payback", refundOf: "groceries"});
+    expect(run(ctx({txs: [groceries, refund]})).r.everyday[0]).toMatchObject({spent: 0, left: 200});
+  });
+
+  test("moving your own money in only adds to the balance", () => {
+    const moved = tx({type: "income", amount: 100, date: "2026-10-04", cat: "transfer"});
+    const {r, h} = run(ctx({txs: [groceries, moved]}));
+    expect(r.balance).toBe(1050);
+    expect(r.everydayLeft).toBe(150);
+    expect(r.payday).toBe("2026-10-30");
+    expect(h).toMatchObject({free: 500, perDay: 20});
+  });
+});

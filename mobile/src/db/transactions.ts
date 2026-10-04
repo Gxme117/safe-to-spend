@@ -1,5 +1,6 @@
 import {openDatabaseAsync, type SQLiteDatabase} from "expo-sqlite";
 import {fromPence, toPence} from "@/lib/money";
+import type {FilingPatch} from "@/lib/payments";
 import type {IsoDate, Tx, TxType} from "@/lib/types";
 import {migrate} from "./schema";
 
@@ -9,7 +10,7 @@ const db = () => (opening ??= openDatabaseAsync("money.db").then(async d => { aw
 
 interface Row {
   id: string; type: TxType; amount_p: number; cat: string; note: string; date: string; created: number;
-  bill_id: string | null; for_date: string | null; src_id: string | null; monzo_id: string | null; needs_cat: number; paid_at: number | null; logo: string | null;
+  bill_id: string | null; for_date: string | null; src_id: string | null; monzo_id: string | null; needs_cat: number; paid_at: number | null; logo: string | null; refund_of: string | null;
 }
 
 // Pence in the database, pounds in the app: the conversion happens here and nowhere else.
@@ -17,6 +18,7 @@ const fromRow = (r: Row): Tx => ({
   id: r.id, type: r.type, amount: fromPence(r.amount_p), cat: r.cat, note: r.note, date: r.date, created: r.created,
   ...(r.bill_id ? {billId: r.bill_id} : {}), ...(r.for_date ? {forDate: r.for_date} : {}), ...(r.src_id ? {srcId: r.src_id} : {}),
   ...(r.monzo_id ? {monzoId: r.monzo_id} : {}), ...(r.needs_cat ? {needsCat: true} : {}), ...(r.paid_at ? {paidAt: r.paid_at} : {}), ...(r.logo ? {logo: r.logo} : {}),
+  ...(r.refund_of ? {refundOf: r.refund_of} : {}),
 });
 
 export async function listSince(from: IsoDate): Promise<Tx[]> {
@@ -24,10 +26,10 @@ export async function listSince(from: IsoDate): Promise<Tx[]> {
   return rows.map(fromRow);
 }
 
-const INSERT = "INTO tx (id, type, amount_p, cat, note, date, created, bill_id, for_date, src_id, monzo_id, needs_cat, paid_at, logo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+const INSERT = "INTO tx (id, type, amount_p, cat, note, date, created, bill_id, for_date, src_id, monzo_id, needs_cat, paid_at, logo, refund_of) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 const values = (t: Tx) => [
   t.id, t.type, toPence(t.amount), t.cat, t.note, t.date, t.created, t.billId ?? null, t.forDate ?? null, t.srcId ?? null,
-  t.monzoId ?? null, t.needsCat ? 1 : 0, t.paidAt ?? null, t.logo ?? null,
+  t.monzoId ?? null, t.needsCat ? 1 : 0, t.paidAt ?? null, t.logo ?? null, t.refundOf ?? null,
 ];
 
 export async function insertTx(t: Tx) {
@@ -54,9 +56,10 @@ export async function backfill(fills: {monzoId: string; paidAt?: number; logo?: 
   });
 }
 
-/** Files a payment under a different bill or category. Once you've said what it was, it's no longer asked about. */
-export async function updateFiling(id: string, f: {cat: string; billId?: string; forDate?: IsoDate}) {
-  await (await db()).runAsync("UPDATE tx SET cat = ?, bill_id = ?, for_date = ?, needs_cat = 0 WHERE id = ?", f.cat, f.billId ?? null, f.forDate ?? null, id);
+/** Files a payment under a different bill, category, pay or kind of money in. Once you've said what it was, it's no longer asked about. */
+export async function updateFiling(id: string, f: FilingPatch) {
+  await (await db()).runAsync("UPDATE tx SET cat = ?, bill_id = ?, for_date = ?, src_id = ?, refund_of = ?, needs_cat = 0 WHERE id = ?",
+    f.cat, f.billId ?? null, f.forDate ?? null, f.srcId ?? null, f.refundOf ?? null, id);
 }
 
 export async function deleteTx(id: string) {

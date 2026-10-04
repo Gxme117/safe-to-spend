@@ -1,4 +1,4 @@
-import {fileUnder, spendCats} from "../payments";
+import {fileUnder, moneyInWhat, spendCats, unsorted} from "../payments";
 import {baseState, ctx, tx} from "./fixtures";
 
 test("filing under a category just changes the category", () => {
@@ -32,4 +32,49 @@ test("moving from a bill to a category leaves no bill behind", () => {
 test("fixed categories are only offered when there are no bills", () => {
   expect(spendCats(baseState()).map(x => x.id)).toEqual(["groceries", "eating", "other"]);
   expect(spendCats(baseState({bills: []})).map(x => x.id)).toEqual(["rent", "groceries", "eating", "other"]);
+});
+
+describe("money in", () => {
+  const moneyIn = (o = {}) => tx({type: "income", amount: 1800, date: "2026-09-29", cat: "monzo-in", note: "ACME LTD", ...o});
+
+  test("filed as pay, it counts as the nearest payday that hasn't landed", () => {
+    const it = moneyIn();
+    expect(fileUnder(ctx({txs: [it]}), it, {kind: "pay", id: "job"})).toEqual({
+      patch: {cat: "job", srcId: "job", forDate: "2026-09-30"},
+      msg: "Counted as Pharmacy pay for Wed 30 Sep",
+    });
+  });
+
+  test("its own old filing doesn't count as that payday already landing", () => {
+    const it = moneyIn({cat: "job", srcId: "job", forDate: "2026-09-30"});
+    expect(fileUnder(ctx({txs: [it]}), it, {kind: "pay", id: "job"}).patch.forDate).toBe("2026-09-30");
+  });
+
+  test("pay with no payday nearby is filed without marking one", () => {
+    const it = moneyIn({date: "2026-10-15"});
+    expect(fileUnder(ctx({txs: [it]}), it, {kind: "pay", id: "job"})).toEqual({patch: {cat: "job"}, msg: "Filed as Pharmacy pay"});
+  });
+
+  test("moving your own money isn't income", () => {
+    const it = moneyIn();
+    expect(fileUnder(ctx({txs: [it]}), it, {kind: "in", id: "transfer"})).toEqual({patch: {cat: "transfer"}, msg: "Marked as your own money moving. It isn't income"});
+  });
+
+  test("a refund remembers which category it goes back to", () => {
+    const it = moneyIn({amount: 20});
+    expect(fileUnder(ctx({txs: [it]}), it, {kind: "in", id: "refund", refundOf: "groceries"})).toEqual({
+      patch: {cat: "refund", refundOf: "groceries"},
+      msg: "Refund for Groceries. It's taken off what you spent there",
+    });
+  });
+
+  test("unsorted money in is asked about; what it was reads plainly", () => {
+    const c = ctx();
+    expect(unsorted(moneyIn())).toBe(true);
+    expect(unsorted(moneyIn({cat: "transfer"}))).toBe(false);
+    expect(moneyInWhat(c, moneyIn())).toBe("Money in");
+    expect(moneyInWhat(c, moneyIn({cat: "job"}))).toBe("Pharmacy");
+    expect(moneyInWhat(c, moneyIn({cat: "transfer"}))).toBe("Own money moved");
+    expect(moneyInWhat(c, moneyIn({cat: "payback", refundOf: "eating"}))).toBe("Paid back, Eating out");
+  });
 });
