@@ -43,6 +43,15 @@ export async function insertMany(txs: Tx[]): Promise<Tx[]> {
   return added;
 }
 
+/** Fills in when Monzo payments really happened, for ones saved before that was kept. */
+export async function setPaidAt(times: {monzoId: string; paidAt: number}[]) {
+  if (!times.length) return;
+  const d = await db();
+  await d.withTransactionAsync(async () => {
+    for (const t of times) await d.runAsync("UPDATE tx SET paid_at = ? WHERE monzo_id = ? AND paid_at IS NULL", t.paidAt, t.monzoId);
+  });
+}
+
 export async function deleteTx(id: string) {
   await (await db()).runAsync("DELETE FROM tx WHERE id = ?", id);
 }

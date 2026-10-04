@@ -1,10 +1,10 @@
 import Storage from "expo-sqlite/kv-store";
 import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
-import {deleteAllTx, deleteTx, insertMany, insertTx, listSince} from "@/db/transactions";
+import {deleteAllTx, deleteTx, insertMany, insertTx, listSince, setPaidAt} from "@/db/transactions";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
-import {applySync, importTxs, setPotRole, syncSince} from "@/lib/monzo";
+import {applySync, importTxs, missingTimes, setPotRole, syncSince} from "@/lib/monzo";
 import {r2} from "@/lib/money";
 import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
 import {disconnect, fetchBank, MonzoFail, type MonzoError} from "@/services/monzo";
@@ -129,7 +129,15 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         let added: Tx[];
         try { added = await insertMany(importTxs({state: s, txs: get().txs, today: today()}, got.txs, now, uid)); }
         catch { return {error: "not-saved"}; }
-        set({state: applySync(s, got, now), txs: [...get().txs, ...added]});
+        // older payments get their real time back; if that fails they just keep the sync's time
+        const times = missingTimes(get().txs, got.txs);
+        let txs = get().txs;
+        try {
+          await setPaidAt(times);
+          const at = new Map(times.map(t => [t.monzoId, t.paidAt]));
+          txs = txs.map(t => t.monzoId && at.has(t.monzoId) ? {...t, paidAt: at.get(t.monzoId)} : t);
+        } catch {}
+        set({state: applySync(s, got, now), txs: [...txs, ...added]});
         return {added: added.length};
       } catch (e) {
         // the real reason, in the Expo terminal: the message on screen stays plain

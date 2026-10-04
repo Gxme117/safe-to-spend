@@ -24,13 +24,13 @@ export default function DayScreen() {
       <Hero ctx={ctx} c={c} />
       <CheckinCard ctx={ctx} />
       <ShortCard c={c} />
-      <EverydayChips c={c} />
       <Card>
         <CardHead title="Spent today" right={<Button small label="Add payment" onPress={() => router.push("/add-payment")} />} />
         {spentToday.length
           ? <View>{spentToday.map(it => <TxRow key={it.id} ctx={ctx} it={it} />)}</View>
           : <T muted>Nothing logged today.</T>}
       </Card>
+      <EverydayChips c={c} />
     </ScrollView>
   );
 }

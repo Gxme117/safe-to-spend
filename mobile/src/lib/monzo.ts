@@ -75,6 +75,15 @@ export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => st
   return out;
 }
 
+/** Saved Monzo payments with no time of their own (synced before times were kept), and when they really happened. */
+export function missingTimes(txs: Tx[], raw: RawTx[]): {monzoId: string; paidAt: number}[] {
+  const when = new Map(raw.filter(t => t?.id && t.created).map(t => [t.id, Date.parse(t.created)]));
+  return txs.flatMap(t => {
+    const at = t.monzoId && !t.paidAt ? when.get(t.monzoId) : undefined;
+    return at && !Number.isNaN(at) ? [{monzoId: t.monzoId!, paidAt: at}] : [];
+  });
+}
+
 const spendTotal = (b: Pick<Bank, "main" | "pots">) => r2(b.main + b.pots.filter(p => p.role === "spend").reduce((a, p) => a + p.balance, 0));
 
 /** Money put aside in pots that aren't spending money. Never counted in the daily number. */

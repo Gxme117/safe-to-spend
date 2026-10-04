@@ -80,7 +80,7 @@ function Wallet({ctx, c, front}: {ctx: Ctx; c: Calc; front: (hidden: boolean, to
   };
   // cards top to bottom as they rest; the last one (ours) sits in the layout, the others float above it
   const cards: {label: string; node: ReactNode}[] = [
-    {label: "Show your other card", node: <OtherCard />},
+    {label: "Show your other card", node: <OtherCard hidden={hidden} onToggle={toggle} />},
     {label: "Show your bank card", node: <BankCard ctx={ctx} c={c} hidden={hidden} onToggle={toggle} />},
     {label: "Show today's number", node: front(hidden, toggle)},
   ];
@@ -114,17 +114,18 @@ function Wallet({ctx, c, front}: {ctx: Ctx; c: Calc; front: (hidden: boolean, to
   );
 }
 
-/** A second card, on top of the stack. Not linked to an account yet, so it shows no money. */
-function OtherCard() {
+/** A second card, on top of the stack. Not linked to an account yet, so its balance is £0 for now. */
+function OtherCard({hidden, onToggle}: {hidden: boolean; onToggle: () => void}) {
   const ink = {color: OTHER_INK};
   return (
     <View style={[styles.card, styles.otherFace]}>
       <View style={{flexDirection: "row", alignItems: "center", gap: s[3]}}>
-        <T weight="bold" style={[ink, {flex: 1}]}>Not connected yet</T>
+        <View style={{flex: 1}}><BalanceButton amount={0} ink={OTHER_INK} hidden={hidden} onToggle={onToggle} /></View>
         <View accessible accessibilityRole="image" accessibilityLabel="C">
           <T size="lg" weight="heavy" style={[ink, {lineHeight: textSize.lg}]}>C</T>
         </View>
       </View>
+      <T size="xs" weight="semibold" style={[ink, {opacity: 0.75}]}>Not connected yet</T>
     </View>
   );
 }

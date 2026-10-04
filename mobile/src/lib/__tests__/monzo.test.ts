@@ -1,5 +1,5 @@
 import {calc} from "@/lib/calc";
-import {applySync, aside, authUrl, importTxs, parseRedirect, REDIRECT_URI, type RawTx, setPotRole, syncSince} from "@/lib/monzo";
+import {applySync, aside, authUrl, importTxs, missingTimes, parseRedirect, REDIRECT_URI, type RawTx, setPotRole, syncSince} from "@/lib/monzo";
 import {baseState, ctx, TODAY, tx} from "./fixtures";
 
 const NOW = new Date(2026, 9, 3, 14, 5).getTime();
@@ -87,6 +87,17 @@ test("skips payments already saved, declines, pot moves and zero amounts", () =>
     raw({id: "ok"}),   // the same one twice in one reply
   ], NOW, ids);
   expect(got.map(t => [t.monzoId, t.cat])).toEqual([["ok", "eating"]]);
+});
+
+test("payments saved without a time get Monzo's time back; ones that have a time are left alone", () => {
+  const old = tx({amount: 5, date: TODAY, monzoId: "old"});
+  const timed = tx({amount: 5, date: TODAY, monzoId: "timed", paidAt: 1});
+  const typed = tx({amount: 5, date: TODAY});
+  const got = missingTimes([old, timed, typed], [
+    raw({id: "old", created: "2026-10-04T12:30:00Z"}),
+    raw({id: "timed", created: "2026-10-04T13:00:00Z"}),
+  ]);
+  expect(got).toEqual([{monzoId: "old", paidAt: Date.parse("2026-10-04T12:30:00Z")}]);
 });
 
 test("money in counts as that payday arriving when it matches your pay, otherwise it's just money in", () => {
