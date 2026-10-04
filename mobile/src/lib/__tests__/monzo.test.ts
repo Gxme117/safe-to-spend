@@ -1,5 +1,5 @@
 import {calc} from "@/lib/calc";
-import {applySync, aside, authUrl, importTxs, missingTimes, parseRedirect, REDIRECT_URI, type RawTx, setPotRole, syncSince} from "@/lib/monzo";
+import {applySync, aside, authUrl, importTxs, missingDetails, parseRedirect, REDIRECT_URI, type RawTx, setPotRole, syncSince} from "@/lib/monzo";
 import {baseState, ctx, TODAY, tx} from "./fixtures";
 
 const NOW = new Date(2026, 9, 3, 14, 5).getTime();
@@ -89,15 +89,27 @@ test("skips payments already saved, declines, pot moves and zero amounts", () =>
   expect(got.map(t => [t.monzoId, t.cat])).toEqual([["ok", "eating"]]);
 });
 
-test("payments saved without a time get Monzo's time back; ones that have a time are left alone", () => {
+test("payments saved without a time or logo get Monzo's back; ones that have them are left alone", () => {
   const old = tx({amount: 5, date: TODAY, monzoId: "old"});
-  const timed = tx({amount: 5, date: TODAY, monzoId: "timed", paidAt: 1});
+  const done = tx({amount: 5, date: TODAY, monzoId: "done", paidAt: 1, logo: "https://a/x.png"});
+  const noLogo = tx({amount: 5, date: TODAY, monzoId: "noLogo", paidAt: 1});
   const typed = tx({amount: 5, date: TODAY});
-  const got = missingTimes([old, timed, typed], [
-    raw({id: "old", created: "2026-10-04T12:30:00Z"}),
-    raw({id: "timed", created: "2026-10-04T13:00:00Z"}),
+  const got = missingDetails([old, done, noLogo, typed], [
+    raw({id: "old", created: "2026-10-04T12:30:00Z", merchant: {name: "Aldi", logo: "https://a/aldi.png"}}),
+    raw({id: "done", created: "2026-10-04T13:00:00Z", merchant: {name: "Uber", logo: "https://a/uber.png"}}),
+    raw({id: "noLogo", merchant: {name: "Chase"}}),
   ]);
-  expect(got).toEqual([{monzoId: "old", paidAt: Date.parse("2026-10-04T12:30:00Z")}]);
+  expect(got).toEqual([{monzoId: "old", paidAt: Date.parse("2026-10-04T12:30:00Z"), logo: "https://a/aldi.png"}]);
+});
+
+test("payments keep the shop's logo, but only https links", () => {
+  const got = importTxs(ctx(), [
+    raw({id: "a", merchant: {name: "Tesco", logo: "https://logos/tesco.png"}}),
+    raw({id: "b", merchant: {name: "Odd", logo: "http://logos/odd.png"}}),
+    raw({id: "c", merchant: {name: "None"}}),
+    raw({id: "d", merchant: "merch_123"}),
+  ], NOW, ids);
+  expect(got.map(t => t.logo)).toEqual(["https://logos/tesco.png", undefined, undefined, undefined]);
 });
 
 test("money in counts as that payday arriving when it matches your pay, otherwise it's just money in", () => {

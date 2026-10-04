@@ -9,14 +9,14 @@ const db = () => (opening ??= openDatabaseAsync("money.db").then(async d => { aw
 
 interface Row {
   id: string; type: TxType; amount_p: number; cat: string; note: string; date: string; created: number;
-  bill_id: string | null; for_date: string | null; src_id: string | null; monzo_id: string | null; needs_cat: number; paid_at: number | null;
+  bill_id: string | null; for_date: string | null; src_id: string | null; monzo_id: string | null; needs_cat: number; paid_at: number | null; logo: string | null;
 }
 
 // Pence in the database, pounds in the app: the conversion happens here and nowhere else.
 const fromRow = (r: Row): Tx => ({
   id: r.id, type: r.type, amount: fromPence(r.amount_p), cat: r.cat, note: r.note, date: r.date, created: r.created,
   ...(r.bill_id ? {billId: r.bill_id} : {}), ...(r.for_date ? {forDate: r.for_date} : {}), ...(r.src_id ? {srcId: r.src_id} : {}),
-  ...(r.monzo_id ? {monzoId: r.monzo_id} : {}), ...(r.needs_cat ? {needsCat: true} : {}), ...(r.paid_at ? {paidAt: r.paid_at} : {}),
+  ...(r.monzo_id ? {monzoId: r.monzo_id} : {}), ...(r.needs_cat ? {needsCat: true} : {}), ...(r.paid_at ? {paidAt: r.paid_at} : {}), ...(r.logo ? {logo: r.logo} : {}),
 });
 
 export async function listSince(from: IsoDate): Promise<Tx[]> {
@@ -24,10 +24,10 @@ export async function listSince(from: IsoDate): Promise<Tx[]> {
   return rows.map(fromRow);
 }
 
-const INSERT = "INTO tx (id, type, amount_p, cat, note, date, created, bill_id, for_date, src_id, monzo_id, needs_cat, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+const INSERT = "INTO tx (id, type, amount_p, cat, note, date, created, bill_id, for_date, src_id, monzo_id, needs_cat, paid_at, logo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 const values = (t: Tx) => [
   t.id, t.type, toPence(t.amount), t.cat, t.note, t.date, t.created, t.billId ?? null, t.forDate ?? null, t.srcId ?? null,
-  t.monzoId ?? null, t.needsCat ? 1 : 0, t.paidAt ?? null,
+  t.monzoId ?? null, t.needsCat ? 1 : 0, t.paidAt ?? null, t.logo ?? null,
 ];
 
 export async function insertTx(t: Tx) {
@@ -43,12 +43,14 @@ export async function insertMany(txs: Tx[]): Promise<Tx[]> {
   return added;
 }
 
-/** Fills in when Monzo payments really happened, for ones saved before that was kept. */
-export async function setPaidAt(times: {monzoId: string; paidAt: number}[]) {
-  if (!times.length) return;
+/** Fills in when Monzo payments really happened and their logo, for ones saved before those were kept. Never overwrites. */
+export async function backfill(fills: {monzoId: string; paidAt?: number; logo?: string}[]) {
+  if (!fills.length) return;
   const d = await db();
   await d.withTransactionAsync(async () => {
-    for (const t of times) await d.runAsync("UPDATE tx SET paid_at = ? WHERE monzo_id = ? AND paid_at IS NULL", t.paidAt, t.monzoId);
+    for (const f of fills) {
+      await d.runAsync("UPDATE tx SET paid_at = COALESCE(paid_at, ?), logo = COALESCE(logo, ?) WHERE monzo_id = ?", f.paidAt ?? null, f.logo ?? null, f.monzoId);
+    }
   });
 }
 

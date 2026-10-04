@@ -70,6 +70,7 @@ export interface Tx {
   forDate?: IsoDate;
   srcId?: string;
   monzoId?: string;   // imported from Monzo: never imported twice
+  logo?: string;      // the shop's logo link, as Monzo sent it
   needsCat?: boolean; // Monzo's category didn't match one of yours: ask, don't guess
 }
 

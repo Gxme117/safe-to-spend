@@ -92,12 +92,13 @@ export function Input(props: TextInputProps & {prefix?: string}) {
 }
 
 /** A list row: name and a one-line meta on the left, an amount on the right. */
-export function Row({name, meta, amount, good, onPress, onLongPress, accessibilityHint}: {
-  name: string; meta?: string; amount?: string; good?: boolean; onPress?: () => void; onLongPress?: () => void; accessibilityHint?: string;
+export function Row({name, meta, amount, good, leading, onPress, onLongPress, accessibilityHint}: {
+  name: string; leading?: ReactNode; meta?: string; amount?: string; good?: boolean; onPress?: () => void; onLongPress?: () => void; accessibilityHint?: string;
 }) {
   const {c} = useTheme();
   const body = (
     <View style={styles.row}>
+      {leading}
       <View style={{flex: 1, gap: 2}}>
         <T weight="semibold" lines={1}>{name}</T>
         {meta ? <T muted size="sm" lines={1}>{meta}</T> : null}

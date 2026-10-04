@@ -1,6 +1,6 @@
 import type {SQLiteDatabase} from "expo-sqlite";
 
-const VERSION = 3;
+const VERSION = 4;
 
 /** Brings the database up to VERSION, one step at a time (pattern from the expo-sqlite docs). */
 export async function migrate(db: SQLiteDatabase) {
@@ -41,6 +41,11 @@ export async function migrate(db: SQLiteDatabase) {
     await db.execAsync("ALTER TABLE tx ADD COLUMN paid_at INTEGER");
     v = 3;
   }
-  // if (v === 3) { next migration; v = 4; }
+  if (v === 3) {
+    // The shop's logo link Monzo sends with a payment.
+    await db.execAsync("ALTER TABLE tx ADD COLUMN logo TEXT");
+    v = 4;
+  }
+  // if (v === 4) { next migration; v = 5; }
   await db.execAsync(`PRAGMA user_version = ${VERSION}`);
 }

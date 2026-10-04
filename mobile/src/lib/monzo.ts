@@ -29,7 +29,7 @@ export interface RawPot { id: string; name: string; balance: number; goal_amount
 /** A transaction as the Monzo API sends it, with the merchant expanded. Spending is negative, in pence. */
 export interface RawTx {
   id: string; amount: number; created: string; description?: string; category?: string;
-  decline_reason?: string; merchant?: {name?: string} | string | null;
+  decline_reason?: string; merchant?: {name?: string; logo?: string} | string | null;
 }
 export interface Synced { accountId: string; mainPence: number; pots: RawPot[]; txs: RawTx[] }
 
@@ -44,6 +44,11 @@ export function syncSince(bank: Bank | undefined, now: number): string {
 // Monzo's categories that match the app's own. Anything else is asked about, not guessed.
 const MONZO_CAT: Record<string, string> = {eating_out: "eating", groceries: "groceries", transport: "transport", personal_care: "personal", family: "family"};
 
+/** The shop's logo link, as Monzo sends it. Only https links: anything else is left out. */
+const txLogo = (t: RawTx) => {
+  const l = typeof t.merchant === "object" ? t.merchant?.logo?.trim() : undefined;
+  return l && l.startsWith("https://") ? l : undefined;
+};
 const txName = (t: RawTx) => String((typeof t.merchant === "object" && t.merchant?.name) || t.description || "Monzo").trim().slice(0, 60);
 
 /**
@@ -61,6 +66,8 @@ export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => st
     known.add(t.id);
     const date = isoD(new Date(t.created)), note = txName(t), amount = r2(Math.abs(t.amount) / 100);
     const row: Tx = {id: newId(), type: t.amount < 0 ? "expense" : "income", amount, cat: "monzo-in", note, date, created: stamp - 1, paidAt: Date.parse(t.created), monzoId: t.id};
+    const logo = txLogo(t);
+    if (logo) row.logo = logo;
     if (t.amount < 0) {
       const cat = MONZO_CAT[t.category || ""];
       if (cat && cats.has(cat)) row.cat = cat; else { row.cat = "other"; row.needsCat = true; }
@@ -75,12 +82,18 @@ export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => st
   return out;
 }
 
-/** Saved Monzo payments with no time of their own (synced before times were kept), and when they really happened. */
-export function missingTimes(txs: Tx[], raw: RawTx[]): {monzoId: string; paidAt: number}[] {
-  const when = new Map(raw.filter(t => t?.id && t.created).map(t => [t.id, Date.parse(t.created)]));
+export interface Backfill { monzoId: string; paidAt?: number; logo?: string }
+/** Saved Monzo payments missing a time or logo (synced before those were kept), with what Monzo says now. */
+export function missingDetails(txs: Tx[], raw: RawTx[]): Backfill[] {
+  const byId = new Map(raw.filter(t => t?.id).map(t => [t.id, t]));
   return txs.flatMap(t => {
-    const at = t.monzoId && !t.paidAt ? when.get(t.monzoId) : undefined;
-    return at && !Number.isNaN(at) ? [{monzoId: t.monzoId!, paidAt: at}] : [];
+    const r = t.monzoId ? byId.get(t.monzoId) : undefined;
+    if (!r) return [];
+    const at = t.paidAt ? undefined : Date.parse(r.created);
+    const fill: Backfill = {monzoId: t.monzoId!};
+    if (at !== undefined && !Number.isNaN(at)) fill.paidAt = at;
+    if (!t.logo) { const logo = txLogo(r); if (logo) fill.logo = logo; }
+    return fill.paidAt !== undefined || fill.logo ? [fill] : [];
   });
 }
 
