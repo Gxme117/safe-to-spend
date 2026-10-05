@@ -91,11 +91,13 @@ export function buildBill(f: BillForm, id: string, old?: Bill): {bill: Bill} | {
 /**
  * A bill as setup collects it: the amount as typed (blank or 0 if you don't know it yet), and a payment date that can wait ("I'll add this later").
  * Subscriptions are added up from `items` instead: `amount` is kept as their total.
+ * One found in your bank's payments keeps who it's paid to, how, and whether it varies.
  */
 export interface BillDraft {
   amount: string; freq: BillFreq; day: number | "last" | null; date: IsoDate | null; later?: boolean;
   items?: SubItem[];   // the subscriptions you have, each a month
   extra?: string[];    // ones you named yourself, after the usual ones
+  payee?: string; method?: BillMethod; varies?: boolean;   // found in your bank
 }
 export interface SubItem { name: string; amount: string }
 
@@ -123,6 +125,9 @@ export const draftReady = (d: BillDraft) => parseAmount(d.amount) > 0;
 export function draftBill(name: string, d: BillDraft, id: string): Bill {
   const bill: Bill = {id, name: name.trim().slice(0, 40), amount: r2(parseAmount(d.amount) || 0), freq: d.freq, from: {kind: "main"}};
   if (d.freq === "monthly") { if (d.day) bill.day = d.day; } else if (d.date) bill.date = d.date;
+  if (d.varies) bill.varies = true;
+  if (d.method) bill.method = d.method;
+  if (d.payee) Object.assign(bill, {source: "bank", payee: d.payee});
   return bill;
 }
 

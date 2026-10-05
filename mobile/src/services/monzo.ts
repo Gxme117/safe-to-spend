@@ -119,8 +119,8 @@ async function mainAccount() {
 
 /**
  * What setup shows before the app has anywhere to keep a full sync: the main account plus all its pots, in pence,
- * and what about 3 months of payments say about your pay and payday. Read once, straight after
- * you approve, and never saved. If the payments can't be read, setup just asks as if you hadn't connected.
+ * and what about 3 months of payments say about your pay, payday, regular payments and everyday spending. Read once,
+ * straight after you approve, and never saved. If the payments can't be read, setup just asks as if you hadn't connected.
  */
 export async function fetchSetupBank(): Promise<{totalPence: number; found: SetupFound | null}> {
   const q = encodeURIComponent((await mainAccount()).id);

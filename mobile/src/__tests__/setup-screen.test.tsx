@@ -23,10 +23,14 @@ const show = async () => {
 const next = (name = "Continue") => fireEvent.press(screen.getByRole("button", {name}));
 const tap = (name: string) => fireEvent.press(screen.getByRole("button", {name}));
 const skipEveryday = () => tap("Skip for now");
-// no bills, and no everyday amounts: setup ends
-const noBills = async () => { await tap("I don't have any bills"); await skipEveryday(); };
-// through balance, pay and payday to the bills page
-const toBills = async () => {
+// no bank, no bills, and no everyday amounts: setup ends (with a bank connected, the page offering one isn't there)
+const noBills = async () => {
+  if (screen.queryByRole("button", {name: "I'll enter them myself"})) await tap("I'll enter them myself");
+  await tap("I don't have any bills");
+  await skipEveryday();
+};
+// through balance, pay and payday to the page offering a bank
+const toBank = async () => {
   await show();
   await fireEvent.changeText(screen.getByLabelText("Your balance"), "1250.50");
   await next();
@@ -34,8 +38,12 @@ const toBills = async () => {
   await next();
   await next();
 };
+// and on to the bills page, entering them yourself
+const toBills = async () => { await toBank(); await tap("I'll enter them myself"); };
 // what Monzo might say, with nothing found unless a test adds it
-const found = (over: Partial<SetupFound> = {}): SetupFound => ({pay: null, rule: null, ...over});
+const found = (over: Partial<SetupFound> = {}): SetupFound => ({pays: [], bills: [], spending: [], ...over});
+const acme = {amount: 2000, from: "ACME LTD", date: "2026-10-02", rule: {freq: "fourweekly" as const, date: "2026-10-30", n: 3}};
+const bar = {amount: 310, from: "THE BAR CO", date: "2026-10-02", rule: null};
 
 test("one question per page, and Continue waits for an answer", async () => {
   await show();
@@ -113,37 +121,73 @@ test("connect your bank: opens Monzo, then the balance comes from the bank and s
   expect(syncNow).toHaveBeenCalled();
 });
 
-test("a bank connected in setup fills in your last pay, and says where it came from", async () => {
+test("a bank connected in setup asks if the pay it found is yours: yes, and it's what lands each payday, from them", async () => {
   await show();
-  await act(() => useMoney.getState().setSetupBank(842.1, found({pay: {amount: 2140, from: "ACME LTD", date: "2026-09-30"}})));
+  await act(() => useMoney.getState().setSetupBank(842.1, found({pays: [acme]})));
   await next();
-  expect(screen.getByLabelText("Your pay a month, after tax")).toHaveDisplayValue("2140.00");
-  expect(screen.getByText("Your last pay from ACME LTD, Wed 30 Sep.")).toBeOnTheScreen();
-  expect(screen.getByRole("button", {name: "Continue"})).toBeEnabled();
-  await fireEvent.changeText(screen.getByLabelText("Your pay a month, after tax"), "2000");
-  expect(screen.queryByText(/Your last pay from/)).toBeNull();
-  await next();
+  expect(screen.getByText("We found a regular payment")).toBeOnTheScreen();
+  expect(screen.getByText("Is this your income?")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Your pay, from your bank")).toHaveDisplayValue("2000.00");
+  expect(screen.getByText("From ACME LTD. Every 4 weeks.")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", {name: "Choose another"})).toBeNull();   // nobody else pays you like pay
+  await tap("Yes, that's right");
+  // payday comes from the same pays, saying why
+  expect(screen.getByRole("button", {name: "Every 4 weeks"})).toBeSelected();
+  expect(screen.getByText("Your last 3 pays came 4 weeks apart.")).toBeOnTheScreen();
+  expect(screen.getByText("£2,000")).toBeOnTheScreen();
   await next();
   await noBills();
-  expect(useMoney.getState().state!.incomes[0].amount).toBe(2000);
-  // you changed it and it doesn't repeat, so it may not be your pay: nobody is remembered as paying you
-  expect(useMoney.getState().state!.incomes[0].payer).toBeUndefined();
+  // 4-weekly pay is what lands each time, not a month's pay spread over 13
+  expect(useMoney.getState().state!.incomes[0]).toMatchObject({amount: 2000, freq: "fourweekly", date: "2026-10-30", payer: "ACME LTD"});
   expect(useMoney.getState().setupFound).toBeNull();
 });
 
-test("a bank connected in setup fills in payday too, saying why, and remembers who pays you", async () => {
+test("I'll enter it myself: the pay page as before, blank, and nobody is remembered as paying you", async () => {
   await show();
-  await act(() => useMoney.getState().setSetupBank(842.1, found({
-    pay: {amount: 2140, from: "ACME LTD", date: "2026-09-30"},
-    rule: {freq: "monthly-date", day: 25, date: "2026-10-25", n: 3},
-  })));
+  await act(() => useMoney.getState().setSetupBank(842.1, found({pays: [acme]})));
   await next();
+  await tap("I'll enter it myself");
+  expect(screen.getByLabelText("Your pay a month, after tax")).toHaveDisplayValue("");
+  // back shows what the bank found again
+  await tap("Back");
+  expect(screen.getByText("We found a regular payment")).toBeOnTheScreen();
+  await tap("I'll enter it myself");
+  await fireEvent.changeText(screen.getByLabelText("Your pay a month, after tax"), "1800");
   await next();
-  expect(screen.getByRole("button", {name: "Monthly on a date"})).toBeSelected();
-  expect(screen.getByText("Your last 3 pays came on the 25th.")).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: "Monthly, last working day"})).toBeSelected();
+  expect(screen.queryByText(/Your last \d pays/)).toBeNull();
   await next();
   await noBills();
-  expect(useMoney.getState().state!.incomes[0]).toMatchObject({amount: 2140, freq: "monthly-date", day: 25, payer: "ACME LTD"});
+  expect(useMoney.getState().state!.incomes[0]).toMatchObject({amount: 1800, freq: "monthly-lastworking"});
+  expect(useMoney.getState().state!.incomes[0].payer).toBeUndefined();
+});
+
+test("choose another: everyone who pays you like pay, and the one you tap is the one asked about", async () => {
+  await show();
+  await act(() => useMoney.getState().setSetupBank(842.1, found({pays: [acme, bar]})));
+  await next();
+  await tap("Choose another");
+  expect(screen.getByText("Which one is your pay?")).toBeOnTheScreen();
+  expect(screen.getByText("Every 4 weeks")).toBeOnTheScreen();
+  expect(screen.getByText("Last paid Fri 2 Oct")).toBeOnTheScreen();   // how often isn't clear
+  await fireEvent.press(row("THE BAR CO"));
+  expect(screen.getByText("We found a payment")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Your pay, from your bank")).toHaveDisplayValue("310.00");
+  await tap("Yes, that's right");
+  expect(screen.getByRole("button", {name: "Monthly, last working day"})).toBeSelected();   // nothing to fill payday in from
+  await next();
+  await noBills();
+  expect(useMoney.getState().state!.incomes[0]).toMatchObject({amount: 310, payer: "THE BAR CO"});
+});
+
+test("none of these: the pay page, blank", async () => {
+  await show();
+  await act(() => useMoney.getState().setSetupBank(842.1, found({pays: [acme, bar]})));
+  await next();
+  await tap("Choose another");
+  await tap("None of these");
+  expect(screen.getByText("How much are you paid?")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Your pay a month, after tax")).toHaveDisplayValue("");
 });
 
 test("a bank that found nothing leaves every page as it was", async () => {
@@ -158,6 +202,132 @@ test("a bank that found nothing leaves every page as it was", async () => {
   await noBills();
   expect(useMoney.getState().state!.incomes[0]).toMatchObject({amount: 1800, freq: "monthly-lastworking"});
   expect(useMoney.getState().state!.incomes[0].payer).toBeUndefined();
+});
+
+test("no bank yet: before the bills, a shortcut to connect one, never a demand", async () => {
+  await toBank();
+  expect(screen.getByText("Want us to do the boring part?")).toBeOnTheScreen();
+  expect(screen.getByText("Connect your bank and we'll find your regular payments and spending for you.")).toBeOnTheScreen();
+  expect(screen.getByText("We'll never move money without your permission.")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Step 4 of 8")).toBeOnTheScreen();
+  await tap("Connect bank");
+  expect(router.push).toHaveBeenCalledWith("/connect-bank?from=setup");
+  await tap("I'll enter them myself");
+  expect(screen.getByText("Fixed bills")).toBeOnTheScreen();
+});
+
+// what Monzo might find going out
+const water = {name: "Thames Water", payee: "Thames Water", amount: 55, varies: false, freq: "monthly" as const, day: 1, method: "dd" as const, n: 3};
+const energy = {name: "Octopus Energy", payee: "OCTOPUS ENERGY", amount: 46, varies: true, freq: "monthly" as const, day: 15, method: "dd" as const, n: 3};
+const gym = {name: "PureGym", payee: "PureGym", amount: 12.5, varies: false, freq: "fortnightly" as const, date: "2026-10-16", method: "dd" as const, n: 5};
+
+test("connected just before the bills: the bank's balance, and the regular payments it found, ready to check", async () => {
+  await toBank();
+  await tap("Connect bank");
+  await act(() => useMoney.getState().setSetupBank(842.1, found({bills: [water, energy, gym]})));
+  expect(screen.getByText("We found some regular payments")).toBeOnTheScreen();
+  expect(screen.getByText("From your last 3 months. Tap one to change it.")).toBeOnTheScreen();
+  expect(screen.getByText("1st · Every month")).toBeOnTheScreen();
+  expect(screen.getByText("15th · Every month · varies")).toBeOnTheScreen();
+  expect(screen.getByText("Fri 16 Oct · Every 2 weeks")).toBeOnTheScreen();
+  // each one opens on its sheet, as you'd filled it in; one that isn't a bill comes out
+  await fireEvent.press(row("Octopus Energy"));
+  expect(screen.getByLabelText("How much Octopus Energy is")).toHaveDisplayValue("46");
+  await tap("Remove");
+  expect(screen.queryByText("Octopus Energy")).toBeNull();
+  // something missing: the usual list, with the ones found already picked
+  await tap("+ Add a bill");
+  expect(screen.getByText("Fixed bills")).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: "Thames Water"})).toBeSelected();
+  expect(screen.getByRole("button", {name: "Octopus Energy"})).not.toBeSelected();
+  await tap("Council tax");
+  await next();
+  expect(screen.getAllByText(/^(Council tax|Thames Water|PureGym)$/).map(t => t.props.children)).toEqual(["Council tax", "Thames Water", "PureGym"]);
+  expect(screen.getByText("Add amount")).toBeOnTheScreen();
+  // back goes to payday, which comes straight back here
+  await tap("Back");
+  expect(screen.getByText("When are you paid?")).toBeOnTheScreen();
+  await next();
+  expect(screen.getByText("We found some regular payments")).toBeOnTheScreen();
+  await next();
+  await skipEveryday();
+  const st = useMoney.getState().state!;
+  expect(st.balance).toBe(842.1);   // the bank's, not the one typed
+  expect(st.incomes[0].payer).toBeUndefined();   // pay was typed, so it isn't tied to anyone
+  expect(st.bills).toEqual([
+    {id: expect.any(String), name: "Council tax", amount: 0, freq: "monthly", from: {kind: "main"}},
+    {id: expect.any(String), name: "Thames Water", amount: 55, freq: "monthly", day: 1, method: "dd", source: "bank", payee: "Thames Water", from: {kind: "main"}},
+    {id: expect.any(String), name: "PureGym", amount: 12.5, freq: "fortnightly", date: "2026-10-16", method: "dd", source: "bank", payee: "PureGym", from: {kind: "main"}},
+  ]);
+  expect(syncNow).toHaveBeenCalled();
+});
+
+test("what you usually spend, from the bank: a week's worth to check, then your limits, then what it all comes to", async () => {
+  await show();
+  await act(() => useMoney.getState().setSetupBank(842.1, found({
+    pays: [acme], bills: [water],
+    spending: [{name: "Groceries", monthly: 272, n: 12}, {name: "Eating out", monthly: 104, n: 9}, {name: "Shopping", monthly: 60, n: 3}],
+  })));
+  await next();
+  await tap("Yes, that's right");
+  await next();
+  expect(screen.getByText("We found some regular payments")).toBeOnTheScreen();
+  await next();
+  // straight to what was found: no list to pick from first
+  expect(screen.getByText("Here's what we found")).toBeOnTheScreen();
+  expect(screen.getByText("Based on your recent spending. These are estimates: tap one to change it.")).toBeOnTheScreen();
+  expect(screen.getByText("£63")).toBeOnTheScreen();   // £272 a month is about £63 a week
+  expect(screen.getAllByText("Every week")).toHaveLength(3);
+  await fireEvent.press(row("Shopping"));
+  await tap("Remove");
+  expect(screen.queryByText("Shopping")).toBeNull();
+  // something it didn't see
+  await tap("+ Add more");
+  expect(screen.getByRole("button", {name: "Groceries"})).toBeSelected();
+  await tap("Coffee & drinks");
+  await next();
+  await estimate("Coffee & drinks", "4", "4–6 times a week");
+  await next();
+  // what you usually spend sits beside the budget, which starts there and is yours to change
+  expect(screen.getByText("Usually about £273 a month")).toBeOnTheScreen();
+  await fireEvent.changeText(screen.getByLabelText("Your Eating out budget a month"), "80");
+  await next();
+  expect(screen.getByText("We've done the boring part.")).toBeOnTheScreen();
+  expect(screen.getByText("Thames Water")).toBeOnTheScreen();
+  expect(screen.getByText("£55")).toBeOnTheScreen();
+  expect(screen.getByText("Groceries, Eating out, Coffee & drinks")).toBeOnTheScreen();
+  expect(screen.getByText("£440")).toBeOnTheScreen();   // £273 + £80 + £87
+  // tap one to go back to it
+  await fireEvent.press(row("Everyday spending"));
+  expect(screen.getByText("Set your limits")).toBeOnTheScreen();
+  await next();
+  await next();
+  const st = useMoney.getState().state!;
+  expect(st.bills).toHaveLength(1);
+  expect(st.categories.filter(x => x.group === "everyday")).toEqual([
+    {id: "groceries", name: "Groceries", budget: 273, fixed: false, group: "everyday", usual: {amount: 63, freq: "weekly", source: "bank"}},
+    {id: "eating", name: "Eating out", budget: 80, fixed: false, group: "everyday", usual: {amount: 24, freq: "weekly", source: "bank"}},
+    {id: "coffee", name: "Coffee & drinks", budget: 87, fixed: false, group: "everyday", usual: {amount: 4, freq: "most-days"}},
+  ]);
+});
+
+test("a bank that found no bills: the usual list, and no review at the end", async () => {
+  await show();
+  await act(() => useMoney.getState().setSetupBank(842.1, found()));
+  await next();
+  await fireEvent.changeText(screen.getByLabelText("Your pay a month, after tax"), "1800");
+  await next();
+  await next();
+  expect(screen.getByText("Fixed bills")).toBeOnTheScreen();
+  expect(screen.getByText("Which of these do you pay regularly?")).toBeOnTheScreen();
+  await tap("I don't have any bills");
+  await tap("Groceries");
+  await next();
+  await next();
+  expect(screen.getByText("Set your limits")).toBeOnTheScreen();
+  await next();
+  expect(screen.queryByText("We've done the boring part.")).toBeNull();
+  expect(useMoney.getState().state).not.toBeNull();
 });
 
 test("fixed bills: tap the ones you pay, and Continue waits for one", async () => {

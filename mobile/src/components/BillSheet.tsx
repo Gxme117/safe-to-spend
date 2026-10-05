@@ -24,8 +24,8 @@ const SPEND_FREQS = (Object.keys(SPEND_FREQ) as SpendFreq[]).map(k => ({key: k, 
  * Nothing is required: an amount you don't know yet can stay blank. With an amount, the first Done without a payment date
  * opens the date, with a quiet way to leave it for later.
  */
-export function BillSheet({name, draft, visible, today, onChange, onClose}: {
-  name: string; draft: BillDraft; visible: boolean; today: IsoDate; onChange: (d: BillDraft) => void; onClose: () => void;
+export function BillSheet({name, draft, visible, today, onChange, onClose, onRemove}: {
+  name: string; draft: BillDraft; visible: boolean; today: IsoDate; onChange: (d: BillDraft) => void; onClose: () => void; onRemove?: () => void;
 }) {
   const {c} = useTheme();
   const reduced = useReducedMotion();
@@ -61,7 +61,7 @@ export function BillSheet({name, draft, visible, today, onChange, onClose}: {
   };
 
   return (
-    <Sheet visible={visible} onClose={onClose} onDone={done}>
+    <Sheet visible={visible} onClose={onClose} onDone={done} onRemove={onRemove}>
       <Question title={name} />
       <AmountInput value={draft.amount} onChangeText={amount => onChange({...draft, amount})} onFocus={() => open && show(null)}
         caption={caption} accessibilityLabel={`How much ${name} is`} />
@@ -90,7 +90,9 @@ export function BillSheet({name, draft, visible, today, onChange, onClose}: {
  * Your own are named under "+ Add more". The total is the Subscriptions bill: monthly, with no single payment date,
  * since they go out on different days (so a month's share is held back each pay cycle).
  */
-export function SubscriptionsSheet({draft, visible, onChange, onClose}: {draft: BillDraft; visible: boolean; onChange: (d: BillDraft) => void; onClose: () => void}) {
+export function SubscriptionsSheet({draft, visible, onChange, onClose, onRemove}: {
+  draft: BillDraft; visible: boolean; onChange: (d: BillDraft) => void; onClose: () => void; onRemove?: () => void;
+}) {
   const {c} = useTheme();
   const items = draft.items ?? [], extra = draft.extra ?? [];
   const [naming, setNaming] = useState<string | null>(null);   // "Add more" is open, with what's typed so far
@@ -114,7 +116,7 @@ export function SubscriptionsSheet({draft, visible, onChange, onClose}: {draft: 
   const done = () => { if (naming?.trim()) addOwn(); Keyboard.dismiss(); onClose(); };
 
   return (
-    <Sheet visible={visible} onClose={onClose} onDone={done}>
+    <Sheet visible={visible} onClose={onClose} onDone={done} onRemove={onRemove}>
       <Question title="Subscriptions" why="Tap the ones you have." />
       <View style={{gap: s[3]}}>
         <Picks options={names} value={items.map(x => x.name)} onChange={v => onChange(withItems(draft, lines(v)))}>
@@ -145,13 +147,15 @@ export function SubscriptionsSheet({draft, visible, onChange, onClose}: {draft: 
  * The amount is each time, so "£15, 2–3 times a week" works as well as "£60 every week". No dates: it isn't one payment.
  * Every change is kept as it's made, so swiping the sheet away never loses anything.
  */
-export function SpendSheet({name, draft, visible, onChange, onClose}: {name: string; draft: SpendDraft; visible: boolean; onChange: (d: SpendDraft) => void; onClose: () => void}) {
+export function SpendSheet({name, draft, visible, onChange, onClose, onRemove}: {
+  name: string; draft: SpendDraft; visible: boolean; onChange: (d: SpendDraft) => void; onClose: () => void; onRemove?: () => void;
+}) {
   const {c} = useTheme();
   const monthly = spendMonthly(draft);
   // picking how often drops the number pad, so the month it comes to (and Done) are in view
   const setFreq = (freq: SpendFreq) => { Keyboard.dismiss(); onChange({...draft, freq}); };
   return (
-    <Sheet visible={visible} onClose={onClose} onDone={() => { Keyboard.dismiss(); onClose(); }}>
+    <Sheet visible={visible} onClose={onClose} onDone={() => { Keyboard.dismiss(); onClose(); }} onRemove={onRemove}>
       <Question title={name} why="How much do you usually spend?" />
       <AmountInput value={draft.amount} onChangeText={amount => onChange({...draft, amount})} caption="Not sure? An estimate is fine."
         accessibilityLabel={`How much you usually spend on ${name}`} />
@@ -166,8 +170,11 @@ export function SpendSheet({name, draft, visible, onChange, onClose}: {name: str
   );
 }
 
-/** The native sheet all three use: it scrolls clear of the keyboard, and Done rides up with it, like Continue on every setup page. */
-function Sheet({visible, onClose, onDone, children}: {visible: boolean; onClose: () => void; onDone: () => void; children: ReactNode}) {
+/**
+ * The native sheet all three use: it scrolls clear of the keyboard, and Done rides up with it, like Continue on every setup page.
+ * `onRemove`: a quiet way to take out one setup found in your bank that isn't right.
+ */
+function Sheet({visible, onClose, onDone, onRemove, children}: {visible: boolean; onClose: () => void; onDone: () => void; onRemove?: () => void; children: ReactNode}) {
   const {c} = useTheme();
   const insets = useSafeAreaInsets();
   const lift = useKeyboardLift(insets.bottom, useReducedMotion());
@@ -177,6 +184,7 @@ function Sheet({visible, onClose, onDone, children}: {visible: boolean; onClose:
         <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets
           contentContainerStyle={{paddingHorizontal: s[5], paddingTop: s[6], paddingBottom: 96 + insets.bottom, gap: s[6]}}>
           {children}
+          {onRemove ? <TextLink label="Remove" onPress={() => { Keyboard.dismiss(); onRemove(); }} /> : null}
         </ScrollView>
         <Animated.View style={{position: "absolute", left: 0, right: 0, bottom: 0, transform: [{translateY: lift}],
           paddingHorizontal: s[5], paddingTop: s[3], paddingBottom: insets.bottom + s[4], backgroundColor: c.bg}}>

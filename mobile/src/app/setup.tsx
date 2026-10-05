@@ -12,7 +12,7 @@ import {BILL_FREQ, billMonthly, billWhen, draftBill, draftReady, newDraft, type 
 import {DEFAULT_CATEGORIES, uid} from "@/lib/defaults";
 import {niceDate} from "@/lib/dates";
 import {budgetOf, budgetText, EVERYDAY, everydayCats, newSpend, perWeek, SPEND_FREQ, spendMonthly, spendReady, type SpendDraft} from "@/lib/everyday";
-import {payRuleText} from "@/lib/found";
+import {payRuleText, type FoundIncome} from "@/lib/found";
 import {buildIncome, FREQ, needsDate} from "@/lib/income";
 import {money, parseAmount, r2} from "@/lib/money";
 import {perPayday, yearlyTakeHome, type PayBasis} from "@/lib/pay";
@@ -35,13 +35,17 @@ const BILLS = ["Rent / mortgage", "Council tax", "Electricity", "Gas", "Water", 
 const SPENDS = EVERYDAY.map(x => x.name);
 
 // 0 balance, 1 pay, 2 payday, 3 fixed bills, 4 your bills, 5 everyday, 6 what you normally spend, 7 your limits
+// (with a bank: 3 first offers to connect one, and 8 is the review, shown as the last step)
 const TOTAL = 8;
 
-/** "+ Add more": a usual one typed out ("council tax") is just picked, not added twice. */
+/** "+ Add more": a usual one typed out ("council tax") is just picked, not added twice. `name`: the one it's kept as. */
 function addName(typed: string, usual: string[], own: string[], picked: string[]) {
   const name = typed.trim(), same = [...usual, ...own].find(n => n.toLowerCase() === name.toLowerCase()) ?? name;
-  return {own: [...usual, ...own].includes(same) ? own : [...own, same], picked: picked.includes(same) ? picked : [...picked, same]};
+  return {own: [...usual, ...own].includes(same) ? own : [...own, same], picked: picked.includes(same) ? picked : [...picked, same], name: same};
 }
+
+// "Monthly, last working day", or when it last landed if how often isn't clear
+const payMeta = (p: FoundIncome) => p.rule ? FREQ[p.rule.freq] : `Last paid ${niceDate(p.date)}`;
 
 /** Setup is dark for now, whatever the theme setting (the app after it follows the setting). */
 export default function SetupScreen() {
@@ -58,7 +62,9 @@ export default function SetupScreen() {
  * Then the fixed bills you pay, picked from a list, and how much each one is and when it goes out.
  * Then everyday spending: what you spend on, roughly how much (an estimate is fine), and what you'll allow yourself a month.
  * Nothing is saved until the end, so going back never loses an answer.
- * A bank connected on the first page fills in pay and payday from your payments, ready to check.
+ * A bank connected on the first page offers your pay to confirm and fills in payday. Connected then or just before the bills,
+ * it fills in the regular payments and what you usually spend, ready to check, and setup ends with a short review.
+ * The bank says what's happening; you say what you want; nothing it found counts until you've seen it.
  */
 function Setup() {
   const {c} = useTheme();
@@ -71,7 +77,7 @@ function Setup() {
   const [freq, setFreq] = useState<IncomeFreq>("monthly-lastworking");
   const [date, setDate] = useState(today);
   const [bills, setBills] = useState<string[]>([]);   // the fixed bills you pay: the next page asks how much each one is
-  const [own, setOwn] = useState<string[]>([]);       // ones you named yourself, after the usual ones
+  const [own, setOwn] = useState<string[]>([]);       // ones you named yourself (or the bank found), after the usual ones
   const [naming, setNaming] = useState<string | null>(null);   // "Add more" is open, with what's typed so far
   const [amounts, setAmounts] = useState<Record<string, BillDraft>>({});   // each bill's figures, by name: unpicking one and picking it again keeps them
   const [sheet, setSheet] = useState<{name: string; n: number; shown: boolean} | null>(null);   // the bill being filled in (kept while its sheet slides away)
@@ -81,27 +87,38 @@ function Setup() {
   const [drafts, setDrafts] = useState<Record<string, SpendDraft>>({});   // each one's estimate and budget, by name: kept like the bills'
   const [spendSheet, setSpendSheet] = useState<{name: string; n: number; shown: boolean} | null>(null);
   const [error, setError] = useState("");
-  const fromBank = useMoney(st => st.setupBank);   // set once Monzo is connected from the first question
+  const fromBank = useMoney(st => st.setupBank);   // set once Monzo is connected, from the first question or before the bills
   const found = useMoney(st => st.setupFound);    // what your payments say, from the same connection
-  const seen = found?.pay ?? null;                // your last pay
-  const seenPay = seen ? seen.amount.toFixed(2) : "";
-  const [seeded, setSeeded] = useState(false);
-  // the monthly box shows your last pay until you type in it
-  const pay: Record<PayBasis, string> = {hour: "", week: "", year: "", ...typed, month: typed.month ?? seenPay};
-  const keptPay = !!seen && basis === "month" && pay.month === seenPay;
+  const pays = found?.pays ?? [];
+  const [ownPay, setOwnPay] = useState(false);     // "I'll enter it myself" (or typed before a bank was connected): the pay page asks
+  const [choosing, setChoosing] = useState(false);  // "Choose another" is open
+  const [which, setWhich] = useState(0);            // the pay the bank found that's on show
+  const [payFrom, setPayFrom] = useState<number | null>(null);    // the one you said is your pay: what lands each payday
+  const [ruleFor, setRuleFor] = useState<number | null>(null);    // payday has been filled in from that one's pays
+  const [manual, setManual] = useState(false);      // "I'll enter them myself": no bank for the bills
+  const [seeded, setSeeded] = useState(false);      // the bills and spending the bank found are in the lists
+  const [lastBank, setLastBank] = useState(fromBank);
+  const pay: Record<PayBasis, string> = {hour: "", week: "", month: "", year: "", ...typed};
+  const confirmed = payFrom !== null ? pays[payFrom] ?? null : null;
+  const askPay = pays.length > 0 && !ownPay;
 
   const b = fromBank ?? parseAmount(bal), p = parseAmount(pay[basis]), h = parseAmount(hours);
   const payOk = p > 0 && (basis !== "hour" || (h > 0 && h <= 100));
   const yearly = payOk ? yearlyTakeHome(basis, p, h) : 0;
-  const estimated = basis === "hour" || basis === "year";
+  const estimated = !confirmed && (basis === "hour" || basis === "year");
+  const each = confirmed ? confirmed.amount : perPayday(yearly, freq);   // what lands each payday
   const go = (n: number) => { setError(""); if (n >= 2) Keyboard.dismiss(); setStep(n); };   // from payday on, nothing is typed straight away
   const back = step > 0 ? () => go(step - 1) : undefined;
-  // once, leaving the first page: the payday Monzo found becomes the starting answer (still yours to change)
-  const seed = () => {
-    if (!found || seeded) return;
-    setSeeded(true);
-    if (found.rule) { setFreq(found.rule.freq); setDate(found.rule.date); }
+
+  // "Yes, that's right": the pay the bank found is yours, and once, its payday becomes the starting answer (still yours to change)
+  const yes = () => {
+    const r = pays[which].rule;
+    setPayFrom(which);
+    if (r && ruleFor !== which) { setFreq(r.freq); setDate(r.date); }
+    setRuleFor(which);
+    go(2);
   };
+  const mine = () => { Keyboard.dismiss(); setOwnPay(true); setChoosing(false); setPayFrom(null); };
 
   // the protected route then opens the app; a bank connected here brings in pots and payments straight away
   const done = (src?: Income, list?: Bill[], cats?: Category[]) => {
@@ -109,10 +126,36 @@ function Setup() {
     if (fromBank !== null) syncNow();
   };
   const income = () => {
-    const r = buildIncome({name: "Pay", type: "work", freq, date, varies: false, amount: perPayday(yearly, freq), low: NaN, typical: NaN, main: true}, undefined, "i" + uid(), today);
-    // who pays you, so a synced pay counts as payday arriving: only when it's clearly your pay (it repeats, or you kept it)
-    return "src" in r && seen && (found?.rule || keptPay) ? {src: {...r.src, payer: seen.from}} : r;
+    const r = buildIncome({name: "Pay", type: "work", freq, date, varies: false, amount: each, low: NaN, typical: NaN, main: true}, undefined, "i" + uid(), today);
+    // who pays you, so a synced pay counts as payday arriving: only when you said it's your pay
+    return "src" in r && confirmed ? {src: {...r.src, payer: confirmed.from}} : r;
   };
+
+  // the bills and spending the bank found, once, into the lists as if you'd picked and filled them in (each still yours to change or remove)
+  const seedFound = () => {
+    if (!found || seeded) return;
+    setSeeded(true);
+    let o = own, p = bills;
+    const a = {...amounts};
+    for (const f of found.bills) {
+      const r = addName(f.name, BILLS, o, p);
+      o = r.own; p = r.picked;
+      a[r.name] ??= {amount: String(f.amount), freq: f.freq, day: f.day ?? null, date: f.date ?? null, payee: f.payee, method: f.method, ...(f.varies ? {varies: true} : {})};
+    }
+    setOwn(o); setBills(p); setAmounts(a);
+    const d = {...drafts};
+    for (const f of found.spending) d[f.name] ??= {amount: String(Math.round(perWeek(f.monthly))), freq: "weekly", budget: null, source: "bank"};
+    setSpends(x => [...x, ...found.spending.map(f => f.name).filter(n => !x.includes(n))]);
+    setDrafts(d);
+  };
+  // connected from the page before the bills: what the bank found fills them in, and the bills it found are next
+  if (fromBank !== lastBank) {
+    setLastBank(fromBank);
+    if (step === 3 && fromBank !== null && found && !seeded) { seedFound(); if (found.bills.length) setStep(4); }
+  }
+  const foundBills = seeded && !!found?.bills.length;     // the bills page shows what the bank found
+  const foundSpend = seeded && !!found?.spending.length;  // and so does what you normally spend
+  const toEveryday = () => go(foundSpend ? 6 : 5);
 
   // the bills you picked, in the list's order (home first), each with what's been filled in so far
   const picked = [...BILLS, ...own].filter(n => bills.includes(n));
@@ -153,7 +196,7 @@ function Setup() {
 
   if (step === 0) return (
     <StepShell step={0} total={TOTAL} title="How much is in your account right now?"
-      cta="Continue" canNext={!Number.isNaN(b)} onNext={() => { seed(); go(1); }}>
+      cta="Continue" canNext={!Number.isNaN(b)} onNext={() => go(1)}>
       {fromBank === null ? (
         <View style={{gap: s[6]}}>
           <View style={{gap: s[3]}}>
@@ -170,9 +213,39 @@ function Setup() {
     </StepShell>
   );
 
+  // the pays the bank found, to pick yours from
+  if (step === 1 && askPay && choosing) return (
+    <StepShell key="pays" step={1} total={TOTAL} scroll keyboard={false} title="Which one is your pay?" why="Money in that repeats, from your last 3 months."
+      onBack={() => setChoosing(false)} cta="None of these" canNext onNext={mine}>
+      <View style={{borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line}}>
+        {pays.map((x, i) => <Row key={i} name={x.from} meta={payMeta(x)} amount={money(x.amount)} onPress={() => { setWhich(i); setChoosing(false); }} />)}
+      </View>
+    </StepShell>
+  );
+
+  // what the bank found, to confirm: never taken as your pay until you say so
+  if (step === 1 && askPay) {
+    const x = pays[which];
+    return (
+      <StepShell key="pay-found" step={1} total={TOTAL} keyboard={false} title={x.rule ? "We found a regular payment" : "We found a payment"} why="Is this your income?"
+        onBack={back} cta="Yes, that's right" ctaKind="good" canNext onNext={yes}
+        footer={(
+          <View style={{flexDirection: "row", justifyContent: "center", gap: s[4]}}>
+            {pays.length > 1 ? <TextLink label="Choose another" onPress={() => setChoosing(true)} /> : null}
+            <TextLink label="I'll enter it myself" onPress={mine} />
+          </View>
+        )}>
+        <AmountInput key={`found-${which}`} autoFocus={false} editable={false} value={x.amount.toFixed(2)} caption={`From ${x.from}. ${payMeta(x)}.`}
+          accessibilityLabel="Your pay, from your bank" />
+      </StepShell>
+    );
+  }
+
+  // typed: once past here it stays typed, even if a bank is connected later
   if (step === 1) return (
     <StepShell step={1} total={TOTAL} title="How much are you paid?" why="Pick the way you know it. We'll work out the rest."
-      onBack={back} cta="Continue" canNext={payOk} onNext={() => go(2)}
+      onBack={pays.length ? () => { Keyboard.dismiss(); setOwnPay(false); } : back} cta="Continue" canNext={payOk}
+      onNext={() => { setOwnPay(true); setPayFrom(null); go(2); }}
       footer={<TextLink label="I'm not paid regularly" onPress={() => done()} />}>
       <View style={{gap: s[5]}}>
         <Choice options={BASES} value={basis} onChange={setBasis} />
@@ -188,9 +261,6 @@ function Setup() {
         ) : (
           <AmountInput key={basis} caption={CAPTION[basis]} value={pay[basis]} onChangeText={v => setPay({...typed, [basis]: v})} accessibilityLabel={`Your pay ${CAPTION[basis]}`} />
         )}
-        {keptPay && seen ? (
-          <T size="sm" muted lines={1}>Your last pay from {seen.from}, {niceDate(seen.date)}.</T>
-        ) : null}
         {estimated && payOk ? (
           <T size="sm" muted><T size="sm" weight="bold" style={{color: c.good}}>About {money(Math.round(yearly / 12))} a month</T> after tax and National Insurance</T>
         ) : null}
@@ -200,24 +270,28 @@ function Setup() {
 
   if (step === 2) return (
     <StepShell step={2} total={TOTAL} title="When are you paid?" why="So your money is spread evenly until payday."
-      onBack={back} keyboard={false} cta="Continue" canNext onNext={() => { const r = income(); if ("error" in r) setError(r.error); else go(3); }} error={error}>
+      onBack={back} keyboard={false} cta="Continue" canNext error={error}
+      onNext={() => { const r = income(); if ("error" in r) return setError(r.error); seedFound(); go(found?.bills.length ? 4 : 3); }}>
       <View style={{gap: s[5]}}>
         <Choice options={FREQS} value={freq} onChange={f => { setFreq(f); setError(""); }} />
-        {found?.rule && freq === found.rule.freq ? <T size="sm" muted lines={1}>{payRuleText(found.rule)}</T> : null}
-        <T size="sm" muted>{"That's "}<T size="sm" weight="bold" style={{color: c.good}}>{estimated ? "about " : ""}{money(perPayday(yearly, freq))}</T> each payday{estimated ? ". You'll confirm it when it lands." : "."}</T>
+        {confirmed?.rule && freq === confirmed.rule.freq ? <T size="sm" muted lines={1}>{payRuleText(confirmed.rule)}</T> : null}
+        <T size="sm" muted>{"That's "}<T size="sm" weight="bold" style={{color: c.good}}>{estimated ? "about " : ""}{money(each)}</T> each payday{estimated ? ". You'll confirm it when it lands." : "."}</T>
         {needsDate(freq) ? <Field label="Next payday"><DateField label="Next payday" value={date} onChange={setDate} min={today} /></Field> : null}
       </View>
     </StepShell>
   );
 
+  // with what the bank found, this is "Does this look right?": change any, remove what isn't a bill, add what's missing
   if (step === 4) return (
-    <StepShell key="amounts" step={4} total={TOTAL} scroll keyboard={false} title="Your bills" why="How much do you pay?"
-      onBack={back} cta="Continue" ctaKind={allIn ? "good" : "primary"} canNext onNext={() => go(5)} error={error}>
+    <StepShell key="amounts" step={4} total={TOTAL} scroll keyboard={false}
+      title={foundBills ? "We found some regular payments" : "Your bills"} why={foundBills ? "From your last 3 months. Tap one to change it." : "How much do you pay?"}
+      onBack={() => go(foundBills ? 2 : 3)} cta="Continue" ctaKind={allIn ? "good" : "primary"} canNext onNext={toEveryday} error={error}
+      footer={foundBills ? <TextLink label="+ Add a bill" onPress={() => go(3)} /> : undefined}>
       <View>
         {picked.map(n => {
           const d = draftOf(n), bill = draftBill(n, d, ""), ready = draftReady(d);
           // subscriptions say which ones they are
-          const meta = !ready ? "Add amount" : d.items?.length ? d.items.map(x => x.name).join(", ") : [billWhen(bill), BILL_FREQ[d.freq]].filter(Boolean).join(" · ");
+          const meta = !ready ? "Add amount" : d.items?.length ? d.items.map(x => x.name).join(", ") : [billWhen(bill), BILL_FREQ[d.freq], d.varies ? "varies" : null].filter(Boolean).join(" · ");
           return <Row key={n} name={n} meta={meta}
             amount={ready ? money(bill.amount) : undefined} onPress={() => setSheet({name: n, n: (sheet?.n ?? 0) + 1, shown: true})} />;
         })}
@@ -229,10 +303,12 @@ function Setup() {
       </View>
       {sheet?.name === SUBS ? (
         <SubscriptionsSheet key={sheet.n} draft={draftOf(SUBS)} visible={sheet.shown}
-          onChange={d => setAmounts(a => ({...a, [SUBS]: d}))} onClose={() => setSheet({...sheet, shown: false})} />
+          onChange={d => setAmounts(a => ({...a, [SUBS]: d}))} onClose={() => setSheet({...sheet, shown: false})}
+          onRemove={foundBills ? () => { setBills(x => x.filter(n => n !== SUBS)); setSheet({...sheet, shown: false}); } : undefined} />
       ) : sheet ? (
         <BillSheet key={sheet.n} name={sheet.name} draft={draftOf(sheet.name)} visible={sheet.shown} today={today}
-          onChange={d => setAmounts(a => ({...a, [sheet.name]: d}))} onClose={() => setSheet({...sheet, shown: false})} />
+          onChange={d => setAmounts(a => ({...a, [sheet.name]: d}))} onClose={() => setSheet({...sheet, shown: false})}
+          onRemove={foundBills ? () => { setBills(x => x.filter(n => n !== sheet.name)); setSheet({...sheet, shown: false}); } : undefined} />
       ) : null}
     </StepShell>
   );
@@ -245,10 +321,10 @@ function Setup() {
     </StepShell>
   );
 
-  // no amounts here: just what you spend on (with no bills, back goes to the bills you can pick)
+  // no amounts here: just what you spend on (with no bills, back goes to the bills you can pick; with what the bank found, back to that)
   if (step === 5) return (
     <StepShell key="spend" step={5} total={TOTAL} title="What do you spend on regularly?" why="Pick anything that applies. We'll help you work out the rest."
-      onBack={() => go(picked.length ? 4 : 3)} keyboard={false} cta="Continue" canNext={spends.length > 0} onNext={() => go(6)} error={error}
+      onBack={() => go(foundSpend ? 6 : picked.length ? 4 : 3)} keyboard={false} cta="Continue" canNext={spends.length > 0} onNext={() => go(6)} error={error}
       footer={<TextLink label="Skip for now" onPress={() => finish([])} />}>
       <Picks options={[...SPENDS, ...spendOwn]} value={spends} onChange={setSpends}>
         <Chip label="+ Add more" accessibilityLabel="Add more" onPress={() => setSpendNaming("")} />
@@ -257,8 +333,11 @@ function Setup() {
   );
 
   if (step === 6) return (
-    <StepShell key="usual" step={6} total={TOTAL} scroll keyboard={false} title="What do you normally spend?" why="An estimate is fine. We'll turn it into a realistic budget."
-      onBack={back} cta="Continue" ctaKind={spendAllIn ? "good" : "primary"} canNext onNext={() => go(7)}>
+    <StepShell key="usual" step={6} total={TOTAL} scroll keyboard={false}
+      title={foundSpend ? "Here's what we found" : "What do you normally spend?"}
+      why={foundSpend ? "Based on your recent spending. These are estimates: tap one to change it." : "An estimate is fine. We'll turn it into a realistic budget."}
+      onBack={foundSpend ? () => go(picked.length || foundBills ? 4 : 3) : back} cta="Continue" ctaKind={spendAllIn ? "good" : "primary"} canNext onNext={() => go(7)}
+      footer={foundSpend ? <TextLink label="+ Add more" onPress={() => go(5)} /> : undefined}>
       <View style={{borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line}}>
         {spendPicked.map(n => {
           const d = spendOf(n), ready = spendReady(d);
@@ -268,7 +347,8 @@ function Setup() {
       </View>
       {spendSheet ? (
         <SpendSheet key={spendSheet.n} name={spendSheet.name} draft={spendOf(spendSheet.name)} visible={spendSheet.shown}
-          onChange={d => setDrafts(a => ({...a, [spendSheet.name]: d}))} onClose={() => setSpendSheet({...spendSheet, shown: false})} />
+          onChange={d => setDrafts(a => ({...a, [spendSheet.name]: d}))} onClose={() => setSpendSheet({...spendSheet, shown: false})}
+          onRemove={foundSpend ? () => { setSpends(x => x.filter(n => n !== spendSheet.name)); setSpendSheet({...spendSheet, shown: false}); } : undefined} />
       ) : null}
     </StepShell>
   );
@@ -276,7 +356,7 @@ function Setup() {
   // each budget starts at what you usually spend: lower it or not, it's your call
   if (step === 7) return (
     <StepShell key="limits" step={7} total={TOTAL} scroll keyboard={false} title="Set your limits" why="Based on what you normally spend, choose what you want to allow yourself."
-      onBack={back} cta="Continue" ctaKind="good" canNext onNext={() => finish()} error={error}>
+      onBack={back} cta="Continue" ctaKind="good" canNext onNext={() => foundBills || foundSpend ? go(8) : finish()} error={error}>
       <View>
         {spendPicked.map(n => {
           const usual = spendMonthly(spendOf(n));
@@ -292,6 +372,17 @@ function Setup() {
     </StepShell>
   );
 
+  // with a bank: what it all comes to, not every payment. Tap one to go back to it.
+  if (step === 8) return (
+    <StepShell key="review" step={7} total={TOTAL} keyboard={false} title="We've done the boring part." why="What we found, each month. Tap one to change it."
+      onBack={() => go(7)} cta="Continue" ctaKind="good" canNext onNext={() => finish()} error={error}>
+      <View style={{borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line}}>
+        <Row name="Regular payments" meta={picked.length ? picked.join(", ") : "None"} amount={money(monthly)} onPress={() => go(4)} />
+        <Row name="Everyday spending" meta={spendPicked.length ? spendPicked.join(", ") : "None"} amount={money(everyday)} onPress={() => go(7)} />
+      </View>
+    </StepShell>
+  );
+
   if (naming !== null) return (
     <StepShell key="add" step={3} total={TOTAL} title="What else do you pay regularly?"
       onBack={() => { Keyboard.dismiss(); setNaming(null); }} cta="Add" canNext={!!naming.trim()} onNext={addOwn}>
@@ -300,10 +391,20 @@ function Setup() {
     </StepShell>
   );
 
+  // no bank yet: a shortcut, not a demand
+  if (fromBank === null && !manual) return (
+    <StepShell key="boring" step={3} total={TOTAL} keyboard={false} title="Want us to do the boring part?"
+      why="Connect your bank and we'll find your regular payments and spending for you."
+      onBack={back} cta="Connect bank" canNext onNext={() => router.push("/connect-bank?from=setup")}
+      footer={<TextLink label="I'll enter them myself" onPress={() => setManual(true)} />}>
+      <T size="sm" muted>We&apos;ll never move money without your permission.</T>
+    </StepShell>
+  );
+
   return (
     <StepShell key="bills" step={3} total={TOTAL} title="Fixed bills" why="Which of these do you pay regularly?"
-      onBack={back} keyboard={false} cta="Continue" canNext={bills.length > 0} onNext={() => go(4)} error={error}
-      footer={<TextLink label="I don't have any bills" onPress={() => { setBills([]); go(5); }} />}>
+      onBack={foundBills ? () => go(4) : back} keyboard={false} cta="Continue" canNext={bills.length > 0} onNext={() => go(4)} error={error}
+      footer={<TextLink label="I don't have any bills" onPress={() => { setBills([]); toEveryday(); }} />}>
       <Picks options={[...BILLS, ...own]} value={bills} onChange={setBills}>
         <Chip label="+ Add more" accessibilityLabel="Add more" onPress={() => setNaming("")} />
       </Picks>

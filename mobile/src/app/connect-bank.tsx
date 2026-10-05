@@ -15,7 +15,8 @@ type Step = "client" | "paste" | "approve" | "pots";
 
 /**
  * Connect your own Monzo account: your developer client, log in in Safari, paste the link back, approve in the Monzo app.
- * From setup (`?from=setup`) it only reads the total (main account + all pots) and what your payments say back to setup; the full sync runs once setup is done.
+ * From setup (`?from=setup`, on the first question or just before the bills) it only reads the total (main account + all pots)
+ * and what your payments say back to setup; the full sync runs once setup is done.
  */
 export default function ConnectBank() {
   const fromSetup = useLocalSearchParams<{from?: string}>().from === "setup";

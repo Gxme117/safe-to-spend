@@ -30,6 +30,9 @@ export interface Income {
   payer?: string;    // who pays it, as Monzo names them: a synced payment from them is this payday arriving
 }
 
+/** Where something came from: found in your bank's payments (and kept by you at setup), or typed in. Missing means typed. */
+export type Source = "bank" | "you";
+
 export type BillFreq = "monthly" | "weekly" | "fortnightly" | "fourweekly" | "quarterly" | "yearly";
 export type BillMethod = "dd" | "card" | "transfer";
 
@@ -44,6 +47,8 @@ export interface Bill {
   method?: BillMethod;
   from?: {kind: "main" | "other"; name?: string};
   cat?: string;
+  source?: Source;
+  payee?: string;   // who it's paid to, as the bank names them, when it was found there
 }
 
 export type Group = "bills" | "everyday" | "free";
@@ -57,7 +62,7 @@ export interface Category {
   budget: number;   // monthly amount: for everyday, what you chose to allow yourself
   fixed: boolean;
   group?: Group;
-  usual?: {amount: number; freq: SpendFreq};   // what you said you normally spend, at setup (budget can differ)
+  usual?: {amount: number; freq: SpendFreq; source?: Source};   // what you normally spend, at setup (budget can differ): typed, or found in your bank
 }
 
 export type TxType = "expense" | "income" | "save";

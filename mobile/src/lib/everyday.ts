@@ -2,7 +2,7 @@
 // then what you choose to allow yourself a month. The budget is what holds money back; the estimate is kept beside it.
 import {PER_MONTH} from "./bills";
 import {parseAmount, r2} from "./money";
-import type {Category, SpendFreq} from "./types";
+import type {Category, Source, SpendFreq} from "./types";
 
 // Most often first, so the list reads in order. The amount is each time, so one list covers "£60 every week" and "£15, 2–3 times a week".
 export const SPEND_FREQ: Record<SpendFreq, string> = {
@@ -28,8 +28,11 @@ export const EVERYDAY: {name: string; id: string; freq: SpendFreq}[] = [
   {name: "Other", id: "other", freq: "monthly"},
 ];
 
-/** One thing as setup collects it: the amount each time as typed, how often, and the budget (null: the same as you usually spend). */
-export interface SpendDraft { amount: string; freq: SpendFreq; budget: string | null }
+/**
+ * One thing as setup collects it: the amount each time as typed, how often, and the budget (null: the same as you usually spend).
+ * `source`: "bank" when the estimate was found in your payments.
+ */
+export interface SpendDraft { amount: string; freq: SpendFreq; budget: string | null; source?: Source }
 
 export const newSpend = (name: string): SpendDraft => ({amount: "", freq: EVERYDAY.find(x => x.name === name)?.freq ?? "monthly", budget: null});
 export const spendReady = (d: SpendDraft) => parseAmount(d.amount) > 0;
@@ -54,7 +57,7 @@ export function everydayCats(base: Category[], picks: {name: string; draft: Spen
     const id = EVERYDAY.find(x => x.name === name)?.id ?? base.find(x => !x.fixed && x.name.toLowerCase() === name.toLowerCase())?.id ?? "c" + newId();
     const budget = budgetOf(draft), amount = r2(Math.max(0, parseAmount(draft.amount) || 0));
     const cat: Category = {id, name: name.trim().slice(0, 30), budget, fixed: false, group: budget > 0 ? "everyday" : "free"};
-    if (amount > 0) cat.usual = {amount, freq: draft.freq};
+    if (amount > 0) cat.usual = {amount, freq: draft.freq, ...(draft.source ? {source: draft.source} : {})};
     return cat;
   });
   const ids = new Set(mine.map(x => x.id));
