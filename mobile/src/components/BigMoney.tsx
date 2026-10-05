@@ -15,23 +15,26 @@ export function useReducedMotion() {
   return reduced;
 }
 
-/** Counts from the last shown value to the new one. Jumps straight there with Reduce Motion on. */
-function useCountUp(target: number, ms = 700) {
+/** Counts up from £0 when the number first appears, then from the last shown value to the new one, as on the web (.9s, easing out).
+ *  Jumps straight there with Reduce Motion on, or when `on` is false. */
+function useCountUp(target: number, on: boolean, ms = 900) {
   const reduced = useReducedMotion();
-  const [shown, setShown] = useState(target);
-  const from = useRef(target);
+  const [shown, setShown] = useState(on ? 0 : target);
+  const from = useRef(on ? 0 : target);
   useEffect(() => {
-    if (reduced || from.current === target) { from.current = target; setShown(target); return; }
+    if (!on || reduced || from.current === target) { from.current = target; setShown(target); return; }
     const start = Date.now(), a = from.current;
     let raf = 0;
     const step = () => {
       const p = Math.min(1, (Date.now() - start) / ms), eased = 1 - Math.pow(1 - p, 3);
-      setShown(a + (target - a) * eased);
+      // `from` follows the shown figure, so a new number mid-count carries on from there
+      from.current = a + (target - a) * eased;
+      setShown(from.current);
       if (p < 1) raf = requestAnimationFrame(step); else from.current = target;
     };
     raf = requestAnimationFrame(step);
-    return () => { cancelAnimationFrame(raf); from.current = target; };
-  }, [target, reduced, ms]);
+    return () => cancelAnimationFrame(raf);
+  }, [target, on, reduced, ms]);
   return shown;
 }
 
@@ -43,9 +46,7 @@ export function BigMoney({value, size: name = "display", animate = true, color}:
   const ink = color ?? c.ink;
   // The pence sit two steps down the scale.
   const size = textSize[name], small = textSize[PENCE[name]];
-  const counted = useCountUp(value);
-  const v = animate ? counted : value;
-  const {whole, pence} = splitPounds(v);
+  const {whole, pence} = splitPounds(useCountUp(value, animate));
   return (
     <View style={{flexDirection: "row", alignItems: "flex-start"}} accessible accessibilityLabel={money(value)}>
       <Text adjustsFontSizeToFit numberOfLines={1}

@@ -9,6 +9,9 @@ import {useMoney} from "@/store/useMoney";
 jest.mock("expo-router", () => ({router: {push: jest.fn(), back: jest.fn()}}));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
 jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {}), updateFiling: jest.fn(async () => {})}));
+// the count-up isn't under test (the amount is checked through its label, which is always the real figure), so hold its frames
+beforeEach(() => { jest.spyOn(globalThis, "requestAnimationFrame").mockImplementation(() => 0); });
+afterEach(() => jest.restoreAllMocks());
 
 const groceries = tx({amount: 50, date: "2026-10-02", cat: "groceries"});
 const show = (txs: Tx[], state: AppState = baseState()) => {

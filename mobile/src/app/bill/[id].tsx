@@ -1,17 +1,15 @@
 import {router, Stack, useLocalSearchParams} from "expo-router";
 import {useState} from "react";
-import {Alert, Pressable, View} from "react-native";
+import {Alert, View} from "react-native";
 import {DateField} from "@/components/DateField";
-import {Choice, Form} from "@/components/Form";
-import {Chip, Field, Input, T} from "@/components/ui";
+import {Choice, DayGrid, Form} from "@/components/Form";
+import {Chip, Field, Input} from "@/components/ui";
 import {BILL_FREQ, buildBill, COMMON_BILLS, METHOD} from "@/lib/bills";
-import {ord} from "@/lib/dates";
 import {uid} from "@/lib/defaults";
 import {parseAmount} from "@/lib/money";
 import type {BillFreq, BillMethod} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
-import {font, s} from "@/theme/tokens";
-import {useTheme} from "@/theme/useTheme";
+import {s} from "@/theme/tokens";
 
 const FREQS = (Object.keys(BILL_FREQ) as BillFreq[]).map(k => ({key: k, label: BILL_FREQ[k]}));
 const METHODS = (Object.keys(METHOD) as BillMethod[]).map(k => ({key: k, label: METHOD[k]}));
@@ -22,7 +20,7 @@ export default function BillScreen() {
   const old = st.state?.bills.find(x => x.id === id);
   const taken = new Set(st.state?.bills.map(b => b.name.toLowerCase()));
   const [name, setName] = useState(old?.name ?? "");
-  const [amount, setAmount] = useState(old ? String(old.amount) : "");
+  const [amount, setAmount] = useState(old?.amount ? String(old.amount) : "");
   const [varies, setVaries] = useState(!!old?.varies);
   const [freq, setFreq] = useState<BillFreq>(old?.freq ?? "monthly");
   const [day, setDay] = useState<number | "last" | null>(old?.day ?? null);
@@ -69,27 +67,5 @@ export default function BillScreen() {
       )}
       <Field label="How is it paid? (optional)"><Choice options={METHODS} value={method} onChange={setMethod} /></Field>
     </Form>
-  );
-}
-
-function DayGrid({value, onChange}: {value: number | "last" | null; onChange: (d: number | "last") => void}) {
-  const {c} = useTheme();
-  return (
-    <View style={{gap: s[2]}}>
-      <View style={{flexDirection: "row", flexWrap: "wrap"}} accessibilityRole="radiogroup">
-        {Array.from({length: 31}, (_, i) => i + 1).map(n => {
-          const on = value === n;
-          return (
-            <View key={n} style={{width: `${100 / 7}%`, padding: 2}}>
-              <Pressable onPress={() => onChange(n)} accessibilityRole="radio" accessibilityState={{checked: on}} accessibilityLabel={ord(n)}
-                style={{height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: on ? c.ink : "transparent", borderWidth: 1, borderColor: on ? c.ink : c.line}}>
-                <T weight="bold" size="sm" style={{color: on ? c.bg : c.ink, fontFamily: font.bold}}>{n}</T>
-              </Pressable>
-            </View>
-          );
-        })}
-      </View>
-      <View style={{flexDirection: "row"}}><Chip label="Last working day" on={value === "last"} onPress={() => onChange("last")} /></View>
-    </View>
   );
 }

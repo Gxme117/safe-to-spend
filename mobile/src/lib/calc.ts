@@ -1,4 +1,4 @@
-import {billDates, billPaid, billSource} from "./bills";
+import {billDated, billDates, billMonthly, billPaid, billSource} from "./bills";
 import {addDays, dayDiff, niceDate, parseD} from "./dates";
 import {cycleStart, lowAmt, mainIncome, nextPayday, occurrences, usualAmt} from "./income";
 import {money, r2} from "./money";
@@ -27,6 +27,7 @@ export interface Calc {
   daysLeft: number | null;
   billsLeft: number;               // bills still to go out before payday
   billsDue: {b: Bill; d: IsoDate}[];
+  billsUndated: number;            // bills with no payment date yet: a month's share each, part of billsLeft
   everyday: EverydayLeft[];
   everydayLeft: number;            // what's left of everyday amounts this pay cycle
   cycleFrom: IsoDate;
@@ -51,27 +52,34 @@ export function calc(ctx: Ctx): Calc {
 
   const payday = state.incomes.length ? nextPayday(ctx) : null;
   const daysLeft = payday ? dayDiff(t, payday) : null;
-  let billsLeft = 0;
+  const cycleFrom = cycleStart(ctx);
+  let billsLeft = 0, billsUndated = 0;
   const billsDue: {b: Bill; d: IsoDate}[] = [];
   if (state.bills.length) {
     // only bills that land before the next payday and haven't gone out yet
     const until = payday ? addDays(payday, -1) : addDays(t, 30);
-    for (const b of state.bills) for (const d of billDates(b, t, until)) if (!billPaid(ctx, b, d)) { billsLeft += b.amount || 0; billsDue.push({b, d}); }
+    for (const b of state.bills) {
+      if (!(b.amount > 0)) continue;   // no amount yet: nothing to hold back, and nothing to show as due
+      // no payment date yet: a month's share is held back each pay cycle, until a payment for it lands
+      if (!billDated(b)) { if (!txs.some(it => it.billId === b.id && it.date >= cycleFrom)) billsUndated += billMonthly(b); continue; }
+      for (const d of billDates(b, t, until)) if (!billPaid(ctx, b, d)) { billsLeft += b.amount || 0; billsDue.push({b, d}); }
+    }
     billsDue.sort((x, y) => x.d < y.d ? -1 : 1);
   } else {
     for (const c of cats) if (c.fixed) billsLeft += Math.max(0, (c.budget || 0) - (spent[c.id] || 0));
   }
-  billsLeft = r2(billsLeft);
+  billsUndated = r2(billsUndated);
+  billsLeft = r2(billsLeft + billsUndated);
 
   // everyday: what's left of each monthly amount since the last payday is kept aside, not counted as free
-  const cycleFrom = cycleStart(ctx), spentCycle: Record<string, number> = {};
+  const spentCycle: Record<string, number> = {};
   for (const it of txs) if (!it.billId && it.date >= cycleFrom && it.date <= t) addSpend(spentCycle, it);
   clampSpend(spentCycle);
   const everyday = cats.filter(x => catGroup(x) === "everyday").map(x => ({x, spent: r2(spentCycle[x.id] || 0), left: r2((x.budget || 0) - (spentCycle[x.id] || 0))}));
   const everydayLeft = r2(everyday.reduce((s, e) => s + Math.max(0, e.left), 0));
   const need = r2(billsLeft + everydayLeft);
   const short = r2(Math.max(0, need - balance));   // bills and everyday come first; savings is the back-up
-  return {t, cur, spent, balance, payday, daysLeft, billsLeft, billsDue, everyday, everydayLeft, cycleFrom, need, short};
+  return {t, cur, spent, balance, payday, daysLeft, billsLeft, billsDue, billsUndated, everyday, everydayLeft, cycleFrom, need, short};
 }
 
 /** What the hero shows. `kind` says which state it's in; only "number" has a daily figure. */
@@ -211,7 +219,9 @@ export function freeSummary(c: Calc) {
 /** One sentence under the bills list. */
 export function billsLine(c: Calc) {
   if (!c.payday) return "";
-  const before = r2(c.billsDue.reduce((s, x) => s + (x.b.amount || 0), 0));
+  const before = r2(c.billsDue.reduce((s, x) => s + (x.b.amount || 0), 0)), undated = c.billsUndated;
+  if (before && undated) return `${money(before)} is due before payday on ${niceDate(c.payday)}, plus ${money(undated)} for bills without a date. It's held back from your spending money.`;
+  if (undated) return `${money(undated)} is held back for bills without a date. Add their dates to see when they go out.`;
   return before
     ? `${money(before)} is due before payday on ${niceDate(c.payday)}, so it's held back from your spending money.`
     : `Nothing is due before payday on ${niceDate(c.payday)}.`;

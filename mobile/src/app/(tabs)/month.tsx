@@ -57,7 +57,7 @@ export default function MonthScreen() {
             <View>
               {sorted.map(b => {
                 const n = nextBill(b, c.t);
-                return <Row key={b.id} name={b.name} meta={billMeta(b, n ? niceDate(n) : null)} amount={`${b.varies ? "About " : ""}${money(b.amount)}`}
+                return <Row key={b.id} name={b.name} meta={billMeta(b, n ? niceDate(n) : null)} amount={b.amount > 0 ? `${b.varies ? "About " : ""}${money(b.amount)}` : undefined}
                   onPress={() => router.push(`/bill/${b.id}`)} accessibilityHint="Edit this bill" />;
               })}
             </View>

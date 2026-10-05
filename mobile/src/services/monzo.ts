@@ -1,7 +1,9 @@
 // Talking to Monzo. Your client ID and secret, and the tokens, live in the iOS Keychain (expo-secure-store):
 // never in the repo, never in app state. This is a personal Monzo developer client, for your own account only.
 import * as SecureStore from "expo-secure-store";
-import {REDIRECT_URI, type RawPot, type RawTx, type Synced} from "@/lib/monzo";
+import {today} from "@/lib/dates";
+import {findAll, type SetupFound} from "@/lib/found";
+import {REDIRECT_URI, type RawPot, type RawTx, setupSince, totalPence, type Synced} from "@/lib/monzo";
 
 const API = "https://api.monzo.com";
 const K = {id: "monzo.clientId", secret: "monzo.clientSecret", access: "monzo.access", refresh: "monzo.refresh", expires: "monzo.expires", login: "monzo.loginState"};
@@ -22,9 +24,10 @@ export async function saveClient(id: string, secret: string) { await put(K.id, i
 // Expo builds these into the app, so this only suits your own phone.
 const ENV = {id: process.env.EXPO_PUBLIC_MONZO_CLIENT_ID?.trim() || "", secret: process.env.EXPO_PUBLIC_MONZO_CLIENT_SECRET?.trim() || ""};
 export const clientFromEnv = !!(ENV.id && ENV.secret);
+// A client typed in on this phone wins over the built-in one: someone else using this build connects with their own.
 async function client() {
-  if (clientFromEnv) return ENV;
-  return {id: (await get(K.id)) || "", secret: (await get(K.secret)) || ""};
+  const own = {id: (await get(K.id)) || "", secret: (await get(K.secret)) || ""};
+  return own.id && own.secret ? own : clientFromEnv ? ENV : own;
 }
 export async function hasClient() { const c = await client(); return !!(c.id && c.secret); }
 export async function clientId() { return (await client()).id; }
@@ -91,9 +94,9 @@ async function api<T>(path: string): Promise<T> {
 
 const PAGE = 100;
 /** Transactions since a time, oldest first. Monzo sends 100 at a time, so keep asking from the last one until it runs out. */
-async function fetchTxs(q: string, since: string) {
+async function fetchTxs(q: string, since: string, pages = 20) {
   const all: RawTx[] = [];
-  for (let page = 0; page < 20; page++) {
+  for (let page = 0; page < pages; page++) {
     // `since` goes as-is, as in Monzo's docs: a time like 2026-10-01T00:00:00Z or a payment id, both safe in a URL
     const path = `/transactions?account_id=${q}&since=${since}&limit=${PAGE}&expand[]=merchant`;
     const {transactions} = await api<{transactions: RawTx[]}>(path).catch(e => {
@@ -107,11 +110,30 @@ async function fetchTxs(q: string, since: string) {
   return all;
 }
 
-/** The main account's balance, its pots, and its transactions since `since`, as Monzo has them right now. */
-export async function fetchBank(since: string): Promise<Synced> {
+async function mainAccount() {
   const {accounts} = await api<{accounts: {id: string; closed?: boolean}[]}>("/accounts?account_type=uk_retail");
   const acc = accounts.find(a => !a.closed);
   if (!acc) throw new MonzoFail("other", "no open current account");
+  return acc;
+}
+
+/**
+ * What setup shows before the app has anywhere to keep a full sync: the main account plus all its pots, in pence,
+ * and what about 3 months of payments say about your pay and payday. Read once, straight after
+ * you approve, and never saved. If the payments can't be read, setup just asks as if you hadn't connected.
+ */
+export async function fetchSetupBank(): Promise<{totalPence: number; found: SetupFound | null}> {
+  const q = encodeURIComponent((await mainAccount()).id);
+  const bal = await api<{balance: number}>(`/balance?account_id=${q}`);
+  const {pots} = await api<{pots: RawPot[]}>(`/pots?current_account_id=${q}`);
+  // 3 months is more payments than a sync: room for 5,000, so the newest are never cut off
+  const found = await fetchTxs(q, setupSince(Date.now()), 50).then(txs => findAll(txs, today()), () => null);
+  return {totalPence: totalPence(bal.balance, pots), found};
+}
+
+/** The main account's balance, its pots, and its transactions since `since`, as Monzo has them right now. */
+export async function fetchBank(since: string): Promise<Synced> {
+  const acc = await mainAccount();
   const q = encodeURIComponent(acc.id);
   const bal = await api<{balance: number}>(`/balance?account_id=${q}`);
   const {pots} = await api<{pots: RawPot[]}>(`/pots?current_account_id=${q}`);

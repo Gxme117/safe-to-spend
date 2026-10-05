@@ -27,6 +27,7 @@ export interface Income {
   day?: number;      // monthly-date: day of the month
   main?: boolean;    // sets the payday countdown
   since?: IsoDate;   // no check-ins before this
+  payer?: string;    // who pays it, as Monzo names them: a synced payment from them is this payday arriving
 }
 
 export type BillFreq = "monthly" | "weekly" | "fortnightly" | "fourweekly" | "quarterly" | "yearly";
@@ -47,12 +48,16 @@ export interface Bill {
 
 export type Group = "bills" | "everyday" | "free";
 
+/** How often everyday spending happens. The amount is each time: £15, 2–3 times a week. */
+export type SpendFreq = "daily" | "most-days" | "few-times" | "weekly" | "fortnightly" | "monthly" | "quarterly" | "yearly";
+
 export interface Category {
   id: string;
   name: string;
-  budget: number;   // monthly amount
+  budget: number;   // monthly amount: for everyday, what you chose to allow yourself
   fixed: boolean;
   group?: Group;
+  usual?: {amount: number; freq: SpendFreq};   // what you said you normally spend, at setup (budget can differ)
 }
 
 export type TxType = "expense" | "income" | "save";

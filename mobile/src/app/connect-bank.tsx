@@ -1,24 +1,30 @@
-import {router} from "expo-router";
+import {router, useLocalSearchParams} from "expo-router";
 import * as Linking from "expo-linking";
 import {useEffect, useState} from "react";
 import {View} from "react-native";
 import {PotRoles, syncMessage} from "@/components/Bank";
+import {TextLink} from "@/components/Setup";
 import {Form} from "@/components/Form";
 import {Field, Input, T} from "@/components/ui";
 import {authUrl, parseRedirect, REDIRECT_URI} from "@/lib/monzo";
-import {clientFromEnv, clientId, connect, hasClient, loginState, MonzoFail, saveClient, startLogin} from "@/services/monzo";
+import {clientFromEnv, clientId, connect, fetchSetupBank, hasClient, loginState, MonzoFail, saveClient, startLogin} from "@/services/monzo";
 import {useMoney} from "@/store/useMoney";
 import {s} from "@/theme/tokens";
 
 type Step = "client" | "paste" | "approve" | "pots";
 
-/** Connect your own Monzo account: your developer client, log in in Safari, paste the link back, approve in the Monzo app. */
+/**
+ * Connect your own Monzo account: your developer client, log in in Safari, paste the link back, approve in the Monzo app.
+ * From setup (`?from=setup`) it only reads the total (main account + all pots) and what your payments say back to setup; the full sync runs once setup is done.
+ */
 export default function ConnectBank() {
+  const fromSetup = useLocalSearchParams<{from?: string}>().from === "setup";
   const bank = useMoney(st => st.state?.bank);
   const [step, setStep] = useState<Step>("client");
   const [id, setId] = useState("");
   const [secret, setSecret] = useState("");
   const [saved, setSaved] = useState(false);   // a secret is already in the Keychain
+  const [own, setOwn] = useState(false);       // typing your own client instead of the built-in one
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -28,10 +34,11 @@ export default function ConnectBank() {
   const fail = (msg: string) => { setError(msg); setBusy(false); };
 
   const logIn = async () => {
-    if (!clientFromEnv && (!id.trim() || (!secret.trim() && !saved))) return setError("Paste your client ID and secret first");
+    const typed = !clientFromEnv || own;
+    if (typed && (!id.trim() || (!secret.trim() && !saved))) return setError("Paste your client ID and secret first");
     setBusy(true);
     try {
-      if (!clientFromEnv) await saveClient(id, secret);
+      if (typed) await saveClient(id, secret);
       const st = await startLogin();
       await Linking.openURL(authUrl(id.trim(), st));
       setStep("paste"); setError(""); setBusy(false);
@@ -40,7 +47,9 @@ export default function ConnectBank() {
 
   const paste = async () => {
     const code = parseRedirect(link, await loginState());
-    if (!code) return setError("That isn't the link from this login. Copy the whole address from Safari, starting with your redirect URL");
+    if (!code) return setError(!/[?&]code=/.test(link)
+      ? "That address has no login code in it. Paste the address Safari ends on (https://localhost/monzo?code=…), not the link from Monzo's email"
+      : "That's from an earlier login. Each login has its own link: use the newest email from Monzo, or go back and log in again");
     setBusy(true);
     try { await connect(code); setStep("approve"); setError(""); setBusy(false); }
     catch (e) {
@@ -51,6 +60,11 @@ export default function ConnectBank() {
 
   const approved = async () => {
     setBusy(true);
+    if (fromSetup) {
+      try { const r = await fetchSetupBank(); useMoney.getState().setSetupBank(r.totalPence / 100, r.found); setBusy(false); router.back(); }
+      catch (e) { fail(syncMessage(e instanceof MonzoFail ? e.kind : "other")); }
+      return;
+    }
     const r = await useMoney.getState().syncBank();
     if ("error" in r) return fail(syncMessage(r.error) + (__DEV__ && r.detail ? `\n(${r.detail})` : ""));
     setBusy(false); setError("");
@@ -60,9 +74,10 @@ export default function ConnectBank() {
 
   const done = () => { router.back(); useMoney.getState().notify("Monzo connected. Your balance now comes from your bank", true); };
 
-  if (step === "client" && clientFromEnv) return (
+  if (step === "client" && clientFromEnv && !own) return (
     <Form error={error} submit={busy ? "Opening Monzo…" : "Log in with Monzo"} onSubmit={busy ? () => {} : logIn}>
       <T muted>Your Monzo client is set up on this phone. Log in, and Monzo emails you a link to finish.</T>
+      <TextLink label="Use your own Monzo client" onPress={() => { setOwn(true); setId(""); setSaved(false); setError(""); }} />
     </Form>
   );
   if (step === "client") return (

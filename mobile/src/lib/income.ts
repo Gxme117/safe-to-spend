@@ -104,6 +104,7 @@ export function buildIncome(f: IncomeForm, old: Income | undefined, id: string, 
   if (!name) return {error: "Give this income a name, e.g. Pharmacy"};
   if (needsDate(f.freq) && !f.date) return {error: "Add the next date this money arrives"};
   const src: Income = {id, name: name.slice(0, 40), type: f.type, freq: f.freq, varies: f.varies, since: old?.since || t};
+  if (old?.payer) src.payer = old.payer;
   if (f.freq === "oneoff" && f.date && f.date < src.since!) src.since = f.date;
   if (["weekly", "fortnightly", "fourweekly", "oneoff"].includes(f.freq)) src.date = f.date;
   if (f.freq === "monthly-date") src.day = parseD(f.date).getDate();

@@ -1,7 +1,8 @@
 import type {ReactNode} from "react";
-import {KeyboardAvoidingView, Platform, ScrollView, View} from "react-native";
+import {KeyboardAvoidingView, Platform, Pressable, ScrollView, View} from "react-native";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
-import {s} from "@/theme/tokens";
+import {ord} from "@/lib/dates";
+import {font, s} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 import {Button, Chip, T} from "./ui";
 
@@ -35,6 +36,43 @@ export function Choice<K extends string | number>({options, value, onChange}: {o
   return (
     <View style={{flexDirection: "row", flexWrap: "wrap", gap: s[2]}} accessibilityRole="radiogroup">
       {options.map(o => <Chip key={String(o.key)} label={o.label} on={o.key === value} onPress={() => onChange(o.key)} />)}
+    </View>
+  );
+}
+
+/**
+ * Chips for picking any number of options: tap to pick, tap again to unpick.
+ * `children` sits at the end of the row (an "Add more" chip).
+ */
+export function Picks({options, value, onChange, children}: {options: string[]; value: string[]; onChange: (v: string[]) => void; children?: ReactNode}) {
+  const toggle = (o: string) => onChange(value.includes(o) ? value.filter(x => x !== o) : [...value, o]);
+  return (
+    <View style={{flexDirection: "row", flexWrap: "wrap", gap: s[2]}}>
+      {options.map(o => <Chip key={o} label={o} on={value.includes(o)} onPress={() => toggle(o)} />)}
+      {children}
+    </View>
+  );
+}
+
+/** The days of the month, a week to a row, and the last working day. */
+export function DayGrid({value, onChange}: {value: number | "last" | null; onChange: (d: number | "last") => void}) {
+  const {c} = useTheme();
+  return (
+    <View style={{gap: s[2]}}>
+      <View style={{flexDirection: "row", flexWrap: "wrap"}} accessibilityRole="radiogroup">
+        {Array.from({length: 31}, (_, i) => i + 1).map(n => {
+          const on = value === n;
+          return (
+            <View key={n} style={{width: `${100 / 7}%`, padding: 2}}>
+              <Pressable onPress={() => onChange(n)} accessibilityRole="radio" accessibilityState={{checked: on}} accessibilityLabel={ord(n)}
+                style={{height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: on ? c.ink : "transparent", borderWidth: 1, borderColor: on ? c.ink : c.line}}>
+                <T weight="bold" size="sm" style={{color: on ? c.bg : c.ink, fontFamily: font.bold}}>{n}</T>
+              </Pressable>
+            </View>
+          );
+        })}
+      </View>
+      <View style={{flexDirection: "row"}}><Chip label="Last working day" on={value === "last"} onPress={() => onChange("last")} /></View>
     </View>
   );
 }

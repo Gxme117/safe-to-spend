@@ -1,5 +1,5 @@
 import {calc} from "@/lib/calc";
-import {applySync, aside, authUrl, importTxs, missingDetails, parseRedirect, REDIRECT_URI, type RawTx, setPotRole, syncSince} from "@/lib/monzo";
+import {applySync, aside, authUrl, importTxs, lastPay, missingDetails, parseRedirect, payee, REDIRECT_URI, type RawTx, setPotRole, setupSince, syncSince, totalPence} from "@/lib/monzo";
 import {baseState, ctx, TODAY, tx} from "./fixtures";
 
 const NOW = new Date(2026, 9, 3, 14, 5).getTime();
@@ -25,35 +25,39 @@ test("reads the code from the pasted Safari address, only for this login", () =>
   expect(parseRedirect("not a link", "st1")).toBeNull();
 });
 
-test("a sync re-anchors the balance to the main account; new pots start set aside", () => {
+test("a sync re-anchors the balance to the account and all its pots; new pots count until you set them aside", () => {
   const s = applySync(baseState(), got(), NOW);
-  expect(s.balance).toBe(840.12);
+  expect(s.balance).toBe(2290.62);
   expect(s.balanceSetAt).toBe(NOW);
   expect(s.balanceAsOf).toBe("2026-10-03");
   expect(s.bank?.main).toBe(840.12);
   expect(s.bank?.pots).toEqual([
-    {id: "p1", name: "Bills", balance: 250, role: "save"},
-    {id: "p2", name: "Holiday", balance: 1200.5, role: "save", goal: 2000},
+    {id: "p1", name: "Bills", balance: 250, role: "spend"},
+    {id: "p2", name: "Holiday", balance: 1200.5, role: "spend", goal: 2000},
   ]);
-  expect(aside(s.bank)).toBe(1450.5);
+  expect(aside(s.bank)).toBe(0);
 });
 
-test("pots keep the role you gave them, and spending pots count", () => {
-  const first = setPotRole(applySync(baseState(), got(), NOW), "p1", "spend");
-  const again = applySync(first, got([{id: "p1", name: "Bills", balance: 10000}, {id: "p2", name: "Holiday", balance: 0}]), NOW + 1);
-  expect(again.bank?.pots.find(p => p.id === "p1")?.role).toBe("spend");
+test("pots keep the role you gave them", () => {
+  const first = setPotRole(applySync(baseState(), got(), NOW), "p2", "save");
+  const again = applySync(first, got([{id: "p1", name: "Bills", balance: 10000}, {id: "p2", name: "Holiday", balance: 500}]), NOW + 1);
+  expect(again.bank?.pots.map(p => p.role)).toEqual(["spend", "save"]);
   expect(again.balance).toBe(940.12);
-  expect(aside(again.bank)).toBe(0);
+  expect(aside(again.bank)).toBe(5);
+});
+
+test("the total is the main account plus every pot still open", () => {
+  expect(totalPence(84012, got().pots)).toBe(229062);   // Old is deleted
 });
 
 test("changing a pot's role shifts the balance by that pot, keeping payments logged since", () => {
-  const s = {...applySync(baseState(), got(), NOW), balance: 800.12};   // £40 logged since the sync
-  const spend = setPotRole(s, "p1", "spend");
-  expect(spend.balance).toBe(1050.12);
-  expect(spend.balanceSetAt).toBe(NOW);
-  expect(setPotRole(spend, "p1", "save").balance).toBe(800.12);
-  expect(setPotRole(spend, "p1", "spend")).toBe(spend);
-  expect(setPotRole(s, "nope", "spend")).toBe(s);
+  const s = {...applySync(baseState(), got(), NOW), balance: 2250.62};   // £40 logged since the sync
+  const save = setPotRole(s, "p1", "save");
+  expect(save.balance).toBe(2000.62);
+  expect(save.balanceSetAt).toBe(NOW);
+  expect(setPotRole(save, "p1", "spend").balance).toBe(2250.62);
+  expect(setPotRole(s, "p1", "spend")).toBe(s);
+  expect(setPotRole(s, "nope", "save")).toBe(s);
 });
 
 let n = 0;
@@ -128,9 +132,9 @@ test("after a sync the balance is Monzo's, not lowered again by the payments it 
   const synced = {...got(), txs: [raw({amount: -2500, category: "groceries"}), raw({amount: 1000, description: "Refund"})]};
   const txs = importTxs(c, synced.txs, NOW, ids);
   const state = applySync(c.state, synced, NOW);
-  expect(calc({...c, state, txs}).balance).toBe(840.12);
+  expect(calc({...c, state, txs}).balance).toBe(2290.62);
   // a payment you add afterwards still counts
-  expect(calc({...c, state, txs: [...txs, tx({amount: 10, date: TODAY, created: NOW + 5})]}).balance).toBe(830.12);
+  expect(calc({...c, state, txs: [...txs, tx({amount: 10, date: TODAY, created: NOW + 5})]}).balance).toBe(2280.62);
 });
 
 test("the first sync reads from the start of the month; later ones from a day before the last", () => {
@@ -140,4 +144,43 @@ test("the first sync reads from the start of the month; later ones from a day be
   // whole seconds only: Monzo can't read milliseconds
   expect(syncSince(bank, NOW)).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   expect(syncSince(undefined, NOW + 123)).toMatch(/:\d\dZ$/);
+});
+
+test("your last pay is the biggest money in Monzo files as income; nothing filed as income means no guess", () => {
+  const raw: RawTx[] = [
+    {id: "t1", amount: 214000, created: "2026-09-30T08:00:00Z", category: "income", merchant: null, description: "ACME LTD"},
+    {id: "t2", amount: 300000, created: "2026-09-20T08:00:00Z", category: "transfers", description: "Sam"},
+    {id: "t3", amount: 500000, created: "2026-09-21T08:00:00Z", category: "income", description: "BIG CO", decline_reason: "INSUFFICIENT_FUNDS"},
+    {id: "t4", amount: 900000, created: "2026-09-22T08:00:00Z", category: "income", description: "pot_000123"},
+    {id: "t5", amount: -5000, created: "2026-09-23T08:00:00Z", category: "income", description: "Odd"},
+    {id: "t6", amount: 1250, created: "2026-09-24T08:00:00Z", category: "income", description: "Interest"},
+  ];
+  expect(lastPay(raw)).toEqual({amount: 2140, from: "ACME LTD", date: "2026-09-30"});
+  expect(lastPay(raw.filter(t => t.id !== "t1" && t.id !== "t6"))).toBeNull();
+  expect(lastPay([])).toBeNull();
+});
+
+test("setup reads about 3 months back, inside the 90 days Monzo shares, in a time it accepts", () => {
+  expect(Date.parse(setupSince(NOW))).toBe(Math.floor((NOW - 89 * 864e5) / 1000) * 1000);
+  expect(setupSince(NOW + 123)).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+});
+
+test("who's at the other end: the shop, else the person or company, else the description", () => {
+  expect(payee({id: "a", amount: -1, created: "", merchant: {name: "Tesco"}, counterparty: {name: "x"}, description: "TESCO 123"})).toBe("Tesco");
+  expect(payee({id: "b", amount: 1, created: "", counterparty: {name: "ACME LTD"}, description: "SALARY 0926"})).toBe("ACME LTD");
+  expect(payee({id: "c", amount: 1, created: "", description: "Sam"})).toBe("Sam");
+});
+
+test("pay from the payer setup saw counts as payday, whatever the income is called and whatever the reference", () => {
+  const c = ctx({state: {...baseState(), incomes: [{...baseState().incomes[0], name: "Pay", payer: "ACME LTD SALARY 0826"}]}});
+  const got = importTxs(c, [
+    raw({id: "pay", amount: 180000, created: "2026-09-30T06:00:00Z", description: "ACME LTD SALARY 0926"}),
+    raw({id: "other", amount: 180000, created: "2026-09-30T07:00:00Z", description: "PAYPAL"}),
+  ], NOW, ids);
+  expect(got[0]).toMatchObject({cat: "job", srcId: "job", forDate: "2026-09-30"});
+  expect(got[1]).toMatchObject({cat: "monzo-in"});
+  // the name on the bank transfer counts too
+  const viaName = importTxs(ctx({state: {...baseState(), incomes: [{...baseState().incomes[0], payer: "ACME LTD"}]}}),
+    [raw({id: "p2", amount: 180000, created: "2026-09-30T06:00:00Z", description: "SEP SALARY", counterparty: {name: "ACME LTD"}})], NOW, ids);
+  expect(viaName[0].srcId).toBe("job");
 });

@@ -48,6 +48,10 @@ describe("bills move later on weekends and bank holidays", () => {
     expect(billDates(bill({freq: "weekly"}), "2026-10-01", "2026-10-31")).toEqual([]);
     expect(billDates(bill({freq: "weekly", date: "2026-10-02"}), "2026-10-01", "2026-10-20")).toEqual(["2026-10-02", "2026-10-09", "2026-10-16"]);
   });
+  test("a monthly bill with no day yet isn't guessed onto the 1st", () => {
+    expect(billDates(bill({}), "2026-10-01", "2026-12-31")).toEqual([]);
+    expect(nextBill(bill({}), "2026-10-05")).toBeNull();
+  });
   test("nextBill", () => {
     expect(nextBill(bill({day: 15}), "2026-10-15")).toBe("2026-10-15");
     expect(nextBill(bill({day: 15}), "2026-10-16")).toBe("2026-11-16");   // 15 Nov is a Sunday

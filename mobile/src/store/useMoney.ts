@@ -4,6 +4,7 @@ import {createJSONStorage, persist} from "zustand/middleware";
 import {backfill, deleteAllTx, deleteTx, insertMany, insertTx, listSince, updateFiling} from "@/db/transactions";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
+import type {SetupFound} from "@/lib/found";
 import {applySync, importTxs, missingDetails, setPotRole, syncSince} from "@/lib/monzo";
 import {r2} from "@/lib/money";
 import type {FilingPatch} from "@/lib/payments";
@@ -24,13 +25,16 @@ interface MoneyStore {
   theme: ThemePref;
   toast: Toast | null;
   syncing: boolean;           // a bank sync is running
+  setupBank: number | null;   // the Monzo total (main + all pots), when connected during setup (not saved)
+  setupFound: SetupFound | null;   // what Monzo's payments say about your pay and payday, when connected during setup (not saved)
 
   load(): Promise<void>;
   tick(): void;
   notify(msg: string, good?: boolean): void;
   setTheme(t: ThemePref): void;
 
-  setup(balance: number, income?: Income): void;
+  setup(balance: number, income?: Income, bills?: Bill[], categories?: Category[]): void;
+  setSetupBank(main: number | null, found?: SetupFound | null): void;
   setBalance(balance: number): void;
   setName(name: string): void;
   reset(): Promise<void>;
@@ -67,7 +71,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     if (s) set({state: {...s, ...fn(s)}});
   };
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", toast: null, syncing: false,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -77,8 +81,12 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     notify(msg, good = false) { set({toast: {id: Date.now(), msg, good}}); },
     setTheme(theme) { set({theme}); },
 
-    // one write, so the app never renders a state without the pay that sets payday
-    setup(balance, income) { set({state: {...newState(r2(balance), today(), Date.now()), incomes: income ? [income] : []}}); },
+    // one write, so the app never renders a state without the pay that sets payday (or the bills and everyday amounts that hold money back)
+    setup(balance, income, bills = [], categories) {
+      const st = newState(r2(balance), today(), Date.now());
+      set({setupBank: null, setupFound: null, state: {...st, incomes: income ? [income] : [], bills, categories: categories ?? st.categories}});
+    },
+    setSetupBank(main, found = null) { set({setupBank: main === null ? null : r2(main), setupFound: main === null ? null : found}); },
     // payments go first, so a failure leaves everything as it was
     async reset() { await deleteAllTx(); set({state: null, txs: []}); },
     setBalance(balance) { patch(() => ({balance: r2(balance), balanceSetAt: Date.now(), balanceAsOf: today()})); },

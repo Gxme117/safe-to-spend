@@ -114,6 +114,43 @@ describe("month view", () => {
   });
 });
 
+describe("bills without a payment date yet", () => {
+  // Council tax £160 a month and a £180 yearly TV licence, both waiting for a date: £160 + £15 is held back this cycle.
+  const undated = [
+    {id: "ct", name: "Council tax", amount: 160, freq: "monthly" as const},
+    {id: "tv", name: "TV licence", amount: 180, freq: "yearly" as const},
+  ];
+  const withUndated = (over = {}) => ctx({state: baseState({bills: [...baseState().bills, ...undated]}), ...over});
+
+  test("hold back a month's share each, without guessing a day", () => {
+    const {r, h} = run(withUndated());
+    expect(r.billsUndated).toBe(175);
+    expect(r.billsLeft).toBe(575);
+    expect(r.billsDue.map(x => x.b.id)).toEqual(["rent"]);
+    // 1000 − 575 − 200 of groceries = 225 over 25 days
+    expect(h).toMatchObject({kind: "number", free: 225, perDay: 9});
+    expect(billsLine(r)).toBe("£400 is due before payday on Fri 30 Oct, plus £175 for bills without a date. It's held back from your spending money.");
+  });
+
+  test("a payment for one this pay cycle means it's paid", () => {
+    const {r} = run(withUndated({txs: [tx({amount: 160, date: "2026-10-02", billId: "ct"})]}));
+    expect(r.billsUndated).toBe(15);
+  });
+
+  test("a bill with no amount yet holds nothing back and isn't due on any day", () => {
+    const {r} = run(ctx({state: baseState({bills: [...baseState().bills, {id: "subs", name: "Subscriptions", amount: 0, freq: "monthly", day: 10}, {...undated[0], amount: 0}]})}));
+    expect(r.billsLeft).toBe(400);
+    expect(r.billsUndated).toBe(0);
+    expect(r.billsDue.map(x => x.b.id)).toEqual(["rent"]);
+  });
+
+  test("only undated bills: says what's held back", () => {
+    const {r} = run(ctx({state: baseState({bills: [undated[0]]})}));
+    expect(r.billsLeft).toBe(160);
+    expect(billsLine(r)).toBe("£160 is held back for bills without a date. Add their dates to see when they go out.");
+  });
+});
+
 describe("money in that isn't income", () => {
   test("a refund goes back to its category: Everyday left goes up, free stays the same", () => {
     const refund = tx({type: "income", amount: 20, date: "2026-10-04", cat: "refund", refundOf: "groceries"});
