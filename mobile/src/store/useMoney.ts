@@ -12,6 +12,8 @@ import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib
 import {disconnect, fetchBank, MonzoFail, type MonzoError} from "@/services/monzo";
 
 export type ThemePref = "system" | "light" | "dark";
+/** The Safe to Spend card: the accent colour, or glass (iOS 26). */
+export type CardStyle = "colour" | "glass";
 export interface Toast { id: number; msg: string; good: boolean }
 /** A sync either brings in some new payments, or says what went wrong ("not-saved": the phone couldn't store them). */
 export type SyncError = MonzoError | "not-saved";
@@ -23,6 +25,8 @@ interface MoneyStore {
   loaded: boolean;            // txs have been read
   today: IsoDate;
   theme: ThemePref;
+  accent: string | null;      // your own accent colour (#RRGGBB), or null for the default
+  cardStyle: CardStyle;
   toast: Toast | null;
   syncing: boolean;           // a bank sync is running
   setupBank: number | null;   // the Monzo total (main + all pots), when connected during setup (not saved)
@@ -32,6 +36,8 @@ interface MoneyStore {
   tick(): void;
   notify(msg: string, good?: boolean): void;
   setTheme(t: ThemePref): void;
+  setAccent(hex: string | null): void;
+  setCardStyle(v: CardStyle): void;
 
   setup(balance: number, income?: Income, bills?: Bill[], categories?: Category[]): void;
   setSetupBank(main: number | null, found?: SetupFound | null): void;
@@ -71,7 +77,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     if (s) set({state: {...s, ...fn(s)}});
   };
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -80,6 +86,8 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     tick() { const t = today(); if (t !== get().today) set({today: t}); },
     notify(msg, good = false) { set({toast: {id: Date.now(), msg, good}}); },
     setTheme(theme) { set({theme}); },
+    setAccent(accent) { set({accent}); },
+    setCardStyle(cardStyle) { set({cardStyle}); },
 
     // one write, so the app never renders a state without the pay that sets payday (or the bills and everyday amounts that hold money back)
     setup(balance, income, bills = [], categories) {
@@ -154,7 +162,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         let added: Tx[];
         try { added = await insertMany(importTxs({state: s, txs: get().txs, today: today()}, got.txs, now, uid)); }
         catch { return {error: "not-saved"}; }
-        // older payments get their real time and logo back; if that fails they just stay as they were
+        // older payments get their real time, logo and who they were with back; if that fails they just stay as they were
         const fills = missingDetails(get().txs, got.txs);
         let txs = get().txs;
         try {
@@ -162,7 +170,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
           const by = new Map(fills.map(f => [f.monzoId, f]));
           txs = txs.map(t => {
             const f = t.monzoId ? by.get(t.monzoId) : undefined;
-            return f ? {...t, paidAt: t.paidAt ?? f.paidAt, logo: t.logo ?? f.logo} : t;
+            return f ? {...t, paidAt: t.paidAt ?? f.paidAt, logo: t.logo ?? f.logo, note: f.note ?? t.note} : t;
           });
         } catch {}
         set({state: applySync(s, got, now), txs: [...txs, ...added]});
@@ -181,5 +189,5 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   name: "money-tracker",
   version: 1,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle}),
 }));

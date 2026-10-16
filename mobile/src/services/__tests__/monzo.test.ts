@@ -1,4 +1,4 @@
-import {connect, disconnect, fetchBank, MonzoFail, saveClient} from "@/services/monzo";
+import {approvedYet, connect, disconnect, fetchBank, MonzoFail, saveClient} from "@/services/monzo";
 
 const mockKeychain = new Map<string, string>();
 jest.mock("expo-secure-store", () => ({
@@ -39,6 +39,17 @@ test("connects, then reads the open account's balance and pots", async () => {
   expect(fetchMock.mock.calls[2][0]).toContain("/balance?account_id=acc");
   expect(fetchMock.mock.calls[4][0]).toContain(`/transactions?account_id=acc&since=${SINCE}`);
   expect(fetchMock.mock.calls[4][0]).toContain("expand[]=merchant");
+});
+
+test("approval in the Monzo app is noticed: 403 until then, and other failures still say what went wrong", async () => {
+  fetchMock.mockResolvedValueOnce(tokens(1));
+  await connect("code");
+  fetchMock.mockResolvedValueOnce(res(403));
+  await expect(approvedYet()).resolves.toBe(false);
+  fetchMock.mockResolvedValueOnce(res(200, {accounts: []}));
+  await expect(approvedYet()).resolves.toBe(true);
+  fetchMock.mockRejectedValueOnce(new Error("no signal"));
+  await expect(approvedYet()).rejects.toMatchObject({kind: "offline"});
 });
 
 test("a busy month is read 100 at a time, carrying on from the last one", async () => {

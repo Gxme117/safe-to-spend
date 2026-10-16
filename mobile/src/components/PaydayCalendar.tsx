@@ -39,6 +39,7 @@ export function PaydayCalendar({ctx, c: calc}: {ctx: Ctx; c: Calc}) {
               <T weight="bold" size="sm" style={{color: inkFor(d)}}>{d.n}</T>
               <View style={{flexDirection: "row", alignItems: "center", gap: 2}}>
                 {d.kinds.includes("bill") ? <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: c.ink}} /> : null}
+                {d.kinds.includes("in") ? <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: c.incoming}} /> : null}
                 <T size="xs" weight="semibold" style={{color: d.kinds.includes("pay") ? c.good : inkFor(d), fontFamily: font.semibold}} lines={1}>{d.note}</T>
               </View>
             </Pressable>
@@ -49,6 +50,7 @@ export function PaydayCalendar({ctx, c: calc}: {ctx: Ctx; c: Calc}) {
         <Key colour={c.accent} label="No-spend day" />
         <Key colour={c.ink} label="Bill due" dot />
         <Key colour={c.goodSoft} border={c.good} label="Payday" />
+        <Key colour={c.incoming} label="Money coming in" dot />
       </View>
       {sel ? <View accessibilityLiveRegion="polite"><T size="sm">{dayDetail(ctx, calc, sel)}</T></View> : null}
     </Card>

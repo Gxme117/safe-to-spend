@@ -1,6 +1,7 @@
 import {router} from "expo-router";
 import {ScrollView, View} from "react-native";
 import {BigMoney} from "@/components/BigMoney";
+import {ComingRowView} from "@/components/ComingRow";
 import {PaydayCalendar} from "@/components/PaydayCalendar";
 import {SplitBar} from "@/components/SplitBar";
 import {TxRow} from "@/components/TxRow";
@@ -39,7 +40,7 @@ export default function MonthScreen() {
       {c.payday ? (
         <Card>
           <CardHead title="Coming up" />
-          <View>{coming.map(x => <Row key={x.key} name={x.name} meta={`${niceDate(x.d)}. ${x.meta}`} amount={x.amt} good={x.good} />)}</View>
+          <View>{coming.map(x => <ComingRowView key={x.key} x={x} meta={`${niceDate(x.d)}. ${x.meta}`} />)}</View>
           {!c.billsDue.length ? <T muted size="sm">{bills.length ? "No bills due before payday." : "Add your bills to see when each one goes out."}</T> : null}
         </Card>
       ) : null}

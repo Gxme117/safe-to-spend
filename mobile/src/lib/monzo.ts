@@ -55,12 +55,19 @@ const txLogo = (t: RawTx) => {
   const l = typeof t.merchant === "object" ? t.merchant?.logo?.trim() : undefined;
   return l && l.startsWith("https://") ? l : undefined;
 };
-export const txName = (t: RawTx) => String((typeof t.merchant === "object" && t.merchant?.name) || t.description || "Monzo").trim().slice(0, 60);
-/** Who's at the other end: the shop, else the person or company (a transfer's description is often just its reference). */
+/**
+ * Who's at the other end: the shop, else the person or company, else the description.
+ * A transfer's description is its reference, which Monzo fills in with your own name, so it comes last.
+ */
 export const payee = (t: RawTx) => String((typeof t.merchant === "object" && t.merchant?.name) || t.counterparty?.name || t.description || "Monzo").trim().slice(0, 60);
+/** A payment's name in the app: who it was with. */
+export const txName = payee;
+/** The name payments were saved with before transfers used the person's name: the shop, else the reference. */
+const oldName = (t: RawTx) => String((typeof t.merchant === "object" && t.merchant?.name) || t.description || "Monzo").trim().slice(0, 60);
 // "ACME LTD SALARY 0925" or "ACME LTD SEPT PAY" → "acme ltd salary", "acme ltd pay": a reference's numbers and month change every time
 const MONTH = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sep(t(ember)?)?|oct(ober)?|nov(ember)?|dec(ember)?)\b/g;
 export const plain = (s: string) => s.toLowerCase().replace(/\d+/g, " ").replace(MONTH, " ").replace(/\s+/g, " ").trim();
+const letters = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "");
 
 /**
  * New card payments and money in, as payments. Skips ones already saved, declines and moves between pots.
@@ -84,11 +91,12 @@ export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => st
       if (cat && cats.has(cat)) row.cat = cat; else { row.cat = "other"; row.needsCat = true; }
     } else {
       // pay that matches an income source counts as that payday arriving
-      // who pays it, when setup saw that in Monzo; otherwise the income's name
-      const who = plain(`${note} ${t.counterparty?.name || ""}`);
+      // who pays it, when setup saw that in Monzo; otherwise the income's name. Either can be in the reference or the payer's name
+      const text = `${t.description || ""} ${t.counterparty?.name || ""}`, who = plain(text);
       const src = ctx.state.incomes.find(x => {
         const p = plain(x.payer || "");
-        return p ? who.includes(p) : note.toLowerCase().includes(x.name.split(" ")[0].toLowerCase());
+        // letters only on both sides, so "Nando's" finds "NANDOS"
+        return p ? who.includes(p) : letters(text).includes(letters(x.name.split(" ")[0]));
       });
       const due = src && occurrences(src, addDays(date, -4), addDays(date, 4))[0];
       if (src && due && !isReceived({...ctx, txs: [...ctx.txs, ...out]}, src.id, due)) Object.assign(row, {cat: src.id, srcId: src.id, forDate: due, note: ""});
@@ -117,8 +125,11 @@ export function lastPay(raw: RawTx[]): SeenPay | null {
   return best ? {amount: r2(best.amount / 100), from: txName(best), date: isoD(new Date(best.created))} : null;
 }
 
-export interface Backfill { monzoId: string; paidAt?: number; logo?: string }
-/** Saved Monzo payments missing a time or logo (synced before those were kept), with what Monzo says now. */
+export interface Backfill { monzoId: string; paidAt?: number; logo?: string; note?: string }
+/**
+ * Saved Monzo payments missing a time or logo (synced before those were kept), with what Monzo says now.
+ * Transfers saved under their reference (often your own name) get the person's name, unless the name was changed since.
+ */
 export function missingDetails(txs: Tx[], raw: RawTx[]): Backfill[] {
   const byId = new Map(raw.filter(t => t?.id).map(t => [t.id, t]));
   return txs.flatMap(t => {
@@ -128,7 +139,9 @@ export function missingDetails(txs: Tx[], raw: RawTx[]): Backfill[] {
     const fill: Backfill = {monzoId: t.monzoId!};
     if (at !== undefined && !Number.isNaN(at)) fill.paidAt = at;
     if (!t.logo) { const logo = txLogo(r); if (logo) fill.logo = logo; }
-    return fill.paidAt !== undefined || fill.logo ? [fill] : [];
+    const name = txName(r);
+    if (t.note && t.note === oldName(r) && t.note !== name) fill.note = name;
+    return fill.paidAt !== undefined || fill.logo || fill.note ? [fill] : [];
   });
 }
 

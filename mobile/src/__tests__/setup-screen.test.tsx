@@ -7,12 +7,15 @@ import {keyboardCover} from "@/components/Setup";
 import {TODAY} from "@/lib/__tests__/fixtures";
 import {DEFAULT_CATEGORIES} from "@/lib/defaults";
 import {syncNow} from "@/components/Bank";
-import type {SetupFound} from "@/lib/found";
+import type {FoundPayee, SetupFound} from "@/lib/found";
+import {fetchSetupBank, loggedIn} from "@/services/monzo";
 import {useMoney} from "@/store/useMoney";
 
 jest.mock("expo-router", () => ({router: {push: jest.fn(), back: jest.fn()}}));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
 jest.mock("@/components/Bank", () => ({syncNow: jest.fn()}));
+// no Monzo login saved on this phone, unless a test says so
+jest.mock("@/services/monzo", () => ({...jest.requireActual("@/services/monzo"), loggedIn: jest.fn(async () => false), fetchSetupBank: jest.fn()}));
 jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {})}));
 
 const show = async () => {
@@ -41,7 +44,7 @@ const toBank = async () => {
 // and on to the bills page, entering them yourself
 const toBills = async () => { await toBank(); await tap("I'll enter them myself"); };
 // what Monzo might say, with nothing found unless a test adds it
-const found = (over: Partial<SetupFound> = {}): SetupFound => ({pays: [], bills: [], spending: [], ...over});
+const found = (over: Partial<SetupFound> = {}): SetupFound => ({pays: [], bills: [], spending: [], payees: [], ...over});
 const acme = {amount: 2000, from: "ACME LTD", date: "2026-10-02", rule: {freq: "fourweekly" as const, date: "2026-10-30", n: 3}};
 const bar = {amount: 310, from: "THE BAR CO", date: "2026-10-02", rule: null};
 
@@ -309,6 +312,66 @@ test("what you usually spend, from the bank: a week's worth to check, then your 
     {id: "eating", name: "Eating out", budget: 80, fixed: false, group: "everyday", usual: {amount: 24, freq: "weekly", source: "bank"}},
     {id: "coffee", name: "Coffee & drinks", budget: 87, fixed: false, group: "everyday", usual: {amount: 4, freq: "most-days"}},
   ]);
+});
+
+const payee = (name: string, amount: number, n: number, last: string, over: Partial<FoundPayee> = {}): FoundPayee =>
+  ({name, payee: name.toUpperCase(), amount, varies: false, freq: "monthly", day: +last.slice(8), method: "card", n, last, ...over});
+
+test("pick from your payments: everyone you've paid, tick the bills, and they join the list filled in from what they've been", async () => {
+  await toBank();
+  await tap("Connect bank");
+  await act(() => useMoney.getState().setSetupBank(842.1, found({bills: [water], payees: [
+    payee("Thames Water", 55, 3, "2026-10-01", {method: "dd"}), payee("Netflix", 10.99, 3, "2026-10-03"), payee("Sam Lee", 60, 1, "2026-09-20", {method: "transfer"}),
+  ]})));
+  await tap("Pick from your payments");
+  expect(screen.getByText("Pick from your payments")).toBeOnTheScreen();
+  expect(screen.getByText("Paid more than once")).toBeOnTheScreen();
+  expect(screen.getByText("Paid once")).toBeOnTheScreen();
+  expect(screen.getByText("3 payments, the last on Sat 3 Oct")).toBeOnTheScreen();
+  expect(screen.getByText("Paid Sun 20 Sep")).toBeOnTheScreen();
+  // one already found is ticked and can't be added twice
+  expect(screen.getByText("Already in your bills")).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: "Add bills"})).toBeDisabled();
+  await fireEvent.press(row("Netflix"));
+  await fireEvent.press(row("Sam Lee"));
+  expect(row("Netflix")).toBeSelected();
+  await fireEvent.press(row("Sam Lee"));   // changed your mind
+  expect(row("Sam Lee")).not.toBeSelected();
+  await tap("Add 1 bill");
+  expect(screen.getByText("We found some regular payments")).toBeOnTheScreen();
+  expect(row("Netflix")).toBeOnTheScreen();
+  await next();
+  await skipEveryday();
+  expect(useMoney.getState().state!.bills.map(b => b.name)).toEqual(["Thames Water", "Netflix"]);
+  expect(useMoney.getState().state!.bills[1]).toMatchObject({amount: 10.99, freq: "monthly", day: 3, method: "card", source: "bank", payee: "NETFLIX"});
+});
+
+test("pick from your payments: with no regular ones found, it's on the usual list's page too, and search narrows a long list", async () => {
+  await show();
+  const many = Array.from({length: 9}, (_, i) => payee(`Shop ${i + 1}`, 5, 1, "2026-09-10"));
+  await act(() => useMoney.getState().setSetupBank(842.1, found({payees: [payee("Council Tax", 160, 2, "2026-10-01"), ...many]})));
+  await next();
+  await fireEvent.changeText(screen.getByLabelText("Your pay a month, after tax"), "1800");
+  await next();
+  await next();
+  expect(screen.getByText("Fixed bills")).toBeOnTheScreen();
+  await tap("Pick from your payments");
+  await fireEvent.changeText(screen.getByLabelText("Search your payments"), "council");
+  expect(screen.queryByText("Shop 1")).toBeNull();
+  await fireEvent.press(row("Council Tax"));
+  await tap("Add 1 bill");
+  // the usual one, picked rather than added twice, with what's been paid
+  expect(screen.getByText("Council tax")).toBeOnTheScreen();
+  expect(screen.queryByText("Council Tax")).toBeNull();
+  expect(screen.getAllByText("£160")).toHaveLength(2);   // its row, and the total each month
+});
+
+test("Start over keeps your Monzo login: setup reads from it straight away", async () => {
+  jest.mocked(loggedIn).mockResolvedValueOnce(true);
+  jest.mocked(fetchSetupBank).mockResolvedValueOnce({totalPence: 84210, found: found()});
+  await show();
+  expect(await screen.findByLabelText("Your balance, from Monzo")).toHaveDisplayValue("842.10");
+  expect(screen.queryByRole("button", {name: "Connect your bank"})).toBeNull();
 });
 
 test("a bank that found no bills: the usual list, and no review at the end", async () => {

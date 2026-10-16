@@ -24,6 +24,7 @@ export interface Income {
   low?: number;      // when it varies: the forecast uses this
   typical?: number;  // when it varies: what usually lands
   date?: IsoDate;    // weekly / fortnightly / fourweekly / oneoff: a known date
+  time?: string;     // oneoff: roughly when it lands, "14:00". It isn't asked about before then
   day?: number;      // monthly-date: day of the month
   main?: boolean;    // sets the payday countdown
   since?: IsoDate;   // no check-ins before this

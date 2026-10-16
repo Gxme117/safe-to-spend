@@ -22,7 +22,7 @@ export function PageTitle({children}: {children: string}) {
   const {c} = useTheme();
   return (
     <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} accessibilityRole="header"
-      style={{fontFamily: font.heavy, fontSize: textSize.xl, lineHeight: Math.round(textSize.xl * 1.2), color: c.ink}}>
+      style={{fontFamily: font.head, fontSize: textSize.xl, lineHeight: Math.round(textSize.xl * 1.2), color: c.ink}}>
       {children}
     </Text>
   );
@@ -79,21 +79,25 @@ export function Field({label, hint, children}: {label: string; hint?: string; ch
   );
 }
 
-export function Input(props: TextInputProps & {prefix?: string}) {
+export function Input(props: TextInputProps & {prefix?: string; suffix?: string; box?: StyleProp<ViewStyle>}) {
   const {c} = useTheme();
-  const {prefix, style, ...rest} = props;
+  const {prefix, suffix, style, box, ...rest} = props;
   return (
-    <View style={[styles.input, {borderColor: c.line, backgroundColor: c.bg}]}>
-      {prefix ? <Text style={{fontFamily: font.bold, fontSize: textSize.md, color: c.muted}}>{prefix}</Text> : null}
+    <View style={[styles.input, {borderColor: c.line, backgroundColor: c.bg}, box]}>
+      {/* the prefix matches the placeholder, so a page that brightens one brightens both */}
+      {prefix ? <Text style={{fontFamily: font.bold, fontSize: textSize.md, color: rest.placeholderTextColor ?? c.muted}}>{prefix}</Text> : null}
       <TextInput placeholderTextColor={c.muted} {...rest}
         style={[{flex: 1, fontFamily: font.semibold, fontSize: textSize.md, color: c.ink, paddingVertical: s[3]}, style]} />
+      {/* the suffix is in the text's colour, at the end of the box */}
+      {suffix ? <Text style={{fontFamily: font.heavy, fontSize: textSize.md, color: StyleSheet.flatten(style)?.color ?? c.ink}}>{suffix}</Text> : null}
     </View>
   );
 }
 
-/** A list row: name and a one-line meta on the left, an amount on the right. */
-export function Row({name, meta, amount, good, leading, onPress, onLongPress, accessibilityHint}: {
+/** A list row: name and a one-line meta on the left, an amount on the right. `good`: money coming in, in the bright green. */
+export function Row({name, meta, amount, good, leading, onPress, onLongPress, accessibilityHint, selected}: {
   name: string; leading?: ReactNode; meta?: string; amount?: string; good?: boolean; onPress?: () => void; onLongPress?: () => void; accessibilityHint?: string;
+  selected?: boolean;   // a row in a list you tick
 }) {
   const {c} = useTheme();
   const body = (
@@ -103,12 +107,12 @@ export function Row({name, meta, amount, good, leading, onPress, onLongPress, ac
         <T weight="semibold" lines={1}>{name}</T>
         {meta ? <T muted size="sm" lines={1}>{meta}</T> : null}
       </View>
-      {amount ? <T weight="bold" style={[{fontVariant: ["tabular-nums"]}, good && {color: c.good}]}>{amount}</T> : null}
+      {amount ? <T weight={good ? "heavy" : "bold"} style={[{fontVariant: ["tabular-nums"]}, good && {color: c.incoming}]}>{amount}</T> : null}
     </View>
   );
-  if (!onPress && !onLongPress) return <View style={[styles.rowWrap, {borderTopColor: c.line}]}>{body}</View>;
+  if (!onPress && !onLongPress) return <View accessible={selected !== undefined} accessibilityState={selected !== undefined ? {selected} : undefined} style={[styles.rowWrap, {borderTopColor: c.line}]}>{body}</View>;
   return (
-    <Pressable onPress={onPress} onLongPress={onLongPress} accessibilityRole="button" accessibilityHint={accessibilityHint}
+    <Pressable onPress={onPress} onLongPress={onLongPress} accessibilityRole="button" accessibilityHint={accessibilityHint} accessibilityState={selected !== undefined ? {selected} : undefined}
       style={({pressed}) => [styles.rowWrap, {borderTopColor: c.line, opacity: pressed ? 0.6 : 1}]}>
       {body}
     </Pressable>

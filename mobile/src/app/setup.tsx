@@ -1,22 +1,24 @@
 import {router} from "expo-router";
 import {StatusBar} from "expo-status-bar";
-import {useState} from "react";
+import {useEffect, useRef, useState} from "react";
 import {Keyboard, StyleSheet, View} from "react-native";
 import {syncNow} from "@/components/Bank";
 import {BillSheet, SpendSheet, SubscriptionsSheet} from "@/components/BillSheet";
 import {DateField} from "@/components/DateField";
+import {Icon} from "@/components/Icon";
 import {Choice, Picks} from "@/components/Form";
 import {AmountInput, AmountRow, StepShell, TextLink} from "@/components/Setup";
-import {Button, Chip, Field, Row, T} from "@/components/ui";
+import {Button, Chip, Field, Input, Row, T} from "@/components/ui";
 import {BILL_FREQ, billMonthly, billWhen, draftBill, draftReady, newDraft, type BillDraft} from "@/lib/bills";
 import {DEFAULT_CATEGORIES, uid} from "@/lib/defaults";
 import {niceDate} from "@/lib/dates";
 import {budgetOf, budgetText, EVERYDAY, everydayCats, newSpend, perWeek, SPEND_FREQ, spendMonthly, spendReady, type SpendDraft} from "@/lib/everyday";
-import {payRuleText, type FoundIncome} from "@/lib/found";
+import {payRuleText, type FoundBill, type FoundIncome, type FoundPayee} from "@/lib/found";
 import {buildIncome, FREQ, needsDate} from "@/lib/income";
 import {money, parseAmount, r2} from "@/lib/money";
 import {perPayday, yearlyTakeHome, type PayBasis} from "@/lib/pay";
 import type {Bill, Category, Income, IncomeFreq} from "@/lib/types";
+import {fetchSetupBank, loggedIn} from "@/services/monzo";
 import {useMoney} from "@/store/useMoney";
 import {s} from "@/theme/tokens";
 import {FixedTheme, useTheme} from "@/theme/useTheme";
@@ -46,6 +48,21 @@ function addName(typed: string, usual: string[], own: string[], picked: string[]
 
 // "Monthly, last working day", or when it last landed if how often isn't clear
 const payMeta = (p: FoundIncome) => p.rule ? FREQ[p.rule.freq] : `Last paid ${niceDate(p.date)}`;
+
+// a bill the bank found, or one you picked from your payments, as its figures in setup: still yours to change
+const foundDraft = (f: FoundBill): BillDraft =>
+  ({amount: String(f.amount), freq: f.freq, day: f.day ?? null, date: f.date ?? null, payee: f.payee, method: f.method, ...(f.varies ? {varies: true} : {})});
+const payeeMeta = (x: FoundPayee) => x.n > 1 ? `${x.n} payments, the last on ${niceDate(x.last)}` : `Paid ${niceDate(x.last)}`;
+
+/** A tick for a list you pick from: ink, not the accent, since picking isn't money arriving. */
+function Tick({on}: {on: boolean}) {
+  const {c} = useTheme();
+  return (
+    <View style={{width: 24, height: 24, borderRadius: 12, borderWidth: on ? 0 : 1.5, borderColor: c.muted, backgroundColor: on ? c.ink : "transparent", alignItems: "center", justifyContent: "center"}}>
+      {on ? <Icon name="check" color={c.bg} size={16} /> : null}
+    </View>
+  );
+}
 
 /** Setup is dark for now, whatever the theme setting (the app after it follows the setting). */
 export default function SetupScreen() {
@@ -98,6 +115,25 @@ function Setup() {
   const [manual, setManual] = useState(false);      // "I'll enter them myself": no bank for the bills
   const [seeded, setSeeded] = useState(false);      // the bills and spending the bank found are in the lists
   const [lastBank, setLastBank] = useState(fromBank);
+  const [picking, setPicking] = useState<string[] | null>(null);   // "Pick from your payments" is open, with the ones ticked so far
+  const [search, setSearch] = useState("");
+  const payees = found?.payees ?? [];
+  const [reading, setReading] = useState(false);    // reading from a Monzo login saved before
+
+  // Start over keeps your Monzo login: read from it straight away, as if you'd just connected (only while you're on the first page)
+  const at = useRef(step);
+  useEffect(() => { at.current = step; }, [step]);
+  useEffect(() => {
+    if (useMoney.getState().setupBank !== null) return;
+    let live = true;
+    loggedIn().then(async yes => {
+      if (!yes || !live) return;
+      setReading(true);
+      const r = await fetchSetupBank();
+      if (live && at.current === 0) useMoney.getState().setSetupBank(r.totalPence / 100, r.found);
+    }).catch(() => {}).finally(() => { if (live) setReading(false); });
+    return () => { live = false; };
+  }, []);
   const pay: Record<PayBasis, string> = {hour: "", week: "", month: "", year: "", ...typed};
   const confirmed = payFrom !== null ? pays[payFrom] ?? null : null;
   const askPay = pays.length > 0 && !ownPay;
@@ -140,7 +176,7 @@ function Setup() {
     for (const f of found.bills) {
       const r = addName(f.name, BILLS, o, p);
       o = r.own; p = r.picked;
-      a[r.name] ??= {amount: String(f.amount), freq: f.freq, day: f.day ?? null, date: f.date ?? null, payee: f.payee, method: f.method, ...(f.varies ? {varies: true} : {})};
+      a[r.name] ??= foundDraft(f);
     }
     setOwn(o); setBills(p); setAmounts(a);
     const d = {...drafts};
@@ -179,6 +215,22 @@ function Setup() {
     done(r.src, picked.map(n => draftBill(n, draftOf(n), "b" + uid())), cats);
   };
 
+  // the payments you ticked join your bills, filled in from what they've been (each still yours to change)
+  const inBills = (x: FoundPayee) => { const n = [...BILLS, ...own].find(b => b.toLowerCase() === x.name.toLowerCase()); return !!n && bills.includes(n); };
+  const addPicked = () => {
+    let o = own, p = bills;
+    const a = {...amounts};
+    for (const f of payees.filter(x => picking?.includes(x.name))) {
+      const r = addName(f.name, BILLS, o, p);
+      o = r.own; p = r.picked;
+      a[r.name] ??= foundDraft(f);
+    }
+    setOwn(o); setBills(p); setAmounts(a);
+    Keyboard.dismiss(); setPicking(null); setSearch("");
+    go(4);
+  };
+  const pickLink = payees.length ? <TextLink label="Pick from your payments" onPress={() => setPicking([])} /> : null;
+
   const addOwn = () => {
     if (!(naming ?? "").trim()) return;
     const r = addName(naming ?? "", BILLS, own, bills);
@@ -200,7 +252,8 @@ function Setup() {
       {fromBank === null ? (
         <View style={{gap: s[6]}}>
           <View style={{gap: s[3]}}>
-            <Button label="Connect your bank" kind="good" onPress={() => { Keyboard.dismiss(); router.push("/connect-bank?from=setup"); }} />
+            <Button label={reading ? "Reading your Monzo…" : "Connect your bank"} kind="good" disabled={reading}
+              onPress={() => { Keyboard.dismiss(); router.push("/connect-bank?from=setup"); }} />
             <T size="sm" muted style={{textAlign: "center"}}>or enter it below</T>
           </View>
           <AmountInput key="bal" autoFocus={false} value={bal} onChangeText={setBal} caption={<>...pots and all. <T size="sm" muted weight="bold">“EVERYTHING”</T>.</>}
@@ -281,12 +334,49 @@ function Setup() {
     </StepShell>
   );
 
+  // everyone you've paid lately, to tick the ones that are bills: paid more than once first, and a search when there are many
+  if (picking !== null) {
+    const q = search.trim().toLowerCase();
+    const shown = payees.filter(x => !q || x.name.toLowerCase().includes(q) || x.payee.toLowerCase().includes(q));
+    const row = (x: FoundPayee) => {
+      const had = inBills(x), on = had || picking.includes(x.name);
+      return <Row key={x.name} name={x.name} meta={had ? "Already in your bills" : payeeMeta(x)} amount={money(x.amount)} leading={<Tick on={on} />} selected={on}
+        onPress={had ? undefined : () => setPicking(on ? picking.filter(n => n !== x.name) : [...picking, x.name])} />;
+    };
+    const group = (label: string, list: FoundPayee[]) => list.length ? (
+      <View style={{gap: s[2]}}>
+        <T size="sm" muted weight="semibold">{label}</T>
+        <View style={{borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line}}>{list.map(row)}</View>
+      </View>
+    ) : null;
+    const n = picking.length;
+    return (
+      <StepShell key="payees" step={4} total={TOTAL} scroll keyboard={false} title="Pick from your payments" why="Everyone you've paid in the last 3 months. Tick the regular ones."
+        onBack={() => { Keyboard.dismiss(); setPicking(null); setSearch(""); }} cta={n ? `Add ${n} ${n === 1 ? "bill" : "bills"}` : "Add bills"} canNext={n > 0} onNext={addPicked}>
+        <View style={{gap: s[5]}}>
+          {payees.length > 8 ? (
+            <Input value={search} onChangeText={setSearch} placeholder="Search" autoCorrect={false} autoCapitalize="none" returnKeyType="search"
+              clearButtonMode="while-editing" accessibilityLabel="Search your payments" />
+          ) : null}
+          {group("Paid more than once", shown.filter(x => x.n > 1))}
+          {group("Paid once", shown.filter(x => x.n === 1))}
+          {!shown.length ? <T muted>{`Nothing matches “${search.trim()}”.`}</T> : null}
+        </View>
+      </StepShell>
+    );
+  }
+
   // with what the bank found, this is "Does this look right?": change any, remove what isn't a bill, add what's missing
   if (step === 4) return (
     <StepShell key="amounts" step={4} total={TOTAL} scroll keyboard={false}
       title={foundBills ? "We found some regular payments" : "Your bills"} why={foundBills ? "From your last 3 months. Tap one to change it." : "How much do you pay?"}
       onBack={() => go(foundBills ? 2 : 3)} cta="Continue" ctaKind={allIn ? "good" : "primary"} canNext onNext={toEveryday} error={error}
-      footer={foundBills ? <TextLink label="+ Add a bill" onPress={() => go(3)} /> : undefined}>
+      footer={foundBills || pickLink ? (
+        <View style={{flexDirection: "row", justifyContent: "center", gap: s[4]}}>
+          {pickLink}
+          {foundBills ? <TextLink label="+ Add a bill" onPress={() => go(3)} /> : null}
+        </View>
+      ) : undefined}>
       <View>
         {picked.map(n => {
           const d = draftOf(n), bill = draftBill(n, d, ""), ready = draftReady(d);
@@ -404,7 +494,12 @@ function Setup() {
   return (
     <StepShell key="bills" step={3} total={TOTAL} title="Fixed bills" why="Which of these do you pay regularly?"
       onBack={foundBills ? () => go(4) : back} keyboard={false} cta="Continue" canNext={bills.length > 0} onNext={() => go(4)} error={error}
-      footer={<TextLink label="I don't have any bills" onPress={() => { setBills([]); toEveryday(); }} />}>
+      footer={(
+        <View style={{flexDirection: "row", justifyContent: "center", gap: s[4]}}>
+          {pickLink}
+          <TextLink label="I don't have any bills" onPress={() => { setBills([]); toEveryday(); }} />
+        </View>
+      )}>
       <Picks options={[...BILLS, ...own]} value={bills} onChange={setBills}>
         <Chip label="+ Add more" accessibilityLabel="Add more" onPress={() => setNaming("")} />
       </Picks>

@@ -13,10 +13,7 @@ export function SplitBar({c: calc}: {c: Calc}) {
   const sum = sp.parts.reduce((a, p) => a + p.amount, 0) || 1;
   return (
     <View style={{gap: s[2], marginTop: s[2], paddingTop: s[4], borderTopWidth: 1, borderTopColor: c.line}}>
-      <View style={{flexDirection: "row", justifyContent: "space-between"}}>
-        <T weight="bold" size="sm">Where your {money(sp.total)} is</T>
-        {sp.short ? <T weight="heavy" size="sm">{money(sp.short)} short</T> : null}
-      </View>
+      <T weight="bold" size="sm">Where your {money(sp.total)} is</T>
       <View accessible accessibilityRole="image" accessibilityLabel={sp.parts.map(p => `${p.label} ${money(p.amount)}`).join(", ")}
         style={{flexDirection: "row", gap: 2, height: 12, borderRadius: 6, overflow: "hidden", backgroundColor: c.line}}>
         {sp.parts.filter(p => p.amount > 0).map(p => <View key={p.key} style={{flex: p.amount / sum, minWidth: 4, backgroundColor: colour[p.key]}} />)}

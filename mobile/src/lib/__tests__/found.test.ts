@@ -1,4 +1,4 @@
-import {findAll, findBills, findPay, findPays, findSpending, payRule, payRuleText} from "@/lib/found";
+import {findAll, findBills, findPay, findPayees, findPays, findSpending, payRule, payRuleText} from "@/lib/found";
 import type {RawTx} from "@/lib/monzo";
 import {TODAY} from "./fixtures";
 
@@ -96,6 +96,23 @@ test("what setup fills in: pay and payday, regular payments and spending, from o
   expect(f.pays).toEqual([{amount: 2100, from: "ACME LTD", date: "2026-09-30", rule: {freq: "monthly-lastworking", date: "2026-10-30", n: 3}}]);
   expect(f.bills.map(b => b.name)).toEqual(["Thames Water"]);   // one Netflix payment isn't regular yet
   expect(f.spending.map(x => x.name)).toEqual(["Groceries"]);
+});
+
+test("everyone you've paid, to pick your own bills from: each as the bill it would be, paid more than once first, then the newest", () => {
+  const raw = [
+    t("2026-08-03", -9.99, shop("Netflix")), t("2026-09-03", -9.99, shop("Netflix")), t("2026-10-03", -10.99, shop("Netflix")),
+    t("2026-09-20", -60, {category: "transfers", counterparty: {name: "Sam Lee"}}),
+    t("2026-10-01", -12, shop("Odeon")),
+    t("2026-09-30", 2100, {category: "income", counterparty: {name: "ACME LTD"}}),   // money in isn't a payment
+    t("2026-09-15", -100, {category: "savings", description: "pot_0000Ab"}),          // nor is moving money to your own pot
+  ];
+  const got = findPayees(raw, TODAY);
+  expect(got.map(x => x.name)).toEqual(["Netflix", "Odeon", "Sam Lee"]);
+  // the latest price, on the rule its payments fit
+  expect(got[0]).toMatchObject({payee: "Netflix", amount: 10.99, varies: true, freq: "monthly", day: 3, method: "card", n: 3, last: "2026-10-03"});
+  // paid once: monthly on that day, for you to check
+  expect(got[2]).toMatchObject({amount: 60, freq: "monthly", day: 20, method: "transfer", n: 1, last: "2026-09-20"});
+  expect(findAll(raw, TODAY).payees).toEqual(got);
 });
 
 test("everyone who pays you like pay, the most first: setup can offer another", () => {

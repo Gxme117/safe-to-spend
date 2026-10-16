@@ -38,10 +38,10 @@ function useCountUp(target: number, on: boolean, ms = 900) {
   return shown;
 }
 
-const PENCE: Record<"display" | "xl", TextSize> = {display: "xl", xl: "md"};
+const PENCE: Record<"hero" | "display" | "xl", TextSize> = {hero: "xl", display: "xl", xl: "md"};
 
 /** £16.00 with the pence smaller, like the web app. Screen readers hear the whole amount once. */
-export function BigMoney({value, size: name = "display", animate = true, color}: {value: number; size?: "display" | "xl"; animate?: boolean; color?: string}) {
+export function BigMoney({value, size: name = "display", animate = true, color}: {value: number; size?: "hero" | "display" | "xl"; animate?: boolean; color?: string}) {
   const {c} = useTheme();
   const ink = color ?? c.ink;
   // The pence sit two steps down the scale.

@@ -162,7 +162,7 @@ const nice = (s: string) => s !== s.toUpperCase() || !/[A-Z]/.test(s) ? s
  */
 export function findBills(raw: RawTx[], today: IsoDate): FoundBill[] {
   const out: FoundBill[] = [], names = new Set<string>();
-  for (const list of byPayee(raw.filter(t => moved(t) && t.amount < 0 && t.category !== "income"))) {
+  for (const list of paidOut(raw)) {
     if (list.length < 2) continue;
     const dd = list.some(t => t.scheme === "bacs" || t.category === "bills");
     const amounts = list.map(t => -t.amount / 100), mid = median(amounts);
@@ -174,21 +174,57 @@ export function findBills(raw: RawTx[], today: IsoDate): FoundBill[] {
       ...daysSeen(ds, 1).map(day => ({freq: "monthly" as const, day})), {freq: "fourweekly", date: last},
       ...(dd ? [{freq: "fortnightly" as const, date: last}, {freq: "weekly" as const, date: last}] : []),
     ];
-    const best = fit(ds, tries, (t, from, to) => billDates({id: "", name: "", amount: 0, ...t}, from, to));
+    const best = fit(ds, tries, tryBill);
     if (!best || dayDiff(last, today) > PERIOD[best.t.freq]! + 7) continue;
-    const latest = list[list.length - 1], name = nice(payee(latest)).slice(0, 40);
-    if (names.has(name.toLowerCase())) continue;
-    names.add(name.toLowerCase());
-    const bill: FoundBill = {
-      name, payee: payee(latest), amount: r2(-latest.amount / 100), varies: Math.max(...amounts) - Math.min(...amounts) > mid * 0.05,
-      freq: best.t.freq, method: list.some(t => t.scheme === "bacs") ? "dd" : byCard(latest) ? "card" : "transfer", n: best.n,
-    };
-    // the next date it goes out, as a bill's date box wants it (any one of them pins down the rest)
-    if (typeof best.t.day === "number") bill.day = best.t.day;
-    else { let d = last; while (d < today) d = addDays(d, STEP[best.t.freq]!); bill.date = d; }
+    const bill = asBill(list, best.t, best.n, today);
+    if (names.has(bill.name.toLowerCase())) continue;
+    names.add(bill.name.toLowerCase());
     out.push(bill);
   }
   return out.sort((a, b) => b.amount - a.amount);
+}
+
+// money you paid out, by who it went to (not pay, not your own pots)
+const paidOut = (raw: RawTx[]) => byPayee(raw.filter(t => moved(t) && t.amount < 0 && t.category !== "income"));
+const tryBill = (t: Pick<Bill, "freq" | "day" | "date">, from: IsoDate, to: IsoDate) => billDates({id: "", name: "", amount: 0, ...t}, from, to);
+
+/** One payee's payments (oldest first) as a bill on `rule`: the latest amount, how it was paid, and when it next goes out. */
+function asBill(list: RawTx[], rule: Pick<Bill, "freq" | "day" | "date">, n: number, today: IsoDate): FoundBill {
+  const latest = list[list.length - 1], amounts = list.map(t => -t.amount / 100), mid = median(amounts);
+  const bill: FoundBill = {
+    name: nice(payee(latest)).slice(0, 40), payee: payee(latest), amount: r2(-latest.amount / 100),
+    varies: Math.max(...amounts) - Math.min(...amounts) > mid * 0.05,
+    freq: rule.freq, method: list.some(t => t.scheme === "bacs") ? "dd" : byCard(latest) ? "card" : "transfer", n,
+  };
+  // the next date it goes out, as a bill's date box wants it (any one of them pins down the rest)
+  if (typeof rule.day === "number") bill.day = rule.day;
+  else { let d = when(latest); while (d < today) d = addDays(d, STEP[rule.freq]!); bill.date = d; }
+  return bill;
+}
+
+/** Someone you've paid lately, ready to keep as a bill: `n` payments, the last on `last`. */
+export type FoundPayee = FoundBill & {last: IsoDate};
+
+/**
+ * Everyone you've paid in the payments setup read, for picking your own regular payments when the ones found aren't all
+ * of them. Each comes as the bill it would be: on the rule that fits its payments, or (paid once, or no rule fits)
+ * monthly on the day of the last one, which you check before it's kept. Paid more than once first, then the newest.
+ */
+export function findPayees(raw: RawTx[], today: IsoDate): FoundPayee[] {
+  const out: FoundPayee[] = [], names = new Set<string>();
+  for (const list of paidOut(raw)) {
+    const ds = [...new Set(list.map(when))].sort(), last = ds[ds.length - 1];
+    const tries: Pick<Bill, "freq" | "day" | "date">[] = [
+      ...daysSeen(ds, 1).map(day => ({freq: "monthly" as const, day})),
+      {freq: "fourweekly", date: last}, {freq: "fortnightly", date: last}, {freq: "weekly", date: last},
+    ];
+    const best = fit(ds, tries, tryBill);
+    const bill = asBill(list, best?.t ?? {freq: "monthly", day: parseD(last).getDate()}, list.length, today);
+    if (names.has(bill.name.toLowerCase())) continue;
+    names.add(bill.name.toLowerCase());
+    out.push({...bill, last});
+  }
+  return out.sort((a, b) => Number(b.n > 1) - Number(a.n > 1) || b.last.localeCompare(a.last));
 }
 
 /** What you usually spend on one everyday thing, a month, from your card payments: a suggestion for setup's everyday. */
@@ -229,12 +265,12 @@ export function findSpending(raw: RawTx[], today: IsoDate, bills: FoundBill[] = 
 export type FoundIncome = SeenPay & {rule: PayRule | null};
 
 /** Everything setup can fill in from the payments it read when you connected. Nothing here is saved until you've seen it. */
-export interface SetupFound { pays: FoundIncome[]; bills: FoundBill[]; spending: FoundSpend[] }
+export interface SetupFound { pays: FoundIncome[]; bills: FoundBill[]; spending: FoundSpend[]; payees: FoundPayee[] }
 
 export function findAll(raw: RawTx[], today: IsoDate): SetupFound {
   const bills = findBills(raw, today);
   return {
     pays: findPays(raw, today).map(p => ({amount: p.amount, from: p.from, date: p.date, rule: payRule(p.dates, today)})),
-    bills, spending: findSpending(raw, today, bills),
+    bills, spending: findSpending(raw, today, bills), payees: findPayees(raw, today),
   };
 }

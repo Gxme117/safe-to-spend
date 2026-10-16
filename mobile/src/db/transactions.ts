@@ -46,12 +46,13 @@ export async function insertMany(txs: Tx[]): Promise<Tx[]> {
 }
 
 /** Fills in when Monzo payments really happened and their logo, for ones saved before those were kept. Never overwrites. */
-export async function backfill(fills: {monzoId: string; paidAt?: number; logo?: string}[]) {
+export async function backfill(fills: {monzoId: string; paidAt?: number; logo?: string; note?: string}[]) {
   if (!fills.length) return;
   const d = await db();
   await d.withTransactionAsync(async () => {
     for (const f of fills) {
-      await d.runAsync("UPDATE tx SET paid_at = COALESCE(paid_at, ?), logo = COALESCE(logo, ?) WHERE monzo_id = ?", f.paidAt ?? null, f.logo ?? null, f.monzoId);
+      await d.runAsync("UPDATE tx SET paid_at = COALESCE(paid_at, ?), logo = COALESCE(logo, ?), note = COALESCE(?, note) WHERE monzo_id = ?",
+        f.paidAt ?? null, f.logo ?? null, f.note ?? null, f.monzoId);
     }
   });
 }

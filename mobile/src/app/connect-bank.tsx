@@ -1,20 +1,21 @@
 import {router, useLocalSearchParams} from "expo-router";
 import * as Linking from "expo-linking";
-import {useEffect, useState} from "react";
-import {View} from "react-native";
+import {useEffect, useRef, useState} from "react";
+import {AppState, View} from "react-native";
 import {PotRoles, syncMessage} from "@/components/Bank";
 import {TextLink} from "@/components/Setup";
 import {Form} from "@/components/Form";
 import {Field, Input, T} from "@/components/ui";
 import {authUrl, parseRedirect, REDIRECT_URI} from "@/lib/monzo";
-import {clientFromEnv, clientId, connect, fetchSetupBank, hasClient, loginState, MonzoFail, saveClient, startLogin} from "@/services/monzo";
+import {approvedYet, clientFromEnv, clientId, connect, fetchSetupBank, hasClient, loginState, MonzoFail, saveClient, startLogin} from "@/services/monzo";
 import {useMoney} from "@/store/useMoney";
 import {s} from "@/theme/tokens";
 
 type Step = "client" | "paste" | "approve" | "pots";
 
 /**
- * Connect your own Monzo account: your developer client, log in in Safari, paste the link back, approve in the Monzo app.
+ * Connect your own Monzo account: your developer client, log in in Safari, paste the link back, approve in the Monzo app
+ * (this screen notices by itself).
  * From setup (`?from=setup`, on the first question or just before the bills) it only reads the total (main account + all pots)
  * and what your payments say back to setup; the full sync runs once setup is done.
  */
@@ -59,21 +60,41 @@ export default function ConnectBank() {
     }
   };
 
+  const done = () => { router.back(); useMoney.getState().notify("Monzo connected. Your balance now comes from your bank", true); };
+
+  const going = useRef(false);   // reading from Monzo after approval: once, whether you tapped or it noticed
+  const watch = useRef(true);    // checking by itself; stops after a failed read, so it doesn't retry every few seconds
   const approved = async () => {
-    setBusy(true);
+    if (going.current) return;
+    going.current = true; setBusy(true);
+    const stop = (msg: string) => { going.current = false; watch.current = false; fail(msg); };
     if (fromSetup) {
       try { const r = await fetchSetupBank(); useMoney.getState().setSetupBank(r.totalPence / 100, r.found); setBusy(false); router.back(); }
-      catch (e) { fail(syncMessage(e instanceof MonzoFail ? e.kind : "other")); }
+      catch (e) { stop(syncMessage(e instanceof MonzoFail ? e.kind : "other")); }
       return;
     }
     const r = await useMoney.getState().syncBank();
-    if ("error" in r) return fail(syncMessage(r.error) + (__DEV__ && r.detail ? `\n(${r.detail})` : ""));
+    if ("error" in r) return stop(syncMessage(r.error) + (__DEV__ && r.detail ? `\n(${r.detail})` : ""));
     setBusy(false); setError("");
     const pots = useMoney.getState().state?.bank?.pots.length;
     if (pots) setStep("pots"); else done();
   };
 
-  const done = () => { router.back(); useMoney.getState().notify("Monzo connected. Your balance now comes from your bank", true); };
+  // no need to say you've approved: check every few seconds, and as soon as you're back from the Monzo app
+  useEffect(() => {
+    if (step !== "approve") return;
+    let live = true, checking = false;
+    const check = async () => {
+      if (checking || going.current || !watch.current) return;
+      checking = true;
+      const yes = await approvedYet().catch(() => false);
+      checking = false;
+      if (yes && live) approved();
+    };
+    const timer = setInterval(check, 3000);
+    const sub = AppState.addEventListener("change", st => { if (st === "active") check(); });
+    return () => { live = false; clearInterval(timer); sub.remove(); };
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (step === "client" && clientFromEnv && !own) return (
     <Form error={error} submit={busy ? "Opening Monzo…" : "Log in with Monzo"} onSubmit={busy ? () => {} : logIn}>
@@ -103,7 +124,7 @@ export default function ConnectBank() {
   if (step === "approve") return (
     <Form error={error} submit={busy ? "Checking…" : "I've approved it"} onSubmit={busy ? () => {} : approved}>
       <T weight="bold" size="lg">One more step in the Monzo app</T>
-      <T muted>Monzo asks you to allow access before it shares anything. Open the Monzo app, approve the request, then come back here.</T>
+      <T muted>Monzo asks you to allow access before it shares anything. Open the Monzo app and approve the request. This page carries on by itself once you have.</T>
     </Form>
   );
   return (

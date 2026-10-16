@@ -48,14 +48,16 @@ export const isReceived = (ctx: Ctx, srcId: string, d: IsoDate) => ctx.txs.some(
 /** The main income, or the first regular one: it sets the pay cycle. */
 export const mainIncome = (ctx: Ctx) => ctx.state.incomes.find(s => s.main) || ctx.state.incomes.find(s => s.freq !== "oneoff") || null;
 
-/** Paydays in the last 40 days that haven't been confirmed, skipped, or snoozed today. Money only counts once it arrives. */
-export function pendingCheckins(ctx: Ctx) {
+/** Paydays in the last 40 days that haven't been confirmed, skipped, or snoozed today. Money only counts once it arrives.
+ *  `now` ("14:05"): money expected at a time today isn't asked about until then. */
+export function pendingCheckins(ctx: Ctx, now?: string) {
   const t = ctx.today, res: {src: Income; date: IsoDate; key: string}[] = [];
   const {skipped, snoozed} = ctx.state;
   for (const s of ctx.state.incomes) for (const d of occurrences(s, addDays(t, -40), t)) {
     if (s.since && d < s.since) continue;
     const k = ciKey(s.id, d);
     if (skipped[k] || snoozed[k] === t || isReceived(ctx, s.id, d)) continue;
+    if (d === t && s.time && now && now < s.time) continue;
     res.push({src: s, date: d, key: k});
   }
   return res.sort((a, b) => a.date.localeCompare(b.date));
@@ -105,6 +107,7 @@ export function buildIncome(f: IncomeForm, old: Income | undefined, id: string, 
   if (needsDate(f.freq) && !f.date) return {error: "Add the next date this money arrives"};
   const src: Income = {id, name: name.slice(0, 40), type: f.type, freq: f.freq, varies: f.varies, since: old?.since || t};
   if (old?.payer) src.payer = old.payer;
+  if (old?.time && f.freq === "oneoff") src.time = old.time;
   if (f.freq === "oneoff" && f.date && f.date < src.since!) src.since = f.date;
   if (["weekly", "fortnightly", "fourweekly", "oneoff"].includes(f.freq)) src.date = f.date;
   if (f.freq === "monthly-date") src.day = parseD(f.date).getDate();

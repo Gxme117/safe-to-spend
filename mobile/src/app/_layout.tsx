@@ -1,3 +1,5 @@
+import {BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold} from "@expo-google-fonts/bricolage-grotesque";
+import {Inter_700Bold, Inter_800ExtraBold} from "@expo-google-fonts/inter";
 import {Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold, useFonts} from "@expo-google-fonts/manrope";
 import {Stack} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -12,7 +14,7 @@ import {useTheme} from "@/theme/useTheme";
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold});
+  const [fontsLoaded] = useFonts({Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold, BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold, Inter_700Bold, Inter_800ExtraBold});
   const hasState = useMoney(st => !!st.state), loaded = useMoney(st => st.loaded);
   const {c, dark} = useTheme();
 
@@ -34,7 +36,7 @@ export default function RootLayout() {
       <StatusBar style={dark ? "light" : "dark"} />
       <Stack screenOptions={{
         headerStyle: {backgroundColor: c.bg}, headerTintColor: c.ink, headerShadowVisible: false,
-        headerTitleStyle: {fontFamily: font.bold, fontSize: textSize.lg}, contentStyle: {backgroundColor: c.bg},
+        headerTitleStyle: {fontFamily: font.headBold, fontSize: textSize.lg}, contentStyle: {backgroundColor: c.bg},
       }}>
         <Stack.Protected guard={!hasState}>
           <Stack.Screen name="setup" options={{headerShown: false}} />
@@ -44,10 +46,11 @@ export default function RootLayout() {
           <Stack.Screen name="add-payment" options={modal("Add a payment")} />
           <Stack.Screen name="payment/[id]" options={modal("Payment")} />
           <Stack.Screen name="income/[id]" options={modal("Income")} />
+          {/* a pop-up over the page rather than a sheet: it draws its own card and dimmed backdrop */}
+          <Stack.Screen name="expect" options={{presentation: "transparentModal", animation: "fade", headerShown: false, contentStyle: {backgroundColor: "transparent"}}} />
           <Stack.Screen name="bill/[id]" options={modal("Bill")} />
           <Stack.Screen name="everyday" options={modal("Everyday")} />
-          <Stack.Screen name="settings" options={modal("Settings")} />
-          <Stack.Screen name="account" options={modal("Account")} />
+          <Stack.Screen name="today" options={modal("Today's number")} />
         </Stack.Protected>
         {/* from setup too: the first question can be answered by the bank */}
         <Stack.Screen name="connect-bank" options={modal("Connect Monzo")} />

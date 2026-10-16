@@ -5,12 +5,13 @@ import {money} from "@/lib/money";
 import type {Bank} from "@/lib/types";
 import {type SyncError, useMoney} from "@/store/useMoney";
 import {radius, s} from "@/theme/tokens";
+import {useTheme} from "@/theme/useTheme";
 import {useReducedMotion} from "./BigMoney";
 import {Icon} from "./Icon";
 import {Chip, T} from "./ui";
 
 const SAY: Record<SyncError, string> = {
-  "needs-approval": "Approve the request in your Monzo app, then tap Sync again",
+  "needs-approval": "Approve the request in your Monzo app, then sync again",
   "needs-login": "Monzo needs you to log in again",
   "bad-client": "Monzo didn't recognise your client ID or secret. Check them against developers.monzo.com",
   offline: "Couldn't reach Monzo. Check your connection and try again",
@@ -20,7 +21,8 @@ const SAY: Record<SyncError, string> = {
 export const syncMessage = (e: SyncError) => SAY[e];
 const updated = (n: number) => n ? `Updated from Monzo. ${n} new payment${n > 1 ? "s" : ""} added` : "Updated from Monzo. No new payments";
 
-/** Sync and say how it went. Quiet syncs (on opening the app) only speak up when Monzo needs something from you. */
+/** Sync every connected bank (Monzo is the only one so far) and say how it went.
+ *  Quiet syncs (on opening the app) only speak up when the bank needs something from you. */
 export async function syncNow(quiet = false) {
   const {syncBank, notify} = useMoney.getState();
   const r = await syncBank();
@@ -45,8 +47,11 @@ export function useAutoSync() {
   }, []);
 }
 
-/** Sync when connected, connect when not. The arrows turn while it works (they stay still with Reduce Motion on). */
-export function SyncButton({bank, ink}: {bank?: Bank; ink: string}) {
+/** One round button for every connected bank: syncs them all, or opens Connect when there are none yet.
+ *  Icon only; the arrows turn while it works (they stay still with Reduce Motion on). */
+export function SyncButton() {
+  const {c} = useTheme();
+  const connected = useMoney(st => !!st.state?.bank);
   const syncing = useMoney(st => st.syncing);
   const reduced = useReducedMotion();
   const [spin] = useState(() => new Animated.Value(0));
@@ -56,15 +61,13 @@ export function SyncButton({bank, ink}: {bank?: Bank; ink: string}) {
     loop.start();
     return () => loop.stop();
   }, [syncing, reduced, spin]);
-  const label = bank ? (syncing ? "Syncing" : "Sync") : "Connect";
   return (
-    <Pressable onPress={() => bank ? syncNow() : router.push("/connect-bank")} disabled={syncing} hitSlop={s[2]}
-      accessibilityRole="button" accessibilityLabel={bank ? "Sync with Monzo" : "Connect Monzo"} accessibilityState={{busy: syncing}}
-      style={{flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: ink, borderRadius: radius.pill, paddingVertical: s[1], paddingHorizontal: s[3]}}>
+    <Pressable onPress={() => connected ? syncNow() : router.push("/connect-bank")} disabled={syncing} hitSlop={4}
+      accessibilityRole="button" accessibilityLabel={connected ? (syncing ? "Syncing your banks" : "Sync your banks") : "Connect a bank"} accessibilityState={{busy: syncing}}
+      style={{width: 36, height: 36, borderRadius: radius.pill, backgroundColor: c.surface, alignItems: "center", justifyContent: "center"}}>
       <Animated.View style={{transform: [{rotate: spin.interpolate({inputRange: [0, 1], outputRange: ["0deg", "360deg"]})}]}}>
-        <Icon name="refresh" color={ink} size={16} />
+        <Icon name="refresh" color={c.ink} size={20} />
       </Animated.View>
-      <T size="sm" weight="bold" style={{color: ink}}>{label}</T>
     </Pressable>
   );
 }

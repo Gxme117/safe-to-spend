@@ -1,6 +1,8 @@
-import {billsLine, calc, calendar, comingUp, freeSummary, hero, payCycle, split} from "../calc";
+import {billsLine, calc, calendar, comingUp, dayDetail, dayFigure, forecast, freeSummary, hero, moneyBar, payCycle, split, tomorrowLine} from "../calc";
+import {niceTime} from "../dates";
+import {pendingCheckins} from "../income";
 import type {Ctx} from "../types";
-import {baseState, ctx, tx} from "./fixtures";
+import {baseState, ctx, TODAY, tx} from "./fixtures";
 
 const run = (c: Ctx) => { const r = calc(c); return {r, h: hero(c, r)}; };
 
@@ -19,24 +21,34 @@ describe("the daily number", () => {
     expect(r.billsLeft).toBe(400);
     expect(r.everydayLeft).toBe(150);
     expect(r.short).toBe(0);
-    expect(h).toMatchObject({kind: "number", free: 400, perDay: 16, reason: "Lasts you until payday, Fri 30 Oct"});
+    expect(h).toMatchObject({kind: "number", free: 400, perDay: 16, left: 16, reason: "Lasts you until payday, Fri 30 Oct"});
   });
 
-  test("spending today shows what's left of today", () => {
+  test("spending today comes off today's amount once, not off the share as well", () => {
     const {h} = run(ctx({txs: [groceries, tx({amount: 10, date: "2026-10-05", cat: "eating"})]}));
-    // free 390 / 25 = 15.60; 15.60 − 10 = 5.60
-    expect(h).toMatchObject({kind: "number", perDay: 15.6, spentToday: 10, reason: "£5.60 left today after £10 spent"});
+    // this morning £400 was free: £16 a day. £10 spent leaves £6 of it (not £15.60 − £10, which counts the £10 twice)
+    expect(h).toMatchObject({kind: "number", perDay: 16, left: 6, spentToday: 10, free: 390, reason: "£10 spent of today's £16"});
+    // tomorrow, with nothing else spent: £390 over 24 days, rounded down
+    const next = run(ctx({today: "2026-10-06", txs: [groceries, tx({amount: 10, date: "2026-10-05", cat: "eating"})]})).h;
+    expect(next).toMatchObject({perDay: 16, left: 16});
+  });
+
+  test("rounded down to whole pounds, so it never promises more than there is", () => {
+    const {h} = run(ctx({txs: [groceries, tx({amount: 10, date: "2026-10-04"})]}));
+    // £390 over 25 days is £15.60
+    expect(h).toMatchObject({perDay: 15, left: 15});
   });
 
   test("everyday spending doesn't count against today; it comes out of its own amount", () => {
     const {r, h} = run(ctx({txs: [groceries, tx({amount: 30, date: "2026-10-05", cat: "groceries"})]}));
     expect(r.everydayLeft).toBe(120);
-    expect(h).toMatchObject({perDay: 16, spentToday: 0});
+    expect(h).toMatchObject({perDay: 16, left: 16, spentToday: 0});
   });
 
-  test("a big day just lowers the days ahead, without judgement", () => {
+  test("a big day just lowers the days ahead, without judgement, and says what tomorrow's is", () => {
     const {h} = run(ctx({txs: [groceries, tx({amount: 100, date: "2026-10-05"})]}));
-    expect(h.kind === "number" && h.reason).toBe("£100 spent today. The days ahead adjust");
+    // £300 left free over the 24 days after today: £12.50, rounded down
+    expect(h).toMatchObject({perDay: 16, left: 0, reason: "£100 spent today. From tomorrow, £12 a day"});
   });
 
   test("a bill paid early isn't held back any more", () => {
@@ -45,13 +57,22 @@ describe("the daily number", () => {
     expect(r.balance).toBe(550);
   });
 
-  test("short: says by how much, with no scolding", () => {
+  test("short: below £0 by the gap a day until payday, and says the whole gap, calmly", () => {
     const state = baseState({bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}]});
     const {r, h} = run(ctx({state, txs: [groceries]}));
     expect(r.need).toBe(1350);
     expect(r.short).toBe(400);
-    expect(h).toMatchObject({kind: "number", reason: "£400 short for bills and everyday"});
-    if (h.kind === "number") expect(h.perDay).toBeLessThan(0);
+    expect(r.daysLeft).toBe(25);   // -£400 over 25 days
+    expect(h).toMatchObject({kind: "number", perDay: 0, left: -16, reason: "You need £400 more to cover your bills and everyday"});
+    expect(h.kind === "number" && h.reason).not.toMatch(/short|move/i);
+  });
+
+  test("with no everyday left, the gap is just bills", () => {
+    const state = baseState({categories: baseState().categories.filter(x => x.id !== "groceries"),
+      bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}]});
+    const {r, h} = run(ctx({state, txs: [groceries]}));
+    expect(r.everydayLeft).toBe(0);
+    expect(h).toMatchObject({perDay: 0, reason: `You need ${"£" + (r.need - r.balance)} more to cover your bills`});
   });
 
   test("payments logged before the balance was typed in aren't counted twice", () => {
@@ -73,8 +94,35 @@ describe("the daily number", () => {
     ];
     for (const c of cases) {
       const h = hero(c, calc(c));
-      if (h.kind === "number") expect(h.reason).not.toMatch(/over|too much|careful|warning/i);
+      if (h.kind === "number") expect(h.reason).not.toMatch(/\bover\b|too much|careful|warning/i);
     }
+  });
+});
+
+describe("what today does to tomorrow", () => {
+  test("nothing spent: what's free shared over the days after today", () => {
+    const {r, h} = run(ctx({txs: [groceries]}));
+    // £400 over the 24 days after today is £16.66, rounded down
+    expect(tomorrowLine(r, h)).toBe("Spend nothing today and tomorrow's £16");
+  });
+
+  test("some spent, within today's amount: tomorrow still holds", () => {
+    const {r, h} = run(ctx({txs: [groceries, tx({amount: 10, date: "2026-10-05", cat: "eating"})]}));
+    expect(tomorrowLine(r, h)).toBe("Spend nothing more today and tomorrow's £16");
+  });
+
+  test("more than today's amount: the hero already says it, so no second line", () => {
+    const {r, h} = run(ctx({txs: [groceries, tx({amount: 100, date: "2026-10-05", cat: "eating"})]}));
+    expect(h.kind === "number" && h.reason).toMatch(/From tomorrow/);
+    expect(tomorrowLine(r, h)).toBeNull();
+  });
+
+  test("nothing when payday is tomorrow, or there's nothing free", () => {
+    const tomorrowPay = run(ctx({today: "2026-10-29", txs: [groceries]}));
+    expect(tomorrowLine(tomorrowPay.r, tomorrowPay.h)).toBeNull();
+    const big = ctx({state: baseState({bills: [{id: "x", name: "X", amount: 5000, freq: "monthly", day: 20}]})});
+    const r = calc(big);
+    expect(tomorrowLine(r, hero(big, r))).toBeNull();
   });
 });
 
@@ -101,7 +149,7 @@ describe("month view", () => {
   });
 
   test("coming up lists bills then pay, in date order", () => {
-    expect(comingUp(c, r).map(x => `${x.d} ${x.name} ${x.amt}`)).toEqual(["2026-10-15 Rent −£400", "2026-10-30 Pharmacy pay +£1,800"]);
+    expect(comingUp(c, r).map(x => `${x.d} ${x.name} ${x.amt}`)).toEqual(["2026-10-15 Rent −£400", "2026-10-30 Pharmacy +£1,800"]);
   });
 
   test("split fills bills first, then everyday, then free", () => {
@@ -174,4 +222,88 @@ describe("money in that isn't income", () => {
     expect(r.payday).toBe("2026-10-30");
     expect(h).toMatchObject({free: 500, perDay: 20});
   });
+});
+
+describe("money you're expecting", () => {
+  const nandos = {id: "nan", name: "Nando's", type: "other" as const, freq: "oneoff" as const, varies: false, amount: 40, date: "2026-10-06", since: TODAY};
+  const withIt = (over: Partial<Ctx> = {}) => ctx({state: baseState({incomes: [...baseState().incomes, nandos]}), txs: [groceries], ...over});
+
+  test("shows on its day, but isn't counted until it lands", () => {
+    const c = withIt(), r = calc(c);
+    expect(comingUp(c, r).map(x => `${x.d} ${x.name} ${x.amt}`)).toEqual(["2026-10-06 Nando's +£40", "2026-10-15 Rent −£400", "2026-10-30 Pharmacy +£1,800"]);
+    // the day it's due, Safe to Spend counts it: £384 left after today's £16, plus £40, over 24 days
+    expect(dayFigure(c, r, "2026-10-06")).toMatchObject({label: "Safe to Spend", amount: 17});
+    expect(hero(c, r)).toMatchObject({perDay: 16, free: 400});
+  });
+
+  test("the calendar marks its day; a bill on the same day keeps its note", () => {
+    const c = withIt(), r = calc(c);
+    const at = (d: string) => calendar(c, r).days.find(x => x.d === d)!;
+    expect(at("2026-10-06")).toMatchObject({kinds: ["upcoming", "in"], note: "+£40", label: "Tue 6 Oct, Nando's £40 expected"});
+    expect(dayDetail(c, r, at("2026-10-06"))).toBe("Tue 6 Oct: Nando's £40 expected. It counts once it lands.");
+    const onRent = withIt({state: baseState({incomes: [...baseState().incomes, {...nandos, date: "2026-10-15"}]})}), r2 = calc(onRent);
+    const rent = calendar(onRent, r2).days.find(x => x.d === "2026-10-15")!;
+    expect(rent).toMatchObject({kinds: ["bill", "in"], note: "£400"});
+    expect(dayDetail(onRent, r2, rent)).toMatch(/won't touch your daily amount\. Nando's £40 expected\. It counts once it lands\.$/);
+  });
+
+  test("goes once it's arrived or marked as not coming", () => {
+    const arrived = withIt({txs: [groceries, tx({type: "income", amount: 40, date: "2026-10-06", cat: "nan", srcId: "nan", forDate: "2026-10-06"})], today: "2026-10-06"});
+    expect(comingUp(arrived, calc(arrived)).some(x => x.kind === "in")).toBe(false);
+    const gone = withIt({state: baseState({incomes: [...baseState().incomes, nandos], skipped: {"nan_2026-10-06": true}})});
+    expect(comingUp(gone, calc(gone)).some(x => x.kind === "in")).toBe(false);
+    expect(calendar(gone, calc(gone)).days.some(x => x.kinds.includes("in"))).toBe(false);
+  });
+});
+
+describe("asking whether expected money arrived", () => {
+  const nandos = {id: "nan", name: "Nando's", type: "other" as const, freq: "oneoff" as const, varies: false, amount: 40, date: TODAY, time: "14:00", since: TODAY};
+  const c = ctx({state: baseState({incomes: [{...baseState().incomes[0], since: TODAY}, nandos]})});
+  test("waits until the time it's due, then asks", () => {
+    expect(pendingCheckins(c, "13:55").map(x => x.src.id)).toEqual([]);
+    expect(pendingCheckins(c, "14:00").map(x => x.src.id)).toEqual(["nan"]);
+  });
+  test("doesn't ask once it's arrived", () => {
+    const got = {...c, txs: [tx({type: "income", amount: 40, date: TODAY, cat: "nan", srcId: "nan", forDate: TODAY})]};
+    expect(pendingCheckins(got, "15:00")).toEqual([]);
+  });
+  test("times read the UK way", () => {
+    expect([niceTime("14:00"), niceTime("09:30"), niceTime("00:00"), niceTime("12:05")]).toEqual(["2pm", "9:30am", "12am", "12:05pm"]);
+  });
+});
+
+describe("Safe to Spend on days to come", () => {
+  const spent = tx({amount: 30, date: "2026-10-01", cat: "groceries"});
+
+  test("spending each day's amount, it stays the same until payday", () => {
+    const c = ctx({txs: [spent]}), r = calc(c);
+    expect(hero(c, r)).toMatchObject({perDay: 16, free: 400});
+    expect(forecast(c, r, "2026-10-06")).toEqual({amount: 16, free: 384});
+    expect(forecast(c, r, "2026-10-29")).toEqual({amount: 16, free: 16});
+  });
+
+  test("from payday: pay comes in, that cycle's bills and everyday are set aside, and the rest lasts to the next payday", () => {
+    const c = ctx({txs: [spent]}), r = calc(c);
+    // £1,800 in; Phone £20, Rent £400 and Groceries £200 set aside; £1,180 over the 31 days to Mon 30 Nov
+    expect(forecast(c, r, "2026-10-30")).toEqual({amount: 38, free: 1180});
+    expect(dayFigure(c, r, "2026-10-30")).toEqual({label: "Safe to Spend", amount: 38, reason: "If you spend each day's amount until then"});
+  });
+
+  test("without enough, it's the gap a day until payday, and pay covers it by itself", () => {
+    const state = baseState({bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}]});
+    const c = ctx({state, txs: [spent]}), r = calc(c);
+    expect(forecast(c, r, "2026-10-06")).toEqual({amount: -17, free: -400});
+    expect(dayFigure(c, r, "2026-10-06").reason).toBe("You'd need £400 more to cover your bills and everyday");
+    expect(forecast(c, r, "2026-10-30")).toEqual({amount: 0, free: 0});
+  });
+
+  test("the main card only says what you could spend: what's going out is left to the list below", () => {
+    const c = ctx({txs: [spent]}), r = calc(c);
+    expect(dayFigure(c, r, "2026-10-15").label).toBe("Safe to Spend");
+  });
+});
+
+test("the bar under today's card: bills, everyday, savings, then free", () => {
+  const c = ctx({txs: [tx({amount: 30, date: "2026-10-01", cat: "groceries"})]}), r = calc(c);
+  expect(moneyBar(r, 250).map(p => `${p.label} ${p.amount}`)).toEqual(["Bills 400", "Everyday 170", "Savings 250", "Free 400"]);
 });

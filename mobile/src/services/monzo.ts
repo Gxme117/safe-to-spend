@@ -32,6 +32,9 @@ async function client() {
 export async function hasClient() { const c = await client(); return !!(c.id && c.secret); }
 export async function clientId() { return (await client()).id; }
 
+/** A Monzo login is saved on this phone: Start over keeps it, Disconnect removes it. */
+export async function loggedIn() { return !!(await get(K.refresh)); }
+
 /** A fresh random state for each login, remembered in case the app restarts while you're in your email. */
 export async function startLogin() {
   const st = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
@@ -108,6 +111,12 @@ async function fetchTxs(q: string, since: string, pages = 20) {
     since = transactions[transactions.length - 1].id;
   }
   return all;
+}
+
+/** Whether you've approved access in the Monzo app yet: until you do, Monzo answers 403. */
+export async function approvedYet() {
+  try { await api("/accounts?account_type=uk_retail"); return true; }
+  catch (e) { if (e instanceof MonzoFail && e.kind === "needs-approval") return false; throw e; }
 }
 
 async function mainAccount() {

@@ -3,6 +3,13 @@ import type {IsoDate} from "./types";
 export const pad = (n: number) => String(n).padStart(2, "0");
 export const isoD = (d: Date): IsoDate => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 export const today = (): IsoDate => isoD(new Date());
+/** The time now, "14:05". */
+export const nowHM = (d = new Date()) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+/** "14:00" to "2pm", "09:30" to "9:30am". */
+export const niceTime = (hm: string) => {
+  const [h, m] = hm.split(":").map(Number), h12 = h % 12 || 12;
+  return `${h12}${m ? `:${pad(m)}` : ""}${h < 12 ? "am" : "pm"}`;
+};
 export const parseD = (s: IsoDate) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 export const addDays = (s: IsoDate, n: number): IsoDate => { const d = parseD(s); d.setDate(d.getDate() + n); return isoD(d); };
 export const addMonths = (k: string, n: number) => { const d = parseD(k + "-01"); d.setMonth(d.getMonth() + n); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
@@ -17,6 +24,9 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 export const niceDate = (s: IsoDate) => { const d = parseD(s); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`; };
 /** "Sat 3 October" */
 export const longDate = (s: IsoDate) => { const d = parseD(s); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** "Saturday" */
+export const dayName = (s: IsoDate) => DAY_NAMES[parseD(s).getDay()];
 export const ord = (n: number) => n + ((n % 100 >= 11 && n % 100 <= 13) ? "th" : ({1: "st", 2: "nd", 3: "rd"} as Record<number, string>)[n % 10] || "th");
 
 // England and Wales

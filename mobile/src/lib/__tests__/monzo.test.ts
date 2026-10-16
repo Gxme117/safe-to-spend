@@ -165,6 +165,24 @@ test("setup reads about 3 months back, inside the 90 days Monzo shares, in a tim
   expect(setupSince(NOW + 123)).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
 });
 
+test("money sent to someone's account is named after them, not the reference (your own name)", () => {
+  const got = importTxs(ctx(), [
+    raw({id: "out", amount: -2000, description: "ALEX MORGAN", counterparty: {name: "Sam Lee"}}),
+    raw({id: "in", amount: 1500, description: "Dinner", counterparty: {name: "Jo Bloggs"}}),
+  ], NOW, ids);
+  expect(got.map(t => [t.monzoId, t.note])).toEqual([["out", "Sam Lee"], ["in", "Jo Bloggs"]]);
+});
+
+test("transfers already saved under the reference get the person's name; renamed ones are left alone", () => {
+  const sent = tx({amount: 20, date: TODAY, monzoId: "sent", paidAt: 1, note: "ALEX MORGAN"});
+  const renamed = tx({amount: 20, date: TODAY, monzoId: "renamed", paidAt: 1, note: "Rent share"});
+  const got = missingDetails([sent, renamed], [
+    raw({id: "sent", description: "ALEX MORGAN", counterparty: {name: "Sam Lee"}}),
+    raw({id: "renamed", description: "ALEX MORGAN", counterparty: {name: "Sam Lee"}}),
+  ]);
+  expect(got).toEqual([{monzoId: "sent", note: "Sam Lee"}]);
+});
+
 test("who's at the other end: the shop, else the person or company, else the description", () => {
   expect(payee({id: "a", amount: -1, created: "", merchant: {name: "Tesco"}, counterparty: {name: "x"}, description: "TESCO 123"})).toBe("Tesco");
   expect(payee({id: "b", amount: 1, created: "", counterparty: {name: "ACME LTD"}, description: "SALARY 0926"})).toBe("ACME LTD");
@@ -183,4 +201,11 @@ test("pay from the payer setup saw counts as payday, whatever the income is call
   const viaName = importTxs(ctx({state: {...baseState(), incomes: [{...baseState().incomes[0], payer: "ACME LTD"}]}}),
     [raw({id: "p2", amount: 180000, created: "2026-09-30T06:00:00Z", description: "SEP SALARY", counterparty: {name: "ACME LTD"}})], NOW, ids);
   expect(viaName[0].srcId).toBe("job");
+});
+
+test("money you're expecting is matched by name, apostrophes and all", () => {
+  const nandos = {id: "nan", name: "Nando's", type: "other" as const, freq: "oneoff" as const, varies: false, amount: 40, date: "2026-10-02", since: "2026-10-01"};
+  const got = importTxs(ctx({state: {...baseState(), incomes: [...baseState().incomes, nandos]}}),
+    [raw({id: "n1", amount: 4000, created: "2026-10-02T09:00:00Z", description: "NANDOS CHICKENLAND"})], NOW, ids);
+  expect(got[0]).toMatchObject({cat: "nan", srcId: "nan", forDate: "2026-10-02"});
 });
