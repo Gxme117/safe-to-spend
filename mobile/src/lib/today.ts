@@ -1,4 +1,5 @@
-import {calc, hero, type Calc, type Hero} from "./calc";
+import {calc, forecast, hero, type Calc, type Hero} from "./calc";
+import {addDays} from "./dates";
 import {money, r2} from "./money";
 import type {Ctx, Tx} from "./types";
 
@@ -49,4 +50,17 @@ export function whatIf(ctx: Ctx, amount: number): {line: string; hero: Extract<H
   if (c.daysLeft < 2) return {hero: h2, line: `It fits. Payday is tomorrow`};
   const after = Math.floor(h2.free / (c.daysLeft - 1)), before = Math.floor(h.free / (c.daysLeft - 1));
   return {hero: h2, line: `Then it's ${money(after)} a day from tomorrow${after < before ? `, instead of ${money(before)}` : ""}`};
+}
+
+/**
+ * Today's amount all used ("State · £0 today"): said calmly, and when it comes back. `lead` is drawn in ink, `rest` muted:
+ * "You've used today's £18." "Tomorrow starts fresh at £17." Tomorrow's is the forecast, so it's what tomorrow on the pay cycle shows.
+ * Null unless there's a number today, it's spent, and there's enough for bills and everyday (that line says how deep the gap is).
+ */
+export function usedUp(ctx: Ctx, c: Calc, h: Hero): {lead: string; rest: string} | null {
+  if (h.kind !== "number" || h.free < 0 || !h.perDay || h.left > 0 || c.daysLeft == null) return null;
+  const lead = `You've used today's ${money(h.perDay)}.`;
+  if (c.daysLeft < 2) return {lead, rest: "Payday's tomorrow."};
+  const next = forecast(ctx, c, addDays(c.t, 1));
+  return next ? {lead, rest: `Tomorrow starts fresh at ${money(next.amount)}.`} : null;
 }

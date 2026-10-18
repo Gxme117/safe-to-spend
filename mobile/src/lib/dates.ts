@@ -22,6 +22,10 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // Built by hand rather than with toLocaleDateString: Hermes' Intl output differs by platform.
 /** "Sat 3 Oct" */
 export const niceDate = (s: IsoDate) => { const d = parseD(s); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`; };
+/** "3 Oct" */
+export const shortDate = (s: IsoDate) => { const d = parseD(s); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`; };
+/** "Sat" */
+export const shortDay = (s: IsoDate) => WEEKDAYS[parseD(s).getDay()];
 /** "Sat 3 October" */
 export const longDate = (s: IsoDate) => { const d = parseD(s); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; };
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

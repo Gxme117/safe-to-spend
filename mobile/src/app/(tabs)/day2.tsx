@@ -6,6 +6,7 @@ import {BigMoney} from "@/components/BigMoney";
 import {CheckinCard} from "@/components/Cards";
 import {ComingRowView} from "@/components/ComingRow";
 import {CardHeads} from "@/components/Hero";
+import {HeroEmpty} from "@/components/HeroEmpty";
 import {Icon} from "@/components/Icon";
 import {Logo} from "@/components/Logo";
 import {TxRow} from "@/components/TxRow";
@@ -74,9 +75,7 @@ function DayV2({ctx, c}: {ctx: Ctx; c: Calc}) {
 function Lead({ctx, c, v}: {ctx: Ctx; c: Calc; v: DayView}) {
   const {c: theme, dark} = useTheme();
   const h = v.figure;
-  if (h.kind === "no-income") return <Empty title="Start with your income" text="Add where your money comes from and your daily number is worked out from it." action={{label: "Add your income", go: "/income/new"}} />;
-  if (h.kind === "payday-today") return <Empty title="Payday is today" text="Confirm your pay below and the daily number counts down to your next payday." />;
-  if (h.kind === "no-payday") return <Empty title="No payday coming up" text="Add a regular income so there's a payday to count down to." action={{label: "Add income", go: "/income/new"}} />;
+  if (h.kind === "no-income" || h.kind === "payday-today" || h.kind === "no-payday") return <HeroEmpty kind={h.kind} />;
   const label = h.kind === "number" ? "Safe to Spend Today" : h.label;
   // the label names the day, so the number reads as that day's and nothing else's
   // "Safe to Spend" (or "Spent") is drawn huge; the day goes on a smaller line under it, so a long date never shrinks the big words
@@ -116,16 +115,6 @@ function Lead({ctx, c, v}: {ctx: Ctx; c: Calc; v: DayView}) {
       accessibilityHint="Shows where it comes from" style={{paddingTop: s[4]}}>
       {body}
     </Pressable>
-  );
-}
-
-function Empty({title, text, action}: {title: string; text: string; action?: {label: string; go: "/income/new"}}) {
-  return (
-    <View style={{gap: s[3], paddingTop: s[4]}}>
-      <T size="xl" weight="head">{title}</T>
-      <T muted>{text}</T>
-      {action ? <View style={{alignSelf: "flex-start"}}><Button label={action.label} onPress={() => router.push(action.go)} /></View> : null}
-    </View>
   );
 }
 

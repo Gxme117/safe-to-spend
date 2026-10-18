@@ -91,7 +91,7 @@ export function everydayOn(ctx: Ctx, d: IsoDate): EverydayLeft[] {
 
 /**
  * What the hero shows. `kind` says which state it's in; only "number" has a daily figure.
- * `perDay`: today's amount, whole pounds, never below £0. `left`: what's left of it after today's free spending, or, when there isn't enough for bills and everyday, the gap a day (below £0).
+ * `perDay`: today's amount, whole pounds, never below £0. `left`: what's left of it after today's free spending, never below £0 (£0 when there isn't enough for bills and everyday).
  */
 export type Hero =
   | {kind: "no-income"}
@@ -131,9 +131,8 @@ export function hero(ctx: Ctx, c: Calc): Hero {
   // today's amount is what was free at the start of today, shared over the days to payday: what you spend today comes off it
   // once (in `left`), not off the share as well. Money that arrives today still raises it. Rounded down, never below £0.
   const perDay = Math.max(0, Math.floor((free + spentToday) / c.daysLeft));
-  // without enough for bills and everyday, the number goes below £0: the gap shared over the days to payday, rounded down like the daily
-  // amount. The line under it says the whole gap
-  const left = free < 0 ? Math.floor(free / c.daysLeft) : r2(Math.max(0, perDay - spentToday));
+  // never below £0: without enough for bills and everyday it stops at £0, and the line under it says how deep the gap is
+  const left = r2(Math.max(0, perDay - spentToday));
   // no "pace" judgement: spending big one day simply lowers the amount for the days after, and that's fine
   const reason = free < 0
     // how deep the gap is, said plainly: no "short", and never asks you to move money in
@@ -159,7 +158,7 @@ export function tomorrowLine(c: Calc, h: Hero): string | null {
 /**
  * Safe to Spend on a day still to come, if you spend each day's amount until then (nothing, while there isn't enough).
  * Money you're expecting, and your pay, count from the day they're due; on payday that cycle's bills and everyday amounts
- * are set aside first, as today's number does. Below £0 is the gap a day, as today. Null without a number today or a payday to count to.
+ * are set aside first, as today's number does. Never below £0, as today. Null without a number today or a payday to count to.
  */
 export function forecast(ctx: Ctx, c: Calc, d: IsoDate): {amount: number; free: number} | null {
   const h = hero(ctx, c);
@@ -183,7 +182,7 @@ export function forecast(ctx: Ctx, c: Calc, d: IsoDate): {amount: number; free: 
       free = r2(free - setAside(payday, next));
       payday = next;
     }
-    const share = Math.floor(free / dayDiff(day, payday));
+    const share = Math.max(0, Math.floor(free / dayDiff(day, payday)));
     if (day === d) return {amount: share, free};
     if (share > 0) free = r2(free - share);
   }

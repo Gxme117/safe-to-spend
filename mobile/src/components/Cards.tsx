@@ -1,5 +1,5 @@
 import {useState} from "react";
-import {Alert, View} from "react-native";
+import {Alert, View, type StyleProp, type ViewStyle} from "react-native";
 import {niceDate, niceTime, nowHM} from "@/lib/dates";
 import {lowAmt, pendingCheckins, usualAmt} from "@/lib/income";
 import {money, parseAmount} from "@/lib/money";
@@ -17,14 +17,14 @@ function TodoDot() {
 type Pending = ReturnType<typeof pendingCheckins>[number];
 
 /** "Did your pay arrive?" Money only counts once it lands. */
-export function CheckinCard({ctx}: {ctx: Ctx}) {
+export function CheckinCard({ctx, style}: {ctx: Ctx; style?: StyleProp<ViewStyle>}) {
   const pend = pendingCheckins(ctx, nowHM());
   if (!pend.length) return null;
   // keyed by payday, so the amount field starts fresh for each one
-  return <Checkin key={pend[0].key} p={pend[0]} more={pend.length - 1} today={ctx.today} />;
+  return <Checkin key={pend[0].key} p={pend[0]} more={pend.length - 1} today={ctx.today} style={style} />;
 }
 
-function Checkin({p, more, today}: {p: Pending; more: number; today: string}) {
+function Checkin({p, more, today, style}: {p: Pending; more: number; today: string; style?: StyleProp<ViewStyle>}) {
   const src = p.src, isToday = p.date === today, one = src.freq === "oneoff";
   const [amt, setAmt] = useState(!src.varies && src.amount ? String(src.amount) : "");
   // the same every time: one tap says it arrived. The field is for when it didn't land as expected (or it varies)
@@ -44,7 +44,7 @@ function Checkin({p, more, today}: {p: Pending; more: number; today: string}) {
   ]);
 
   return (
-    <Card>
+    <Card style={style}>
       <View style={{flexDirection: "row", alignItems: "center", gap: s[2]}}>
         <TodoDot />
         <T weight="semibold" size="sm">{one ? (isToday ? "Money check" : "Missed money check") : isToday ? "Payday check" : "Missed payday check"}</T>

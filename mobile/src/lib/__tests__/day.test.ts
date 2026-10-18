@@ -1,6 +1,6 @@
 import {calc, forecast, hero} from "../calc";
 import {addDays} from "../dates";
-import {dayView, dueByDay, runway, weekLeft, weekMarks} from "../day";
+import {cycleDays, dayView, dueByDay, runway, weekLeft, weekMarks} from "../day";
 import type {Ctx} from "../types";
 import {baseState, ctx as makeCtx, TODAY, tx} from "./fixtures";
 
@@ -136,4 +136,35 @@ test("the runway looks a week ahead even when payday is sooner, and has no figur
   expect(soon[soon.length - 1].d).toBe(addDays(TODAY, 6));
   const none = makeCtx({state: baseState({incomes: []})});
   expect(runway(none, calc(none)).every(x => x.when === "past" || x.amount === null)).toBe(true);
+});
+
+test("the pay-cycle grid runs from the last payday to the next, Monday first, with the line above it", () => {
+  const c = rich(), g = cycleDays(c, calc(c))!;
+  expect(g.range).toBe("30 Sep – 30 Oct");
+  expect(g.toPayday).toBe("25 days to payday");
+  // weeks of 7, Monday first: Wed 30 Sep has two blanks before it, Mon 5 Oct starts the next row, the last row is filled out with blanks
+  expect(g.weeks.every(w => w.length === 7)).toBe(true);
+  expect(g.weeks[0].map(x => x?.d ?? null)).toEqual([null, null, "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+  expect(g.weeks[1][0]!.d).toBe("2026-10-05");
+  expect(g.weeks[4].map(x => x?.n ?? null)).toEqual([26, 27, 28, 29, 30, null, null]);
+  expect(g.days.map(x => x.d)).toEqual(Array.from({length: 31}, (_, i) => addDays("2026-09-30", i)));
+  expect(g.days.find(x => x.when === "today")!.d).toBe(TODAY);
+  expect(g.days.filter(x => x.when === "past").length).toBe(5);
+  expect(g.days.filter(x => x.payday).map(x => x.d)).toEqual(["2026-10-30"]);
+});
+
+test("the grid marks bills still to go out, not ones gone, and says it all in one sentence", () => {
+  const c = rich(), g = cycleDays(c, calc(c))!;
+  // the gym today and rent on the 15th; the phone bill went out on the 1st
+  expect(g.days.filter(x => x.bill).map(x => x.d)).toEqual([TODAY, "2026-10-15"]);
+  expect(g.said).toBe("Pay cycle, 30 Sep – 30 Oct, day 6 of 30. Bills due Mon 5 Oct and Thu 15 Oct. Payday Fri 30 Oct.");
+});
+
+test("no grid without a payday to count to, or on payday; the day before it says payday's tomorrow", () => {
+  const none = makeCtx({state: baseState({incomes: []})});
+  expect(cycleDays(none, calc(none))).toBeNull();
+  const payday = makeCtx({today: "2026-10-30"});
+  expect(cycleDays(payday, calc(payday))).toBeNull();
+  const eve = makeCtx({today: "2026-10-29"});
+  expect(cycleDays(eve, calc(eve))!.toPayday).toBe("Payday tomorrow");
 });

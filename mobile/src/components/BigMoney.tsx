@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from "react";
 import {AccessibilityInfo, Text, View} from "react-native";
 import {money, splitPounds} from "@/lib/money";
-import {font, textSize, type TextSize} from "@/theme/tokens";
+import {textSize, type TextSize} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 
 /** Respects the phone's Reduce Motion setting. */
@@ -38,24 +38,36 @@ function useCountUp(target: number, on: boolean, ms = 900) {
   return shown;
 }
 
-const PENCE: Record<"hero" | "display" | "xl", TextSize> = {hero: "xl", display: "xl", xl: "md"};
+type Size = "giant" | "hero" | "display" | "xl";
+const PENCE: Record<Size, TextSize> = {giant: "xl", hero: "xl", display: "xl", xl: "md"};
 
-/** £16.00 with the pence smaller, like the web app. Screen readers hear the whole amount once. */
-export function BigMoney({value, size: name = "display", animate = true, color}: {value: number; size?: "hero" | "display" | "xl"; animate?: boolean; color?: string}) {
-  const {c} = useTheme();
+/** £16.00 with the pence smaller, like the web app. Screen readers hear the whole amount once.
+ *  `wholePounds`: leave ".00" off a whole amount (Home's big number, "£13"); pence that are there still show. */
+export function BigMoney({value, size: name = "display", animate = true, color, wholePounds}: {
+  value: number; size?: Size; animate?: boolean; color?: string; wholePounds?: boolean;
+}) {
+  const {c, f} = useTheme();
   const ink = color ?? c.ink;
   // The pence sit two steps down the scale.
   const size = textSize[name], small = textSize[PENCE[name]];
   const {whole, pence} = splitPounds(useCountUp(value, animate));
+  // the giant number shrinks to fit a narrow phone ("£1,234" on 375pt). Its line can't be tighter than the type, as drawn (iOS cuts the tops off),
+  // and it's tracked a little tighter, as drawn
+  const giant = name === "giant", line = size * 1.08, face = f.heavy, track = size * (giant ? 0.045 : 0.03);
   return (
     <View style={{flexDirection: "row", alignItems: "flex-start"}} accessible accessibilityLabel={money(value)}>
-      <Text adjustsFontSizeToFit numberOfLines={1}
-        style={{fontFamily: font.heavy, fontSize: size, lineHeight: size * 1.08, letterSpacing: -size * 0.03, color: ink, fontVariant: ["tabular-nums"]}}>
+      {/* the giant number is already as big as type gets, so the phone's text size doesn't scale it (it only left a gap above it).
+          iOS takes the tighter tracking off after the last digit too, which cut its edge off and pulled the pence in by a different amount
+          at each size: giving it back on the right keeps the last digit whole and the pence the same natural gap away at every size */}
+      <Text adjustsFontSizeToFit numberOfLines={1} allowFontScaling={!giant}
+        style={{flexShrink: giant ? 1 : undefined, fontFamily: face, fontSize: size, lineHeight: line, letterSpacing: -track, paddingRight: track, color: ink, fontVariant: ["tabular-nums"]}}>
         {value < 0 ? "−" : ""}£{whole}
       </Text>
-      <Text style={{fontFamily: font.heavy, fontSize: small, lineHeight: small * 1.1, marginTop: size * 0.12, color: ink, fontVariant: ["tabular-nums"]}}>
-        .{pence}
-      </Text>
+      {wholePounds && Math.round(Math.abs(value) * 100) % 100 === 0 ? null : (
+        <Text allowFontScaling={!giant} style={{fontFamily: face, fontSize: small, lineHeight: small * 1.1, marginTop: size * 0.12, color: ink, fontVariant: ["tabular-nums"]}}>
+          .{pence}
+        </Text>
+      )}
     </View>
   );
 }

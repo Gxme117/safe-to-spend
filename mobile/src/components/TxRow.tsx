@@ -3,11 +3,13 @@ import {useState} from "react";
 import {Alert, Image, StyleSheet, View} from "react-native";
 import {niceDate} from "@/lib/dates";
 import {money} from "@/lib/money";
+import {txLook, type Look} from "@/lib/looks";
 import {moneyInWhat} from "@/lib/payments";
 import type {Ctx, Tx} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
-import {radius} from "@/theme/tokens";
+import {badgeTint, radius} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
+import {LookIcon} from "./LookIcon";
 import {Row, T} from "./ui";
 
 /** What a payment was for: its bill, category, pay, or what kind of money in it was. */
@@ -17,39 +19,55 @@ export function txWhat(ctx: Ctx, it: Tx) {
   return ctx.state.categories.find(x => x.id === it.cat)?.name || "Other";
 }
 
+/** Ask before deleting a payment. */
+export function askRemove(it: Tx) {
+  Alert.alert(`Delete this ${money(it.amount)} ${it.type === "income" ? "payment in" : "payment"}?`, undefined, [
+    {text: "Cancel", style: "cancel"},
+    {text: "Delete", style: "destructive", onPress: () => useMoney.getState().removeTx(it.id)},
+  ]);
+}
+
 /** One payment. Tap to say what it was; hold to delete. */
 export function TxRow({ctx, it, showDate}: {ctx: Ctx; it: Tx; showDate?: boolean}) {
   const what = txWhat(ctx, it);
   const income = it.type === "income";
   const meta = [showDate ? niceDate(it.date) : "", it.note ? what : ""].filter(Boolean).join(". ");
-  const remove = () => Alert.alert(`Delete this ${money(it.amount)} ${income ? "payment in" : "payment"}?`, undefined, [
-    {text: "Cancel", style: "cancel"},
-    {text: "Delete", style: "destructive", onPress: () => useMoney.getState().removeTx(it.id)},
-  ]);
+  const remove = () => askRemove(it);
   return (
-    <Row name={it.note || what} leading={<MerchantLogo name={it.note || what} uri={it.logo} />} meta={meta || undefined} amount={income ? `+${money(it.amount)}` : `−${money(it.amount)}`} good={income}
+    <Row name={it.note || what} leading={<MerchantLogo name={it.note || what} uri={it.logo} look={txLook(ctx, it)} />} meta={meta || undefined} amount={income ? `+${money(it.amount)}` : `−${money(it.amount)}`} good={income}
       onPress={() => router.push(`/payment/${it.id}`)} onLongPress={remove}
       accessibilityHint={`Tap to ${income ? "say what this was" : "change what it was for"}. Hold to delete`} />
   );
 }
 
 const LOGO = 32;
-/** The shop's logo from Monzo, or the first letter of the name when there's none (or it won't load). Decorative: the row reads the name. */
-function MerchantLogo({name, uri}: {name: string; uri?: string}) {
-  const {c} = useTheme();
+/** The shop's logo from Monzo. When there's none (or it won't load): an icon for what it probably was on its colour (`look`,
+ *  lib/looks.ts), or else the first letter of the name. Decorative: the row reads the name.
+ *  Today draws it bigger, on its own colour, the letter in ink (`size`, `bg`, `strong`). */
+export function MerchantLogo({name, uri, look, size = LOGO, bg, strong}: {name: string; uri?: string; look?: Look; size?: number; bg?: string; strong?: boolean}) {
+  const {c, dark} = useTheme();
   const [failed, setFailed] = useState(false);
   const hide = {accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" as const};
+  const box = [styles.logo, {width: size, height: size, backgroundColor: bg ?? c.soft}];
   if (uri && !failed) {
-    return <Image source={{uri}} onError={() => setFailed(true)} style={[styles.logo, {backgroundColor: c.soft}]} {...hide} />;
+    return <Image source={{uri}} onError={() => setFailed(true)} style={box} {...hide} />;
+  }
+  if (look) {
+    const t = badgeTint[look.tint][dark ? "dark" : "light"];
+    return (
+      <View style={[box, styles.letter, {backgroundColor: t.bg}]} {...hide}>
+        <LookIcon name={look.icon} color={t.ink} size={Math.round(size * 0.5)} />
+      </View>
+    );
   }
   return (
-    <View style={[styles.logo, styles.letter, {backgroundColor: c.soft}]} {...hide}>
-      <T size="sm" weight="bold" muted>{(name.trim()[0] || "?").toUpperCase()}</T>
+    <View style={[box, styles.letter]} {...hide}>
+      <T size="sm" weight="bold" muted={!strong}>{(name.trim()[0] || "?").toUpperCase()}</T>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  logo: {width: LOGO, height: LOGO, borderRadius: radius.pill},
+  logo: {borderRadius: radius.pill},
   letter: {alignItems: "center", justifyContent: "center"},
 });

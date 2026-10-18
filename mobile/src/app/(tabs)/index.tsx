@@ -1,225 +1,184 @@
 import {router} from "expo-router";
-import {useLayoutEffect, useReducer, useRef, useState} from "react";
-import {Animated, Easing, PanResponder, Pressable, ScrollView, useWindowDimensions, View} from "react-native";
-import {SyncButton, useAutoSync} from "@/components/Bank";
-import {useReducedMotion} from "@/components/BigMoney";
+import {useRef, useState} from "react";
+import {Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from "react-native";
+import {useAutoSync} from "@/components/Bank";
 import {CheckinCard} from "@/components/Cards";
-import {ComingRowView} from "@/components/ComingRow";
-import {Hero} from "@/components/Hero";
-import {Icon} from "@/components/Icon";
-import {TxRow} from "@/components/TxRow";
-import {Button, Card, CardHead, PageTitle, T} from "@/components/ui";
-import {addDays, longDate, niceDate} from "@/lib/dates";
-import type {Calc, EverydayLeft} from "@/lib/calc";
-import {dayView, dueByDay, weekLeft, weekMarks, type DayMark, type DayView} from "@/lib/day";
-import {money} from "@/lib/money";
-import {goal, heading, pager, panes, startPager} from "@/lib/pager";
-import {isSideways, swipeStep} from "@/lib/swipe";
-import type {Ctx} from "@/lib/types";
+import {BigMoney} from "@/components/BigMoney";
+import {CycleGrid} from "@/components/CycleGrid";
+import {CardPeek} from "@/components/Hero";
+import {HeroEmpty} from "@/components/HeroEmpty";
+import {SpentToday} from "@/components/SpentToday";
+import {T} from "@/components/ui";
+import {dayFigure, hero, type Calc, type Hero} from "@/lib/calc";
+import {niceDate, shortDate, shortDay} from "@/lib/dates";
+import {cycleDays} from "@/lib/day";
+import {money, parseAmount} from "@/lib/money";
+import {usedUp, whatIf} from "@/lib/today";
+import type {Ctx, IsoDate} from "@/lib/types";
 import {useCalc} from "@/store/useCalc";
-import {font, radius, s, textSize} from "@/theme/tokens";
-import {useTheme} from "@/theme/useTheme";
+import {home, radius, s, textSize} from "@/theme/tokens";
+import {HomeLook, useTheme} from "@/theme/useTheme";
 
-export default function DayScreen() {
+/**
+ * Today, the minimal design ("less but better"): today's number is the page.
+ * The bank cards hang down from the top, then the number, the pay cycle a circle a day, what's spare until payday, "What if I spend" and Spent today (with what's coming up in the next two days).
+ * It keeps the colours it was drawn in (<HomeLook>). Every figure is the engine's (lib/calc.ts, lib/day.ts); this only draws.
+ */
+export default function HomeScreen() {
   const r = useCalc();
   useAutoSync();
   if (!r) return null;
-  // a new day starts back on today
-  return <DayPager key={r.c.t} ctx={r.ctx} c={r.c} />;
+  // a new day starts afresh
+  return <HomeLook value><Home key={r.c.t} ctx={r.ctx} c={r.c} /></HomeLook>;
 }
 
-/**
- * The days side by side like pages: swipe left for the next day, right for the day before; up and down still scroll.
- * Dragging shows the next one coming in, letting go settles on it. With Reduce Motion on, it just changes.
- * Which day you're on comes from the pager (lib/pager.ts), what each day shows from its view (lib/day.ts).
- */
-function DayPager({ctx, c}: {ctx: Ctx; c: Calc}) {
-  const [p, send] = useReducer(pager, c.t, startPager);
-  const {width} = useWindowDimensions();
-  // a day is as wide as the page inside its margins, with a margin's gap to the next
-  const pane = width - 2 * s[4], stride = pane + s[4];
-  const reduced = useReducedMotion();
-  const [x] = useState(() => new Animated.Value(0));
-  // each move slides the cards to the page it's going to. Only a slide that gets there lands: one cut short by another move doesn't.
-  // Landing doesn't change the page the cards are on, so it doesn't start another slide
-  const target = -goal(p) * stride, move = p.move;
-  useLayoutEffect(() => {
-    if (reduced) { x.setValue(target); send({type: "landed", move}); return; }
-    Animated.timing(x, {toValue: target, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: true})
-      .start(({finished}) => { if (finished) send({type: "landed", move}); });
-  }, [target, move, reduced, x]);
-  // made once and read through a ref: rebuilt mid-swipe, it would measure the drag from the wrong place
-  const latest = useRef({p, stride, reduced});
-  useLayoutEffect(() => { latest.current = {p, stride, reduced}; });
-  // eslint-disable-next-line react-hooks/refs -- the refs are read in the gesture handlers, never while drawing
-  const [swipe] = useState(() => {
-    // where the finger was when it took the cards: one that lands mid-slide waits for it to settle (it's quick), then drags from there
-    let from: number | null = null;
-    const home = () => {
-      const {p, stride} = latest.current;
-      if (!p.to) Animated.spring(x, {toValue: -p.page * stride, bounciness: 0, useNativeDriver: true}).start();
-    };
-    return PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_, g) => isSideways(g.dx, g.dy),
-      onPanResponderGrant: () => { from = null; },
-      onPanResponderMove: (_, g) => {
-        const {p, stride, reduced} = latest.current;
-        if (reduced || p.to) return;
-        if (from === null) from = g.dx;
-        x.setValue(-p.page * stride + g.dx - from);
-      },
-      onPanResponderRelease: (_, g) => {
-        const step = swipeStep(g.dx, g.vx);
-        if (step) send({type: "step", by: step}); else home();
-      },
-      onPanResponderTerminate: home,
-      onPanResponderTerminationRequest: () => false,
-    });
-  });
-  // the date and week show where you're going straight away; the cards follow
-  const shown = heading(p), due = dueByDay(ctx, c), marks = weekMarks(ctx, c, shown, due), week = weekLeft(ctx, c);
+// Where things sit, as drawn: the number's line starts this far down the screen, under the cards; the lines under it this far below it;
+// the pay cycle this far below those; what's spare this far below the grid.
+// The £ sits a little left of the lines under it, as drawn (its side bearing would indent it).
+const NUMBER_TOP = 235, NUMBER_NUDGE = -6, LABEL_GAP = 3, CYCLE_GAP = 30, SPARE_GAP = 60;
+// a pull down past this (iOS lets the page go past its top) brings every account out
+const PULL = 64;
+// "What if I spend" this far under what's spare
+// and Spent today this far under the bar (both as drawn). The reason line under the number is this tall.
+const REASON_LINE = 24;
+const WHAT_IF_GAP = 84, LIST_GAP = s[4];
+
+const styles = StyleSheet.create({
+  bar: {height: 46, borderRadius: radius.card, flexDirection: "row", alignItems: "center", paddingLeft: s[5], paddingRight: 6},
+  amount: {flex: 1, paddingVertical: 0},
+  ask: {width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center"},
+});
+
+function Home({ctx, c}: {ctx: Ctx; c: Calc}) {
+  const {c: k} = useTheme();
+  // the day highlighted on the pay cycle: today until you tap another (a new day starts back on today, as Home is keyed by it)
+  const [picked, pick] = useState<IsoDate>(c.t);
+  const h = hero(ctx, c);
+  const grid = h.kind === "number" ? cycleDays(ctx, c) : null;
+  // every account, the cards fanned out down the page: pull the page down (or tap the cards) to see them; while they're out the page
+  // doesn't scroll, so a drag up tucks them back.
+  // However they're opened (a pull, a tap on a card or the handle) they end on the same page: it's only held still once it's back at its
+  // top, so a pull's spring back, or a page scrolled down, always finishes first
+  const [open, setOpen] = useState(false);
+  const [atTop, setAtTop] = useState(true);
+  const y = useRef(0);
+  // where "What if I spend" is under the number, to bring it into view when the keyboard comes up
+  const barY = useRef(0);
+  const scroll = useRef<ScrollView>(null);
+  const show = (to: boolean) => {
+    if (to && Math.abs(y.current) > 0.5) { setAtTop(false); scroll.current?.scrollTo({y: 0}); }
+    setOpen(to);
+  };
   return (
-    <View style={{flex: 1}} {...swipe.panHandlers}>
-      <ScrollView contentContainerStyle={{padding: s[4], paddingTop: s[2], gap: s[4], paddingBottom: s[7]}}>
-        <View style={{gap: s[3]}}>
-          <View style={{flexDirection: "row", alignItems: "center", gap: s[2]}}>
-            <View style={{flex: 1}}><PageTitle>{longDate(shown)}</PageTitle></View>
-            <SyncButton />
-            <RoundIcon icon="back" label={`Previous week, ${niceDate(addDays(shown, -7))}`} onPress={() => send({type: "step", by: -7})} />
-            <RoundIcon icon="forward" label={`Next week, ${niceDate(addDays(shown, 7))}`} onPress={() => send({type: "step", by: 7})} />
+    <ScrollView ref={scroll} style={{backgroundColor: k.bg}} contentContainerStyle={{paddingBottom: s[7]}} scrollEnabled={!(open && atTop)}
+      scrollEventThrottle={16} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets
+      onScroll={e => { y.current = e.nativeEvent.contentOffset.y; if (!atTop && Math.abs(y.current) <= 0.5) setAtTop(true); }}
+      onScrollEndDrag={e => { y.current = e.nativeEvent.contentOffset.y; if (y.current < -PULL) show(true); }}>
+      <CardPeek ctx={ctx} c={c} top={NUMBER_TOP} open={open} setOpen={show} />
+      <View style={{paddingHorizontal: s[6]}}>
+        {/* did your pay (or money you're expecting) arrive? Only when one's due or missed, above the number it changes */}
+        <CheckinCard ctx={ctx} style={{marginBottom: s[6]}} />
+        {h.kind !== "number" ? <HeroEmpty kind={h.kind} /> : <Figure ctx={ctx} c={c} h={h} picked={picked} />}
+        {grid ? <View style={{marginTop: CYCLE_GAP}}><CycleGrid grid={grid} picked={picked} pick={pick} /></View> : null}
+        {/* what's free from now to payday, after bills and everyday; without enough, how much more covers them. Kept short to fit
+            one line, and it wraps rather than shrinks if it doesn't */}
+        {h.kind === "number" && h.free !== 0 ? (
+          <T size="homeSmall" weight="medium" muted style={{marginTop: SPARE_GAP, textAlign: "center", textTransform: "uppercase", letterSpacing: 1.82, fontVariant: ["tabular-nums"]}}>
+            {h.free > 0 ? `${money(Math.floor(h.free))} spare until payday`
+              : `Need ${money(-h.free)} more for bills ${c.everydayLeft ? "and everyday" : "before payday"}`}
+          </T>
+        ) : null}
+        {h.kind === "number" ? (
+          <View style={{marginTop: WHAT_IF_GAP}} onLayout={e => { barY.current = e.nativeEvent.layout.y; }}>
+            <WhatIf ctx={ctx} onFocus={() => {
+              // once the keyboard is up, bring the bar up the screen, clear of it (the page under the cards starts at the number)
+              const sub = Keyboard.addListener("keyboardDidShow", () => { scroll.current?.scrollTo({y: NUMBER_TOP + barY.current - s[7] * 3}); sub.remove(); });
+            }} />
           </View>
-          <WeekStrip day={shown} today={c.t} marks={marks} onPick={d => send({type: "go", to: d})} />
-          {week && marks.some(m => m.d === c.t) ? <T size="sm" muted lines={1} fit>{week.line}</T> : null}
-        </View>
-        <Animated.View style={{transform: [{translateX: x}]}}>
-          {/* each day sits on its own page and stays there, keyed by date, so the one you swipe to is the same card, not a new one.
-              The day in view sets the height; the others float beside it */}
-          {panes(p).map(({d, page}) => {
-            const live = d === p.day;
-            return (
-              <View key={d} pointerEvents={live ? "auto" : "none"} accessibilityElementsHidden={!live} importantForAccessibility={live ? "auto" : "no-hide-descendants"}
-                style={live ? {left: page * stride} : {position: "absolute", top: 0, left: page * stride, width: pane}}>
-                <DayPane ctx={ctx} c={c} v={dayView(ctx, c, d, due)} live={live} />
-              </View>
-            );
-          })}
-        </Animated.View>
-      </ScrollView>
+        ) : null}
+        <View style={{marginTop: h.kind === "number" ? LIST_GAP : s[7]}}><SpentToday ctx={ctx} c={c} day={picked} /></View>
+      </View>
+    </ScrollView>
+  );
+}
+
+/** Under what's spare ("Today · scrolled down"): a bar to try a spend before you make it, and a ? for where today's number comes from.
+ *  Typed, one line under it says what it would do to today and the days after, worked out by the real engine with that payment added
+ *  (`whatIf`), so it's what Today would then show. The same as on the Today's number page. */
+function WhatIf({ctx, onFocus}: {ctx: Ctx; onFocus: () => void}) {
+  const {c: k, dark, f} = useTheme();
+  const g = home[dark ? "dark" : "light"];
+  const [amt, setAmt] = useState("");
+  const input = useRef<TextInput>(null);
+  const a = parseAmount(amt), w = a > 0 ? whatIf(ctx, a) : null;
+  const text = {fontFamily: f.regular, fontSize: textSize.md + 1, fontVariant: ["tabular-nums" as const]};
+  return (
+    <View>
+      {/* the whole bar puts you in the amount; "What if I spend £" stays in front of it */}
+      <Pressable onPress={() => input.current?.focus()} accessible={false} style={[styles.bar, {backgroundColor: g.card}]}>
+        <Text style={[text, {color: k.muted}]}>What if I spend £</Text>
+        <TextInput ref={input} value={amt} onChangeText={setAmt} onFocus={onFocus} keyboardType="decimal-pad" placeholder="…"
+          placeholderTextColor={k.muted} accessibilityLabel="What if I spend" style={[text, styles.amount, {color: k.ink}]} />
+        <Pressable onPress={() => router.push("/today")} hitSlop={s[1]} accessibilityRole="button" accessibilityLabel="Where today's number comes from"
+          style={[styles.ask, {backgroundColor: home.light.page.ink}]}>
+          <Text style={{fontFamily: f.bold, fontSize: textSize.md, color: "#FFFFFF"}}>?</Text>
+        </Pressable>
+      </Pressable>
+      {/* one sentence, read out as it changes */}
+      <View accessibilityLiveRegion="polite">
+        {w ? <T size="sm" muted style={{marginTop: s[2], paddingHorizontal: s[5]}}>{w.line}</T> : null}
+      </View>
     </View>
   );
 }
 
-/** One day's cards: its number, the payday check and what's coming (today only), its payments and Everyday. */
-function DayPane({ctx, c, v, live}: {ctx: Ctx; c: Calc; v: DayView; live: boolean}) {
-  const today = v.when === "today";
+/** The lines under the big number: what it is, one line more, and the day on the right. Always two lines high, each kept to one line,
+ *  so moving between days (or a day without an "out of") never moves the pay cycle below. */
+function Labels({title, line, side}: {title: string; line: string | null; side: string}) {
   return (
-    <View style={{gap: s[4]}}>
-      <Hero ctx={ctx} c={c} v={v} live={live} />
-      {today ? <CheckinCard ctx={ctx} /> : null}
-      {today ? <ComingUp v={v} /> : null}
-      <DayPayments ctx={ctx} v={v} />
-      <EverydayChips everyday={v.everyday} />
+    <View style={{flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", gap: s[3], marginTop: LABEL_GAP}}>
+      <View style={{flex: 1}}>
+        <T size="figureLabel" weight="bold" lines={1} style={{textTransform: "uppercase", letterSpacing: 0.24, lineHeight: 28}}>{title}</T>
+        <T size="figureLabel" muted lines={1} style={{fontVariant: ["tabular-nums"], lineHeight: 28}}>{line ?? " "}</T>
+      </View>
+      <T size="figureLabel" weight="medium" style={{lineHeight: 28}}>{side}</T>
     </View>
   );
 }
 
-// enough to see what's next without the card taking over the page; the rest are a tap away on the Month tab
-const COMING_ROWS = 4;
-
-/** Today: what's going out and coming in, today first, then the next few days to payday, so nothing needs working out. */
-function ComingUp({v}: {v: DayView}) {
-  const rows = [...v.due.map(x => ({x, when: "Today"})), ...v.later.map(x => ({x, when: x.d === addDays(v.d, 1) ? "Tomorrow" : niceDate(x.d)}))];
-  if (!rows.length) return null;
-  const more = rows.length - COMING_ROWS;
+/** The big number for the day picked on the pay cycle.
+ *  Today (or a day to come): what's left of today's amount, "out of" the amount itself, and the day. Tap for where it comes from.
+ *  As drawn, there's no line under it: why it's this number is in what a screen reader hears, and on the Today's number page.
+ *  A day gone: what you spent that day, to the penny, and why ("2 payments").
+ *  A day to come: what you could spend that day if you spend each day's amount until then (`forecast`), and its date.
+ *  It's one number whichever day it shows, so moving between days counts from the last figure to the new one, up or down. */
+function Figure({ctx, c, h, picked}: {ctx: Ctx; c: Calc; h: Extract<Hero, {kind: "number"}>; picked: IsoDate}) {
+  const gone = picked < c.t ? dayFigure(ctx, c, picked) : null;
+  const ahead = picked > c.t ? dayFigure(ctx, c, picked) : null;
+  // without enough for bills and everyday there's no amount to be "out of"
+  const of = h.free >= 0 ? `out of ${money(h.perDay)}` : null;
+  const other = gone ?? ahead;
+  const used = usedUp(ctx, c, h);
   return (
-    <Card>
-      <CardHead title="Coming up" right={more > 0 ? <Button small kind="ghost" label={`${more} more`} onPress={() => router.push("/month")} /> : undefined} />
-      <View>{rows.slice(0, COMING_ROWS).map(({x, when}) => <ComingRowView key={x.key} x={x} meta={`${when}. ${x.meta}`} />)}</View>
-    </Card>
-  );
-}
-
-function RoundIcon({icon, label, onPress}: {icon: "back" | "forward" | "plus"; label: string; onPress: () => void}) {
-  const {c} = useTheme();
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={4}
-      style={{width: 36, height: 36, borderRadius: radius.pill, backgroundColor: c.surface, alignItems: "center", justifyContent: "center"}}>
-      <Icon name={icon} color={c.ink} size={20} />
+    <Pressable onPress={other ? undefined : () => router.push("/today")} accessibilityRole={other ? undefined : "button"}
+      accessible accessibilityHint={other ? undefined : "Shows where it comes from"}
+      accessibilityLabel={gone ? `Spent on ${niceDate(picked)}, ${money(gone.amount)}. ${gone.reason}`
+        : ahead ? `Safe to spend on ${niceDate(picked)}, ${money(ahead.amount)}. ${ahead.reason}`
+        : `Safe to spend today, ${money(h.left)}${of ? `, ${of}` : ""}. ${h.reason}`}>
+      <View style={{marginLeft: NUMBER_NUDGE}}><BigMoney value={other ? other.amount : h.left} size="giant" wholePounds={!gone} /></View>
+      {gone ? <Labels title="Spent" line={gone.reason} side={shortDate(picked)} />
+        // a day to come: what you could spend then. Its reason is too long for the line at this size, so the line says it's a
+        // forecast and a screen reader hears the whole reason
+        : ahead ? <Labels title="Safe to spend" line="Forecast" side={shortDate(picked)} />
+        : <Labels title="Safe to spend" line={of} side={shortDay(c.t)} />}
+      {/* why it's this number, in one plain line (a day gone already says why above); always there, so the pay cycle never moves.
+          Today's amount all used, it says so and when it comes back, in two lines as drawn ("State · £0 today"), and keeps that room
+          on every day while it's so */}
+      <View style={{marginTop: s[1], minHeight: used ? REASON_LINE * 2 : undefined}}>
+        {used && !other
+          ? <T lines={2} style={{lineHeight: REASON_LINE}}><T weight="semibold" style={{lineHeight: REASON_LINE}}>{used.lead}</T> <T muted style={{lineHeight: REASON_LINE}}>{used.rest}</T></T>
+          : <T muted lines={1} style={{lineHeight: REASON_LINE}}>{gone ? " " : ahead ? ahead.reason : h.reason}</T>}
+      </View>
     </Pressable>
-  );
-}
-
-const LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
-
-/** Monday to Sunday of the week you're looking at. Tap a day to go to it; today has a ring round it.
- *  Dots under a day: a bill going out (ink), money coming in (green). */
-function WeekStrip({day, today, marks, onPick}: {day: string; today: string; marks: DayMark[]; onPick: (d: string) => void}) {
-  const {c} = useTheme();
-  return (
-    <View style={{flexDirection: "row", justifyContent: "space-between"}} accessibilityRole="tablist">
-      {marks.map(({d, bills, incoming}, i) => {
-        const on = d === day, isToday = d === today;
-        return (
-          <Pressable key={d} onPress={() => onPick(d)} accessibilityRole="tab" accessibilityState={{selected: on}}
-            accessibilityLabel={`${niceDate(d)}${isToday ? ", today" : ""}${bills ? ", bills due" : ""}${incoming ? ", money coming in" : ""}`} hitSlop={4}
-            style={{alignItems: "center", gap: 2, width: 44}}>
-            <T size="xs" weight="semibold" muted={!on}>{LETTERS[i]}</T>
-            <View style={{width: 32, height: 32, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
-              backgroundColor: on ? c.ink : "transparent", borderWidth: isToday && !on ? 1.5 : 0, borderColor: c.ink}}>
-              <T weight="bold" style={{color: on ? c.bg : c.ink, fontFamily: font.bold, fontSize: textSize.md, fontVariant: ["tabular-nums"]}}>{String(+d.slice(8))}</T>
-            </View>
-            <View style={{flexDirection: "row", gap: 2, height: 4}}>
-              {bills ? <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: c.ink}} /> : null}
-              {incoming ? <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: c.incoming}} /> : null}
-            </View>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-/** That day's payments; on a future day, what's due instead. */
-function DayPayments({ctx, v}: {ctx: Ctx; v: DayView}) {
-  if (v.when === "future") return (
-    <Card>
-      <CardHead title="Coming up" />
-      {v.due.length
-        ? <View>{v.due.map(x => <ComingRowView key={x.key} x={x} />)}</View>
-        : <T muted>Nothing due.</T>}
-    </Card>
-  );
-  const isToday = v.when === "today";
-  const add = () => router.push(isToday ? "/add-payment" : `/add-payment?date=${v.d}`);
-  // with a bank connected, payments come in by themselves: only cash needs typing in
-  const bank = !!ctx.state.bank;
-  return (
-    <Card>
-      <CardHead title={isToday ? "Spent today" : "Spent this day"} right={<RoundIcon icon="plus" label={bank ? "Add cash payment" : "Add payment"} onPress={add} />} />
-      {v.payments.length
-        ? <View>{v.payments.map(it => <TxRow key={it.id} ctx={ctx} it={it} />)}</View>
-        : <T muted>{isToday ? "Nothing spent today." : "Nothing spent this day."}</T>}
-      {v.tomorrow ? <T size="sm" muted lines={1} fit>{v.tomorrow}</T> : null}
-    </Card>
-  );
-}
-
-/** What's left of each everyday amount at the end of the day you're on. */
-function EverydayChips({everyday}: {everyday: EverydayLeft[]}) {
-  const {c} = useTheme();
-  return (
-    <Card>
-      <CardHead title="Everyday" right={<Button small kind="ghost" label="Plan" onPress={() => router.push("/everyday")} />} />
-      {!everyday.length
-        ? <T muted>{"Set what you spend on every month, like groceries or coffee, and your daily number shows what's truly free."}</T>
-        : <View style={{flexDirection: "row", flexWrap: "wrap", gap: s[2]}}>
-            {everyday.map(e => (
-              <View key={e.x.id} accessible accessibilityLabel={`${e.x.name}, ${e.left < 0 ? `${money(-e.left)} more than planned` : `${money(e.left)} left`}`} style={{flexDirection: "row", gap: s[2], borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingVertical: s[2], paddingHorizontal: s[3]}}>
-                <T size="sm">{e.x.name}</T>
-                <T size="sm" weight="bold">{e.left < 0 ? `${money(-e.left)} extra` : `${money(e.left)} left`}</T>
-              </View>
-            ))}
-          </View>}
-    </Card>
   );
 }

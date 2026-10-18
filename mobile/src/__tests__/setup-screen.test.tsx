@@ -480,7 +480,7 @@ test("tap a bill: the amount first, then when it goes out, and the row fills its
   expect(screen.getByText("1st · Every month")).toBeOnTheScreen();
   expect(screen.getAllByText("£750")).toHaveLength(2);   // the row and the monthly total
   // every amount is in: Continue lights up in the accent
-  expect(screen.getByRole("button", {name: "Continue"})).toHaveStyle({backgroundColor: "#C3EADA"});
+  expect(screen.getByRole("button", {name: "Continue"})).toHaveStyle({backgroundColor: "#FABD54"});
   await next();
   // on to everyday next; back returns to your bills
   expect(screen.getByText("What do you spend on regularly?")).toBeOnTheScreen();
@@ -677,7 +677,7 @@ test("tap one: how much (the number pad opens), how often, and what that comes t
   expect(screen.getByText("2–3 times a week")).toBeOnTheScreen();
   expect(screen.getByText("£15")).toBeOnTheScreen();
   // every one has an amount: Continue lights up in the accent
-  expect(screen.getByRole("button", {name: "Continue"})).toHaveStyle({backgroundColor: "#C3EADA"});
+  expect(screen.getByRole("button", {name: "Continue"})).toHaveStyle({backgroundColor: "#FABD54"});
 });
 
 test("set your limits: each starts at what you usually spend, change any, and the total follows", async () => {

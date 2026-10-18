@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
 import Svg, {Circle, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -12,6 +12,14 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
       {name === "month" && <><Rect x={3} y={4.5} width={18} height={16.5} rx={3} {...p} /><Path d="M3 9.5h18M8 2.5v4M16 2.5v4" {...p} /></>}
       {name === "settings" && <><Path d="M19.3 9.9L21.86 10.31L21.86 13.69L19.3 14.1L18.65 15.68L20.17 17.77L17.77 20.17L15.68 18.65L14.1 19.3L13.69 21.86L10.31 21.86L9.9 19.3L8.32 18.65L6.23 20.17L3.83 17.77L5.35 15.68L4.7 14.1L2.14 13.69L2.14 10.31L4.7 9.9L5.35 8.32L3.83 6.23L6.23 3.83L8.32 5.35L9.9 4.7L10.31 2.14L13.69 2.14L14.1 4.7L15.68 5.35L17.77 3.83L20.17 6.23L18.65 8.32z" {...p} /><Circle cx={12} cy={12} r={3} {...p} /></>}
       {name === "clock" && <><Circle cx={12} cy={12} r={9} {...p} /><Path d="M12 7v5l3 2" {...p} /></>}
+      {/* the tab bar's, as drawn: a filled house (the stroke rounds its corners) and three sliders */}
+      {name === "home" && <Path d="M12 3.6L20.7 9.6V21.8H14.9V15.6H9.1V21.8H3.3V9.6Z" {...p} strokeWidth={1.5} fill={color} />}
+      {name === "sliders" && <>
+        <Path d="M3.5 6.2H6.5M10.2 6.2H20.5M3.5 11.9H13.5M17.2 11.9H20.5M3.5 17.6H5.8M9.5 17.6H20.5" {...p} />
+        <Circle cx={8.35} cy={6.2} r={1.85} {...p} /><Circle cx={15.35} cy={11.9} r={1.85} {...p} /><Circle cx={7.65} cy={17.6} r={1.85} {...p} />
+      </>}
+      {/* the Living tab's: three filled circles of different sizes, a mini ball pit */}
+      {name === "pit" && <><Circle cx={9} cy={14} r={6.5} fill={color} /><Circle cx={18} cy={16.5} r={4} fill={color} /><Circle cx={16.5} cy={7} r={3} fill={color} /></>}
       {name === "plus" && <Path d="M12 5v14M5 12h14" {...p} />}
       {name === "close" && <Path d="M6 6l12 12M18 6L6 18" {...p} />}
       {name === "check" && <Path d="M5 12.5l4.5 4.5L19 7.5" {...p} />}

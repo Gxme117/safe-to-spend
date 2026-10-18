@@ -20,6 +20,12 @@ export function splitPounds(n: number) {
   return {whole: group(whole), pence: String(Math.round((a - whole) * 100) % 100).padStart(2, "0")};
 }
 
+/** Always with the pence, as a bank shows a balance: £0.00, £1,269.99, −£40.00. */
+export function moneyExact(n: number) {
+  const {whole, pence} = splitPounds(n);
+  return `${r2(n) < 0 ? "−" : ""}£${whole}.${pence}`;
+}
+
 /** Reads what someone typed: "£1,250.50" → 1250.5. NaN when it isn't a number. */
 export function parseAmount(v: string) {
   const n = parseFloat(String(v).replace(/[£,\s]/g, ""));

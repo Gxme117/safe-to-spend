@@ -3,15 +3,15 @@ import {Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextI
 import {font, radius, s, textSize, type TextSize} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 
-/** Text in Manrope, coloured for the current theme. */
+/** Text in Manrope (Hanken Grotesk on Today), coloured for the current theme. */
 export function T({children, style, muted, weight = "regular", size = "md", lines, fit}: {
   children: ReactNode; style?: StyleProp<TextStyle>; muted?: boolean; weight?: keyof typeof font; size?: TextSize; lines?: number; fit?: boolean;
 }) {
-  const {c} = useTheme();
+  const {c, f} = useTheme();
   const px = textSize[size];
   return (
     <Text numberOfLines={lines} adjustsFontSizeToFit={fit} minimumFontScale={fit ? 0.75 : undefined}
-      style={[{fontFamily: font[weight], fontSize: px, color: muted ? c.muted : c.ink, lineHeight: Math.round(px * 1.4)}, style]}>
+      style={[{fontFamily: f[weight], fontSize: px, color: muted ? c.muted : c.ink, lineHeight: Math.round(px * 1.4)}, style]}>
       {children}
     </Text>
   );

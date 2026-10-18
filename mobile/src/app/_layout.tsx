@@ -1,4 +1,5 @@
 import {BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold} from "@expo-google-fonts/bricolage-grotesque";
+import {HankenGrotesk_400Regular, HankenGrotesk_500Medium, HankenGrotesk_600SemiBold, HankenGrotesk_700Bold, HankenGrotesk_800ExtraBold} from "@expo-google-fonts/hanken-grotesk";
 import {Inter_700Bold, Inter_800ExtraBold} from "@expo-google-fonts/inter";
 import {Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold, useFonts} from "@expo-google-fonts/manrope";
 import {Stack} from "expo-router";
@@ -14,7 +15,8 @@ import {useTheme} from "@/theme/useTheme";
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold, BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold, Inter_700Bold, Inter_800ExtraBold});
+  const [fontsLoaded] = useFonts({Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold, BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold, Inter_700Bold, Inter_800ExtraBold,
+    HankenGrotesk_400Regular, HankenGrotesk_500Medium, HankenGrotesk_600SemiBold, HankenGrotesk_700Bold, HankenGrotesk_800ExtraBold});
   const hasState = useMoney(st => !!st.state), loaded = useMoney(st => st.loaded);
   const {c, dark} = useTheme();
 

@@ -19,11 +19,12 @@ type Pick = {kind: "bill" | "cat" | "income"; id: string} | null;
 
 export default function AddPayment() {
   const r = useCalc();
-  const params = useLocalSearchParams<{date?: string; kind?: string}>();
+  const params = useLocalSearchParams<{date?: string; kind?: string; cat?: string}>();
   const today = useMoney.getState().today;
   const [kind, setKind] = useState<"expense" | "income">(params.kind === "income" ? "income" : "expense");
   const [amt, setAmt] = useState("");
-  const [pick, setPick] = useState<Pick>(null);
+  // opened from an everyday amount (the Living tab's Log spending): it's already picked
+  const [pick, setPick] = useState<Pick>(params.cat ? {kind: "cat", id: params.cat} : null);
   // money in can be on a day still to come: that's money you're expecting
   const [date, setDate] = useState(params.date && (params.date < today || params.kind === "income") ? params.date : today);
   const [note, setNote] = useState("");

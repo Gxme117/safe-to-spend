@@ -14,7 +14,8 @@ import {disconnect, fetchBank, MonzoFail, type MonzoError} from "@/services/monz
 export type ThemePref = "system" | "light" | "dark";
 /** The Safe to Spend card: the accent colour, or glass (iOS 26). */
 export type CardStyle = "colour" | "glass";
-export interface Toast { id: number; msg: string; good: boolean }
+/** `undo`: the toast stays 5s with an Undo button that puts back what was just removed. */
+export interface Toast { id: number; msg: string; good: boolean; undo?: () => void }
 /** A sync either brings in some new payments, or says what went wrong ("not-saved": the phone couldn't store them). */
 export type SyncError = MonzoError | "not-saved";
 export type SyncResult = {added: number} | {error: SyncError; detail?: string};
@@ -34,7 +35,7 @@ interface MoneyStore {
 
   load(): Promise<void>;
   tick(): void;
-  notify(msg: string, good?: boolean): void;
+  notify(msg: string, good?: boolean, undo?: () => void): void;
   setTheme(t: ThemePref): void;
   setAccent(hex: string | null): void;
   setCardStyle(v: CardStyle): void;
@@ -48,6 +49,7 @@ interface MoneyStore {
   removeIncome(id: string): void;
   saveBill(b: Bill): void;
   removeBill(id: string): void;
+  restoreBill(b: Bill, at: number): void;
   saveCategories(cats: Category[]): void;
 
   addTx(t: Omit<Tx, "id" | "created">): Promise<boolean>;
@@ -84,7 +86,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
       set({txs, loaded: true, today: today()});
     },
     tick() { const t = today(); if (t !== get().today) set({today: t}); },
-    notify(msg, good = false) { set({toast: {id: Date.now(), msg, good}}); },
+    notify(msg, good = false, undo) { set({toast: {id: Date.now(), msg, good, ...(undo ? {undo} : {})}}); },
     setTheme(theme) { set({theme}); },
     setAccent(accent) { set({accent}); },
     setCardStyle(cardStyle) { set({cardStyle}); },
@@ -115,6 +117,8 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
       patch(s => s.bills.some(x => x.id === b.id) ? {bills: s.bills.map(x => x.id === b.id ? b : x)} : {bills: [...s.bills, b]});
     },
     removeBill(id) { patch(s => ({bills: s.bills.filter(x => x.id !== id)})); },
+    // undo: back where it was in the list
+    restoreBill(b, at) { patch(s => s.bills.some(x => x.id === b.id) ? {} : {bills: [...s.bills.slice(0, at), b, ...s.bills.slice(at)]}); },
     saveCategories(categories) { patch(() => ({categories})); },
 
     async addTx(t) {

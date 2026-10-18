@@ -1,6 +1,6 @@
 import {act, fireEvent, render, screen, waitFor} from "@testing-library/react-native";
 import {router} from "expo-router";
-import DayScreen from "@/app/(tabs)/index";
+import DayScreen from "@/app/(tabs)/day";
 import {baseState, TODAY, tx} from "@/lib/__tests__/fixtures";
 import {addDays, longDate, niceDate} from "@/lib/dates";
 import type {AppState, Tx} from "@/lib/types";
@@ -67,9 +67,9 @@ test("a pay that didn't land as expected: say how much", async () => {
   expect(screen.getByRole("button", {name: "It arrived"})).toBeOnTheScreen();
 });
 
-test("without enough, the number goes below £0 by the gap a day and says what it's for, with no card asking you to find money", async () => {
+test("without enough, the number stops at £0 and says what it's for, with no card asking you to find money", async () => {
   await show([groceries], baseState({bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}]}));
-  expect(screen.getByLabelText(/^Safe to Spend, −£16\. You need £400 more to cover your bills and everyday$/)).toBeOnTheScreen();
+  expect(screen.getByLabelText(/^Safe to Spend, £0\. You need £400 more to cover your bills and everyday$/)).toBeOnTheScreen();
   expect(screen.queryByText(/short|move/i)).toBeNull();
 });
 

@@ -57,13 +57,12 @@ describe("the daily number", () => {
     expect(r.balance).toBe(550);
   });
 
-  test("short: below £0 by the gap a day until payday, and says the whole gap, calmly", () => {
+  test("short: stops at £0, never below, and says the whole gap, calmly", () => {
     const state = baseState({bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}]});
     const {r, h} = run(ctx({state, txs: [groceries]}));
     expect(r.need).toBe(1350);
     expect(r.short).toBe(400);
-    expect(r.daysLeft).toBe(25);   // -£400 over 25 days
-    expect(h).toMatchObject({kind: "number", perDay: 0, left: -16, reason: "You need £400 more to cover your bills and everyday"});
+    expect(h).toMatchObject({kind: "number", perDay: 0, left: 0, reason: "You need £400 more to cover your bills and everyday"});
     expect(h.kind === "number" && h.reason).not.toMatch(/short|move/i);
   });
 
@@ -289,10 +288,10 @@ describe("Safe to Spend on days to come", () => {
     expect(dayFigure(c, r, "2026-10-30")).toEqual({label: "Safe to Spend", amount: 38, reason: "If you spend each day's amount until then"});
   });
 
-  test("without enough, it's the gap a day until payday, and pay covers it by itself", () => {
+  test("without enough, it's £0 until payday, never below, and pay covers it by itself", () => {
     const state = baseState({bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}]});
     const c = ctx({state, txs: [spent]}), r = calc(c);
-    expect(forecast(c, r, "2026-10-06")).toEqual({amount: -17, free: -400});
+    expect(forecast(c, r, "2026-10-06")).toEqual({amount: 0, free: -400});
     expect(dayFigure(c, r, "2026-10-06").reason).toBe("You'd need £400 more to cover your bills and everyday");
     expect(forecast(c, r, "2026-10-30")).toEqual({amount: 0, free: 0});
   });

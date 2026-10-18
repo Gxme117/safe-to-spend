@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Living — Pinch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;700&display=swap">
+<!--
+  Living screen — reference prototype for the Pinch app.
+  Self-contained: open in any browser. All behaviour is plain JavaScript at the bottom of this file.
+  See LIVING_SPEC.md for the design rules this implements.
+-->
+<style>
+  :root {
+    --ink: #111111;          /* bubbles, primary text, primary buttons */
+    --ink-warm: #2B2A27;     /* icon on highlighted bubble, add-button dashes */
+    --muted: #666666;        /* secondary text */
+    --tab-idle: #8A857E;     /* inactive tabs, paid icon */
+    --paid: #E7E4DF;         /* paid bubble fill */
+    --line: #E3E3E3;         /* tab bar top border */
+    --field: #D6D3CE;        /* input borders, sheet handle */
+    --hl-core: #FFAD30;      /* highlight centre */
+    --hl-edge: #FFD58C;      /* highlight edge */
+    --danger: #B42318;       /* delete */
+    --page: #EDEBE7;         /* only the page around the phone frame */
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--page); font-family: 'Hanken Grotesk', 'Helvetica Neue', Helvetica, sans-serif; color: var(--ink); }
+  button, input { font-family: inherit; }
+
+  .phone { position: relative; width: 390px; height: 844px; background: #FFFFFF; display: flex; flex-direction: column; padding: 28px 16px 0; gap: 14px; overflow: hidden; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+  @media (max-width: 420px) { body { display: block; } .phone { width: 100%; height: 100vh; border-radius: 0; box-shadow: none; } }
+
+  .head { display: flex; flex-direction: column; gap: 6px; padding: 0 4px; }
+  .head .eyebrow { font-size: 14px; font-weight: 500; color: var(--muted); }
+  .head .total { font-size: 40px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+  .head .total span { font-size: 20px; font-weight: 500; color: var(--muted); }
+  .head .sub { font-size: 14px; color: var(--muted); }
+
+  .pit { position: relative; width: 358px; flex: 1; min-height: 0; transition: transform .32s cubic-bezier(.2,.9,.25,1); }
+  .slot { position: absolute; transition: left .45s cubic-bezier(.2,.9,.25,1), bottom .45s cubic-bezier(.2,.9,.25,1), width .45s cubic-bezier(.2,.9,.25,1), height .45s cubic-bezier(.2,.9,.25,1), opacity .3s ease; }
+  .bub { width: 100%; height: 100%; border-radius: 50%; border: none; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden; transition: transform .18s cubic-bezier(.3,1.6,.5,1), background .25s ease, color .25s ease; }
+  .bub:active { transform: scale(.92); }
+  .bub.add { border: 2px dashed var(--ink-warm); background: #FFFFFF; color: var(--ink-warm); }
+  .empty { position: absolute; left: 24px; right: 24px; bottom: 236px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+  .empty b { font-size: 24px; letter-spacing: -0.01em; }
+  .empty span { font-size: 15px; line-height: 1.4; color: var(--muted); }
+
+  nav { position: relative; z-index: 2; margin: 0 -16px; flex-shrink: 0; background: #FFFFFF; border-top: 1px solid var(--line); }
+  nav .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding-top: 8px; }
+  nav button { height: 54px; border: none; background: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--tab-idle); font-size: 13px; font-weight: 500; cursor: pointer; }
+  nav button[aria-current="page"] { color: var(--ink); font-weight: 700; }
+  nav .safe { height: 34px; }
+  .homebar { position: absolute; z-index: 6; left: 50%; bottom: 8px; width: 134px; height: 5px; margin-left: -67px; border-radius: 3px; background: var(--ink); }
+
+  .toast { position: absolute; z-index: 5; left: 16px; right: 16px; bottom: 112px; height: 52px; border-radius: 14px; background: var(--ink); color: #FFFFFF; display: none; align-items: center; justify-content: space-between; padding: 0 6px 0 18px; font-size: 15px; font-weight: 500; }
+  .toast.show { display: flex; }
+  .toast button { height: 44px; padding: 0 14px; border: none; background: none; color: var(--hl-edge); font-size: 15px; font-weight: 700; cursor: pointer; }
+
+  .sheet { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; background: #FFFFFF; border-radius: 28px 28px 0 0; padding: 16px 24px 44px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 -10px 40px rgba(17,17,17,.12); transform: translateY(110%); transition: transform .32s cubic-bezier(.2,.9,.25,1); }
+  .sheet.open { transform: translateY(0); }
+  .handle { align-self: center; width: 120px; height: 28px; margin-top: -8px; border: none; background: none; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+  .handle span { width: 40px; height: 5px; border-radius: 3px; background: var(--field); }
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 10px; }
+  .badge { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--ink-warm); }
+  .name { font-size: 20px; font-weight: 700; }
+  .amount { font-size: 64px; font-weight: 700; line-height: .95; letter-spacing: -0.035em; }
+  .about { font-size: 22px; font-weight: 500; color: var(--muted); }
+  .when { font-size: 16px; color: var(--muted); }
+  .when b { color: var(--ink); }
+  .btn { flex: 1; height: 54px; border-radius: 16px; border: none; background: var(--ink); color: #FFFFFF; font-size: 16px; font-weight: 700; cursor: pointer; }
+  .btn.ghost { background: #FFFFFF; color: var(--ink); border: 1.5px solid var(--field); }
+  .btn.small { height: 48px; border-radius: 14px; font-size: 15px; }
+  .btn.danger { color: var(--danger); }
+  .btn[aria-disabled="true"] { background: var(--paid); color: var(--tab-idle); cursor: default; }
+  label, .label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: var(--muted); }
+  .field { height: 48px; border-radius: 12px; border: 1.5px solid var(--field); padding: 0 14px; font-size: 16px; color: var(--ink); background: #FFFFFF; width: 100%; }
+  .field:focus { outline: none; border-color: var(--ink); }
+  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: #F1EFEB; }
+  .seg button { height: 40px; border-radius: 10px; border: none; background: transparent; color: var(--ink-warm); font-size: 14px; font-weight: 500; cursor: pointer; }
+  .seg button[aria-checked="true"] { background: var(--ink); color: #FFFFFF; font-weight: 700; }
+  .note { font-size: 13px; font-weight: 400; color: var(--muted); }
+  .icons { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; justify-items: center; }
+  .icons button { width: 44px; height: 44px; border-radius: 50%; border: none; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--ink); color: #FFFFFF; }
+  .icons button[aria-checked="true"] { background: radial-gradient(circle closest-side, var(--hl-core) 0%, var(--hl-edge) 100%); color: var(--ink-warm); }
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <header class="head">
+    <span class="eyebrow">Your cost of living</span>
+    <div class="total"><span id="total" style="font-size:inherit;font-weight:inherit;color:inherit"></span> <span>a month</span></div>
+    <div class="sub"><span id="left"></span> still to pay before payday</div>
+  </header>
+
+  <div class="pit" id="pit"></div>
+
+  <nav id="nav" aria-label="Main">
+    <div class="tabs">
+      <button><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V20h-5v-5.5H9V20H4Z"/></svg>Today</button>
+      <button aria-current="page"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="14" r="6.5"/><circle cx="18" cy="16.5" r="4"/><circle cx="16.5" cy="7" r="3"/></svg>Living</button>
+      <button><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM4 10h16M8 3v4M16 3v4"/></svg>Coming up</button>
+      <button><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="#FFFFFF"/><circle cx="15" cy="12" r="2" fill="#FFFFFF"/><circle cx="8" cy="17" r="2" fill="#FFFFFF"/></svg>Settings</button>
+    </div>
+    <div class="safe"></div>
+  </nav>
+
+  <div class="toast" id="toast" role="status"><span id="toastText"></span><button id="undo">Undo</button></div>
+  <div class="homebar" aria-hidden="true"></div>
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script>
+(() => {
+  // ---------- design constants (see LIVING_SPEC.md) ----------
+  const W = 358, H = 500;                 // pit coordinate space; bubbles are anchored to the pit floor
+  const R_MIN = 22, R_MAX = 109.5;        // 44px to 219px across
+  const ICON_LINE = 2.25;                 // on-screen stroke width for every icon, in px
+  const HIGHLIGHT = 'radial-gradient(circle closest-side, #FFAD30 0%, #FFD58C 100%)';
+  const PAID_BG = '#E7E4DF', PAID_FG = '#8A857E';
+
+  const ICONS = {
+    rent: 'M3 10.5 12 3l9 7.5M5 9v11h14V9M10 20v-6h4v6',
+    groceries: 'M5 10h14l-1.5 9h-11L5 10ZM8 10l4-6 4 6M3 10h18',
+    council: 'M3 21h18M5 21V11M19 21V11M9 21v-6M15 21v-6M2 10 12 4l10 6H2',
+    energy: 'M13 2 4 14h7l-1 8 9-12h-7l1-8Z',
+    travel: 'M7 3h10a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3ZM4 11h16M8 18l-2 3M16 18l2 3M8.5 14.5h.01M15.5 14.5h.01',
+    water: 'M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z',
+    internet: 'M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M12 19h.01',
+    gym: 'M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11',
+    phone: 'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2ZM11 18h2',
+    spotify: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
+    netflix: 'M3 5h18v12H3ZM8 21h8M10 8.5v5l4-2.5-4-2.5Z',
+    other: 'M4 7h16v12H4ZM8 7V5h8v2M4 12h16'
+  };
+  const ICON_NAMES = { rent: 'Home', groceries: 'Food', council: 'Council', energy: 'Energy', travel: 'Travel', water: 'Water', internet: 'Internet', gym: 'Fitness', phone: 'Phone', spotify: 'Music', netflix: 'TV', other: 'Other' };
+  const OPTICAL = { water: 1.1, gym: 1.08, internet: 0.94, council: 0.94 }; // shapes that look too thin or too heavy at the same size
+
+  // ---------- sample data (today is Sat 17 Oct; pay cycle runs to Fri 30 Oct) ----------
+  const SAMPLE = [
+    { id: 'rent', icon: 'rent', name: 'Rent', amt: 750, due: 'Sun 1 Nov', days: 15, kind: 'bill' },
+    { id: 'groceries', icon: 'groceries', name: 'Groceries', due: 'Every Saturday', days: null, kind: 'need', kids: [
+      { label: 'Week 1', due: 'Sat 3 Oct', days: -14, amt: 48 },
+      { label: 'Week 2', due: 'Sat 10 Oct', days: -7, amt: 61 },
+      { label: 'Week 3', due: 'Sat 17 Oct', days: 0, amt: 55 },
+      { label: 'Week 4', due: 'Sat 24 Oct', days: 7, amt: 56 } ] },
+    { id: 'council', icon: 'council', name: 'Council tax', amt: 120, due: 'Tue 20 Oct', days: 3, kind: 'bill' },
+    { id: 'energy', icon: 'energy', name: 'Energy', amt: 95, due: 'Thu 22 Oct', days: 5, kind: 'bill' },
+    { id: 'travel', icon: 'travel', name: 'Travel', amt: 80, due: 'Pay as you go', days: null, kind: 'need' },
+    { id: 'water', icon: 'water', name: 'Water', amt: 35, due: 'Wed 28 Oct', days: 11, kind: 'bill' },
+    { id: 'internet', icon: 'internet', name: 'Internet', amt: 28, due: 'Mon 12 Oct', days: -5, kind: 'bill' },
+    { id: 'gym', icon: 'gym', name: 'Gym', amt: 25, due: 'Fri 30 Oct', days: 13, kind: 'bill' },
+    { id: 'phone', icon: 'phone', name: 'Phone', amt: 18, due: 'Fri 23 Oct', days: 6, kind: 'bill' },
+    { id: 'spotify', icon: 'spotify', name: 'Spotify', amt: 12, due: 'Fri 9 Oct', days: -8, kind: 'bill' },
+    { id: 'netflix', icon: 'netflix', name: 'Netflix', amt: 11, due: 'Thu 29 Oct', days: 12, kind: 'bill' }
+  ];
+
+  // add ?empty to the URL to see the first-run screen
+  const startEmpty = /[?&]empty\b/.test(location.search);
+  const state = {
+    bills: startEmpty ? [] : SAMPLE.map((b) => Object.assign({}, b)),
+    paid: { spotify: true, internet: true, 'groceries#0': true, 'groceries#1': true },
+    sel: null,          // id of the bill whose sheet is open
+    child: null,        // index of the payment selected inside an opened group
+    last: startEmpty ? null : 'rent', // the highlighted bubble when nothing is open (biggest bill before any tap)
+    mode: 'view',       // 'view' | 'edit' | 'add'
+    draft: null,
+    toast: null
+  };
+  let toastTimer = null, sheetKey = '';
+
+  const $ = (id) => document.getElementById(id);
+  const pit = $('pit'), sheet = $('sheet'), nav = $('nav');
+  const money = (n) => '£' + Math.round(n).toLocaleString('en-GB');
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const svgIcon = (key, px) => '<svg aria-hidden="true" width="' + px + '" height="' + px + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (ICON_LINE * 24 / px).toFixed(3) + '" stroke-linecap="round" stroke-linejoin="round"><path d="' + (ICONS[key] || ICONS.other) + '"/></svg>';
+
+  // ---------- money helpers ----------
+  const amtOf = (b) => b.kids ? b.kids.reduce((s, k) => s + k.amt, 0) : b.amt;
+  const isPaidKid = (b, i) => !!state.paid[b.id + '#' + i];
+  const isPaid = (b) => b.kids ? b.kids.every((k, i) => isPaidKid(b, i)) : !!state.paid[b.id];
+  const paidAmt = (b) => b.kids ? b.kids.reduce((s, k, i) => s + (isPaidKid(b, i) ? k.amt : 0), 0) : (state.paid[b.id] ? b.amt : 0);
+
+  // ---------- icon guessing from the bill's name ----------
+  function guessIcon(name) {
+    const n = ' ' + String(name || '').toLowerCase() + ' ';
+    const rules = [
+      ['rent', /rent|mortgage|landlord|housing|\bflat\b|\bhome\b|\bhouse\b/],
+      ['council', /council|\btax\b/],
+      ['energy', /energy|electric|\bgas\b|octopus|\bedf\b|e\.on|\beon\b|ovo|heating|power/],
+      ['water', /water|thames|severn|anglian/],
+      ['internet', /internet|broadband|wi-?fi|\bbt\b|virgin|hyperoptic|plusnet|fibre/],
+      ['phone', /phone|mobile|\bsim\b|\bee\b|\bo2\b|vodafone|three|giffgaff|lebara/],
+      ['netflix', /netflix|disney|prime video|\bprime\b|\btv\b|licence|youtube|now tv|\bhbo\b|streaming|\bsky\b/],
+      ['spotify', /spotify|music|audible|tidal|deezer|podcast/],
+      ['gym', /\bgym\b|fitness|yoga|pilates|sport|puregym|swim|class/],
+      ['groceries', /grocer|food|tesco|sainsbury|asda|aldi|lidl|morrisons|waitrose|supermarket|\bshop\b|ocado|meal/],
+      ['travel', /travel|train|\bbus\b|\btfl\b|oyster|\bcar\b|fuel|petrol|diesel|uber|transport|parking|railcard/]
+    ];
+    for (const [key, re] of rules) if (re.test(n)) return key;
+    return 'other';
+  }
+
+  // ---------- ball-pit packing ----------
+  // Drop circles one by one, biggest first, into the lowest spot where each rests on the floor, a wall or other circles.
+  function pack(circles) {
+    const placed = [];
+    const ok = (x, y, r) => x >= r - 0.01 && x <= W - r + 0.01 && y <= H - r + 0.01 && placed.every((p) => Math.hypot(p.x - x, p.y - y) >= p.r + r - 0.3);
+    for (const c of circles) {
+      const r = c.r, cands = [], fy = H - r;
+      cands.push([r, fy], [W - r, fy]);
+      for (const p of placed) {
+        const s = (p.r + r) ** 2 - (p.y - fy) ** 2;
+        if (s >= 0) { const dx = Math.sqrt(s); cands.push([p.x - dx, fy], [p.x + dx, fy]); }
+        for (const wx of [r, W - r]) {
+          const t = (p.r + r) ** 2 - (wx - p.x) ** 2;
+          if (t >= 0) { const dy = Math.sqrt(t); cands.push([wx, p.y - dy], [wx, p.y + dy]); }
+        }
+      }
+      for (let i = 0; i < placed.length; i++) for (let j = i + 1; j < placed.length; j++) {
+        const a = placed[i], b = placed[j];
+        const d = Math.hypot(b.x - a.x, b.y - a.y), A = a.r + r, B = b.r + r;
+        if (d === 0 || d > A + B || d < Math.abs(A - B)) continue;
+        const l = (A * A - B * B + d * d) / (2 * d), h2 = A * A - l * l;
+        if (h2 < 0) continue;
+        const h = Math.sqrt(h2), ux = (b.x - a.x) / d, uy = (b.y - a.y) / d, px = a.x + l * ux, py = a.y + l * uy;
+        cands.push([px - h * uy, py + h * ux], [px + h * uy, py - h * ux]);
+      }
+      let best = null;
+      for (const [x, y] of cands) {
+        if (!ok(x, y, r)) continue;
+        if (!best || y > best[1] + 0.5 || (Math.abs(y - best[1]) <= 0.5 && x < best[0])) best = [x, y];
+      }
+      if (!best) best = [W / 2, Math.min(...placed.map((p) => p.y - p.r)) - r];
+      placed.push({ id: c.id, r: r, x: best[0], y: best[1] });
+    }
+    const out = {};
+    for (const p of placed) out[p.id] = p;
+    return out;
+  }
+
+  // ---------- state changes ----------
+  function set(patch) { Object.assign(state, patch); render(); }
+  const isOpen = () => state.sel !== null || state.mode === 'add';
+  function closeAll() { if (isOpen()) set({ sel: null, child: null, mode: 'view', draft: null }); }
+
+  // ---------- render ----------
+  const slots = new Map(); // keyed DOM nodes so bubbles animate between positions
+
+  function slotFor(key, html) {
+    let el = slots.get(key);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'slot';
+      el.innerHTML = html;
+      pit.appendChild(el);
+      slots.set(key, el);
+    }
+    return el;
+  }
+
+  function render() {
+    const { bills, sel, child } = state;
+
+    // sizes: area grows with cost, cheapest = 44px across, biggest = 219px
+    const amts = bills.map(amtOf);
+    const minAmt = amts.length ? Math.min(...amts) : 0, maxAmt = amts.length ? Math.max(...amts) : 1;
+    const k = maxAmt > minAmt ? (R_MAX * R_MAX - R_MIN * R_MIN) / (maxAmt - minAmt) : 0;
+    const radius = (a) => Math.sqrt(R_MIN * R_MIN + Math.max(0, k * (a - minAmt)));
+
+    const circles = bills.map((b) => ({ id: b.id, r: amts.length > 1 ? radius(amtOf(b)) : 60, amt: amtOf(b) })).sort((a, b) => b.amt - a.amt);
+    circles.push({ id: '__add', r: 26 });
+    const pos = pack(circles);
+
+    const total = bills.reduce((s, b) => s + amtOf(b), 0);
+    const paidSum = bills.reduce((s, b) => s + paidAmt(b), 0);
+    $('total').textContent = money(total);
+    $('left').textContent = money(total - paidSum);
+
+    const selBill = bills.find((b) => b.id === sel) || null;
+    const drill = selBill && selBill.kids ? selBill : null;
+    const litId = sel || state.last;
+    const look = (lit, done) => lit ? { bg: HIGHLIGHT, fg: '#2B2A27' } : done ? { bg: PAID_BG, fg: PAID_FG } : { bg: '#111111', fg: '#FFFFFF' };
+
+    // drill-down: the group's bubble centred at the bottom, its payments in a row above it in date order
+    let drillBig = null, kidRow = [];
+    if (drill) {
+      const bigR = pos[drill.id].r;
+      drillBig = { x: W / 2, bottom: 16 };
+      const kr = drill.kids.map((kd) => Math.max(radius(kd.amt), R_MIN));
+      const gap = 12, rowW = kr.reduce((s, r) => s + 2 * r, 0) + gap * (kr.length - 1);
+      let x = (W - rowW) / 2;
+      const rowBase = 16 + 2 * bigR + 24;
+      kidRow = kr.map((r) => { const o = { x: x + r, bottom: rowBase, r }; x += 2 * r + gap; return o; });
+    }
+
+    const live = new Set();
+
+    // bills
+    for (const b of bills) {
+      const p = pos[b.id], key = 'b:' + b.id;
+      live.add(key);
+      const el = slotFor(key, '<button class="bub"></button>');
+      const btn = el.firstChild;
+      let x = p.x, r = p.r, bottom = H - p.y - p.r;
+      if (drill && drill.id === b.id) { x = drillBig.x; bottom = drillBig.bottom; }
+      const d = r * 2, hidden = drill && drill.id !== b.id;
+      const tier = d < 70 ? 18 : d < 140 ? 24 : 32; // three icon sizes
+      const iconPx = Math.round(tier * (OPTICAL[b.icon] || 1));
+      const done = isPaid(b);
+      const L = look(b.id === litId && !(drill && child !== null), done);
+      Object.assign(el.style, { left: (x - r) + 'px', bottom: bottom + 'px', width: d + 'px', height: d + 'px', opacity: hidden ? 0 : 1, pointerEvents: hidden ? 'none' : '' });
+      btn.style.background = L.bg; btn.style.color = L.fg;
+      btn.setAttribute('aria-label', b.name + ', ' + money(amtOf(b)) + (done ? ', paid' : ''));
+      btn.setAttribute('aria-pressed', sel === b.id ? 'true' : 'false');
+      const iconKey = b.icon + '|' + iconPx;
+      if (btn.dataset.icon !== iconKey) { btn.innerHTML = svgIcon(b.icon, iconPx); btn.dataset.icon = iconKey; }
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const isSel = state.sel === b.id;
+        if (b.kids && isSel && state.child !== null) set({ child: null, mode: 'view' });
+        else set({ sel: isSel ? null : b.id, child: null, last: b.id, mode: 'view', draft: null });
+      };
+    }
+
+    // payments inside groups; closed ones shrink back into their group's bubble
+    for (const g of bills.filter((b) => b.kids)) {
+      g.kids.forEach((kd, i) => {
+        const key = 'k:' + g.id + '#' + i, gp = pos[g.id];
+        live.add(key);
+        const el = slotFor(key, '<button class="bub">' + svgIcon(g.icon, 18) + '</button>');
+        const btn = el.firstChild;
+        const open = drill && drill.id === g.id;
+        const s = open ? kidRow[i] : { x: gp.x, bottom: H - gp.y, r: 0 };
+        const done = isPaidKid(g, i);
+        const L = look(open && child === i, done);
+        Object.assign(el.style, { left: (s.x - s.r) + 'px', bottom: s.bottom + 'px', width: 2 * s.r + 'px', height: 2 * s.r + 'px', opacity: open ? 1 : 0, pointerEvents: open ? '' : 'none' });
+        btn.style.background = L.bg; btn.style.color = L.fg;
+        btn.setAttribute('aria-label', g.name + ' ' + kd.label + ', ' + money(kd.amt) + (done ? ', paid' : ''));
+        btn.onclick = (e) => { e.stopPropagation(); set({ child: state.child === i ? null : i, mode: 'view' }); };
+      });
+    }
+
+    // add button (grows and centres when there are no bills)
+    const isEmpty = bills.length === 0;
+    live.add('add');
+    const addEl = slotFor('add', '<button class="bub add" aria-label="Add a bill"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>');
+    const ap = pos.__add;
+    if (isEmpty) Object.assign(addEl.style, { left: (W / 2 - 44) + 'px', bottom: '120px', width: '88px', height: '88px', opacity: 1, pointerEvents: '' });
+    else Object.assign(addEl.style, { left: (ap.x - ap.r) + 'px', bottom: (H - ap.y - ap.r) + 'px', width: '52px', height: '52px', opacity: drill ? 0 : 1, pointerEvents: drill ? 'none' : '' });
+    addEl.firstChild.onclick = (e) => { e.stopPropagation(); set({ sel: null, child: null, mode: 'add', draft: { name: '', amt: '', due: '', icon: 'other', iconAuto: true, freq: 'monthly' } }); };
+
+    // empty-state message
+    let emptyEl = document.getElementById('emptyMsg');
+    if (isEmpty && !emptyEl) {
+      emptyEl = document.createElement('div');
+      emptyEl.id = 'emptyMsg'; emptyEl.className = 'empty';
+      emptyEl.innerHTML = '<b>Add your first bill</b><span>Each one becomes a bubble, sized by what it costs. Together they show your cost of living.</span>';
+      pit.appendChild(emptyEl);
+    } else if (!isEmpty && emptyEl) emptyEl.remove();
+
+    // remove bubbles that no longer exist
+    for (const [key, el] of slots) if (!live.has(key)) { el.remove(); slots.delete(key); }
+
+    renderSheet();
+
+    // the pile lifts by the sheet's height for bill details; the add form simply covers the pile
+    const lift = state.sel !== null ? Math.max(0, sheet.offsetHeight - nav.offsetHeight + 12) : 0;
+    pit.style.transform = 'translateY(-' + lift + 'px)';
+
+    // toast
+    $('toast').classList.toggle('show', !!state.toast);
+    $('toastText').textContent = state.toast ? state.toast.bill.name + ' removed' : '';
+  }
+
+  // ---------- sheet ----------
+  function dueText(due, days, done) {
+    if (done) return ['Paid · ' + due, ''];
+    if (days === null || days === undefined) return [due, ''];
+    if (days < 0) return ['Was due ' + due, ''];
+    if (days === 0) return ['Due today', ''];
+    return ['Due ' + due + ',', days === 1 ? 'tomorrow' : 'in ' + days + ' days'];
+  }
+
+  function renderSheet() {
+    const { bills, sel, child, mode } = state;
+    sheet.classList.toggle('open', isOpen());
+    const shown = bills.find((b) => b.id === (sel || state.last)) || null;
+
+    // forms are only rebuilt when they open, so typing never loses focus
+    const key = mode + '|' + (shown ? shown.id : '') + '|' + child + '|' + JSON.stringify(state.paid) + '|' + (shown ? JSON.stringify(shown) : '');
+    if ((mode === 'add' || mode === 'edit') && sheetKey.startsWith(mode + '|')) { if (mode === 'add') updateAddForm(); return; }
+    if (key === sheetKey) return;
+    sheetKey = key;
+
+    const handle = '<button class="handle" data-act="close" aria-label="Close details"><span></span></button>';
+
+    if (mode === 'add') {
+      sheet.innerHTML = handle + '<div class="col" style="gap:14px">' +
+        '<span class="name">New bill</span>' +
+        '<label>Name<input class="field" id="fName" type="text" placeholder="e.g. Car insurance"></label>' +
+        '<div class="grid2"><label>Amount (£)<input class="field" id="fAmt" type="text" inputmode="decimal" placeholder="0.00"></label>' +
+        '<label>Due<input class="field" id="fDue" type="text"></label></div>' +
+        '<div class="label">How often<div class="seg" role="radiogroup" aria-label="How often" id="fFreq">' +
+          [['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly'], ['once', 'One-off']].map(([k, l]) => '<button role="radio" data-freq="' + k + '">' + l + '</button>').join('') +
+        '</div><span class="note" id="fNote"></span></div>' +
+        '<div class="label"><div style="display:flex;justify-content:space-between;gap:8px"><span>Icon</span><span class="note" id="fHint"></span></div>' +
+        '<div class="icons" role="radiogroup" aria-label="Icon" id="fIcons">' +
+          Object.keys(ICON_NAMES).map((k) => '<button role="radio" data-icon="' + k + '" aria-label="' + ICON_NAMES[k] + '">' + svgIcon(k, 20) + '</button>').join('') +
+        '</div></div>' +
+        '<div class="row" style="margin-top:4px"><button class="btn ghost" data-act="cancel">Cancel</button><button class="btn" id="fSave" data-act="saveAdd">Add bill</button></div>' +
+        '</div>';
+      $('fName').oninput = (e) => { const d = state.draft; d.name = e.target.value; if (d.iconAuto) d.icon = guessIcon(d.name); updateAddForm(); };
+      $('fAmt').oninput = (e) => { state.draft.amt = e.target.value; updateAddForm(); };
+      $('fDue').oninput = (e) => { state.draft.due = e.target.value; };
+      $('fFreq').onclick = (e) => { const b = e.target.closest('[data-freq]'); if (b) { state.draft.freq = b.dataset.freq; updateAddForm(); } };
+      $('fIcons').onclick = (e) => { const b = e.target.closest('[data-icon]'); if (b) { state.draft.icon = b.dataset.icon; state.draft.iconAuto = false; updateAddForm(); } };
+      updateAddForm();
+      return;
+    }
+
+    if (mode === 'edit' && shown) {
+      const d = state.draft;
+      sheet.innerHTML = handle + '<div class="col" style="gap:14px">' +
+        '<span class="name">Edit ' + esc(shown.name) + '</span>' +
+        '<label>Name<input class="field" id="eName" type="text" value="' + esc(d.name) + '"></label>' +
+        (shown.kids ? '' : '<label>Amount (£)<input class="field" id="eAmt" type="text" inputmode="decimal" value="' + esc(d.amt) + '"></label>') +
+        '<label>Due<input class="field" id="eDue" type="text" value="' + esc(d.due) + '"></label>' +
+        '<div class="row" style="margin-top:4px"><button class="btn ghost" data-act="cancel">Cancel</button><button class="btn" data-act="saveEdit">Save</button></div>' +
+        '</div>';
+      $('eName').oninput = (e) => { state.draft.name = e.target.value; };
+      if ($('eAmt')) $('eAmt').oninput = (e) => { state.draft.amt = e.target.value; };
+      $('eDue').oninput = (e) => { state.draft.due = e.target.value; };
+      return;
+    }
+
+    if (!shown) { sheet.innerHTML = handle; return; }
+    let info;
+    if (shown.kids && sel === shown.id && child !== null) {
+      const kd = shown.kids[child], done = isPaidKid(shown, child);
+      const [w, c] = dueText(kd.due, kd.days, done);
+      info = { name: shown.name + ' · ' + kd.label, amount: money(kd.amt), about: !done, when: w, countdown: c, action: done ? 'Mark as unpaid' : 'Mark as paid', canEdit: false };
+    } else if (shown.kids) {
+      const n = shown.kids.length, nd = shown.kids.filter((kd, i) => isPaidKid(shown, i)).length;
+      info = { name: shown.name, amount: money(amtOf(shown)), about: nd < n, when: money(paidAmt(shown)) + ' spent so far · ' + nd + ' of ' + n + ' done', countdown: '',
+        action: nd < n ? (shown.id === 'groceries' ? 'Mark next shop as paid' : 'Mark next payment as paid') : 'All done this month', canEdit: true };
+    } else {
+      const done = !!state.paid[shown.id];
+      const [w, c] = dueText(shown.due, shown.days, done);
+      info = { name: shown.name, amount: money(shown.amt), about: shown.kind === 'need' && !done, when: w, countdown: c,
+        action: done ? 'Mark as unpaid' : (shown.kind === 'need' ? 'Log spending' : 'Mark as paid'), canEdit: true };
+    }
+    sheet.innerHTML = handle + '<div class="col">' +
+      '<div class="row" style="align-items:center;gap:12px"><span class="badge" style="background:' + HIGHLIGHT + '">' + svgIcon(shown.icon, 22) + '</span><span class="name">' + esc(info.name) + '</span></div>' +
+      '<div class="row" style="align-items:baseline;gap:8px">' + (info.about ? '<span class="about">About</span>' : '') + '<span class="amount">' + info.amount + '</span></div>' +
+      '<div class="when">' + esc(info.when) + ' <b>' + esc(info.countdown) + '</b></div>' +
+      '<div class="row" style="margin-top:6px"><button class="btn" data-act="primary">' + info.action + '</button></div>' +
+      (info.canEdit ? '<div class="row"><button class="btn ghost small" data-act="edit">Edit</button><button class="btn ghost small danger" data-act="delete">Delete</button></div>' : '') +
+      '</div>';
+  }
+
+  function updateAddForm() {
+    const d = state.draft;
+    if (!d || !$('fFreq')) return;
+    const a = parseFloat(String(d.amt).replace(/[^0-9.]/g, '')), valid = isFinite(a) && a > 0;
+    const canAdd = d.name.trim().length > 0 && valid;
+    $('fSave').setAttribute('aria-disabled', canAdd ? 'false' : 'true');
+    for (const b of $('fFreq').children) b.setAttribute('aria-checked', b.dataset.freq === d.freq ? 'true' : 'false');
+    for (const b of $('fIcons').children) b.setAttribute('aria-checked', b.dataset.icon === d.icon ? 'true' : 'false');
+    $('fNote').textContent = {
+      weekly: valid ? 'About ' + money(a * 4) + ' a month · opens into 4 weekly payments' : 'Shows as one bubble that opens into 4 weekly payments',
+      monthly: 'Counts once each month',
+      yearly: valid ? 'Spread out as ' + money(a / 12) + ' a month' : 'Spread out across 12 months',
+      once: 'Counts this month only'
+    }[d.freq];
+    $('fDue').placeholder = { weekly: 'e.g. Saturdays', monthly: 'e.g. the 26th', yearly: 'e.g. 3 March', once: 'e.g. Fri 23 Oct' }[d.freq];
+    $('fHint').textContent = d.iconAuto ? (d.icon !== 'other' ? 'Picked from the name · tap to change' : 'Picks itself as you type') : 'Your choice';
+  }
+
+  // ---------- sheet actions ----------
+  sheet.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    const shown = state.bills.find((b) => b.id === (state.sel || state.last)) || null;
+    if (act === 'close') return closeAll();
+    if (act === 'cancel') return set({ mode: 'view', draft: null, sel: state.mode === 'add' ? null : state.sel });
+    if (act === 'primary' && shown) {
+      const next = Object.assign({}, state.paid);
+      if (shown.kids && state.sel === shown.id && state.child !== null) {
+        const k = shown.id + '#' + state.child;
+        if (next[k]) delete next[k]; else next[k] = true;
+      } else if (shown.kids) {
+        const i = shown.kids.findIndex((kd, j) => !next[shown.id + '#' + j]);
+        if (i >= 0) next[shown.id + '#' + i] = true;
+      } else if (next[shown.id]) delete next[shown.id]; else next[shown.id] = true;
+      return set({ paid: next });
+    }
+    if (act === 'edit' && shown) return set({ mode: 'edit', draft: { name: shown.name, amt: shown.kids ? '' : String(shown.amt), due: shown.due } });
+    if (act === 'saveEdit' && shown) {
+      const d = state.draft, a = parseFloat(String(d.amt).replace(/[^0-9.]/g, ''));
+      return set({ mode: 'view', draft: null, bills: state.bills.map((b) => b.id !== shown.id ? b : Object.assign({}, b, {
+        name: d.name.trim() || b.name, due: d.due.trim() || b.due, amt: b.kids ? b.amt : (isFinite(a) && a > 0 ? a : b.amt) })) });
+    }
+    if (act === 'delete' && shown) {
+      const idx = state.bills.indexOf(shown), rest = state.bills.filter((b) => b !== shown);
+      const biggest = rest.length ? rest.slice().sort((a, b) => amtOf(b) - amtOf(a))[0].id : null;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => set({ toast: null }), 5000);
+      return set({ bills: rest, sel: null, child: null, mode: 'view', last: biggest, toast: { bill: shown, index: idx } });
+    }
+    if (act === 'saveAdd') {
+      const d = state.draft, a = parseFloat(String(d.amt).replace(/[^0-9.]/g, ''));
+      if (!(d.name.trim() && isFinite(a) && a > 0)) return;
+      const id = 'bill' + Date.now(), due = d.due.trim();
+      const base = { id, icon: d.icon || 'other', name: d.name.trim(), days: null, kind: 'bill' };
+      let bill;
+      if (d.freq === 'weekly') bill = Object.assign(base, { due: due ? 'Every ' + due.replace(/^every\s+/i, '') : 'Every week', kids: [1, 2, 3, 4].map((n) => ({ label: 'Week ' + n, due: 'Week ' + n, days: null, amt: a })) });
+      else if (d.freq === 'yearly') bill = Object.assign(base, { amt: Math.round(a / 12 * 100) / 100, due: (due ? due + ' · ' : '') + money(a) + ' a year' });
+      else if (d.freq === 'once') bill = Object.assign(base, { amt: a, due: due || 'One-off' });
+      else bill = Object.assign(base, { amt: a, due: due ? 'Monthly, ' + due : 'Monthly' });
+      return set({ bills: state.bills.concat([bill]), mode: 'view', draft: null, last: id });
+    }
+  });
+
+  // swipe the sheet down to close it
+  let dragY = null;
+  sheet.addEventListener('pointerdown', (e) => { dragY = e.clientY; });
+  sheet.addEventListener('pointerup', (e) => { if (dragY !== null && e.clientY - dragY > 40 && state.mode === 'view') closeAll(); dragY = null; });
+
+  // tap empty space in the pit to close
+  pit.addEventListener('click', closeAll);
+
+  $('undo').addEventListener('click', () => {
+    const t = state.toast;
+    if (!t) return;
+    clearTimeout(toastTimer);
+    const nb = state.bills.slice();
+    nb.splice(t.index, 0, t.bill);
+    set({ bills: nb, toast: null, last: t.bill.id });
+  });
+
+  render();
+  // fonts change text heights, so re-measure the sheet once they load
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+})();
+</script>
+</body>
+</html>

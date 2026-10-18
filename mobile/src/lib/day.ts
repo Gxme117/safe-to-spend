@@ -1,5 +1,5 @@
-import {comingUp, dayFigure, everydayOn, forecast, hero, tomorrowLine, type Calc, type ComingRow, type EverydayLeft, type Hero} from "./calc";
-import {addDays, parseD} from "./dates";
+import {calendar, comingUp, dayFigure, everydayOn, forecast, hero, payCycle, tomorrowLine, type Calc, type ComingRow, type EverydayLeft, type Hero} from "./calc";
+import {addDays, niceDate, parseD, shortDate} from "./dates";
 import {money, newestFirst, r2} from "./money";
 import type {Ctx, IsoDate, Tx} from "./types";
 
@@ -93,4 +93,32 @@ export function runway(ctx: Ctx, c: Calc, due = dueByDay(ctx, c), back = 3): Run
     out.push({d, when, amount, payday: d === c.payday, bills: rows.some(r => r.kind === "bill"), incoming: rows.some(r => r.kind !== "bill")});
   }
   return out;
+}
+
+/** One day in the pay-cycle grid: gone, today or to come; a bill still to go out that day; payday. */
+export interface CycleDay { d: IsoDate; n: number; when: DayView["when"]; bill: boolean; payday: boolean }
+
+/**
+ * The pay cycle as a grid, last payday to the next, with the line above it: "30 Sep – 30 Oct" and "17 days to payday".
+ * `weeks` are rows of 7, Monday first, with blanks (null) before the first day and after the last, so every row lines up.
+ * Bills are marked on the days still to come, so one that's gone out isn't marked.
+ * `said` is the whole grid in one sentence, so a screen reader hears it once rather than stopping on every day.
+ * Null without a payday to count down to (or on payday itself, which the payday check covers).
+ */
+export function cycleDays(ctx: Ctx, c: Calc): {range: string; toPayday: string; weeks: (CycleDay | null)[][]; days: CycleDay[]; said: string} | null {
+  if (!c.payday || !c.daysLeft || c.daysLeft < 0) return null;
+  const {lead, days: cal} = calendar(ctx, c), {total, dayNo} = payCycle(ctx, c);
+  if (!cal.length) return null;
+  const days = cal.map((x): CycleDay => ({
+    d: x.d, n: x.n, when: x.d < c.t ? "past" : x.d === c.t ? "today" : "future",
+    bill: x.kinds.includes("bill"), payday: x.kinds.includes("pay"),
+  }));
+  const cells: (CycleDay | null)[] = [...Array<null>(lead).fill(null), ...days];
+  while (cells.length % 7) cells.push(null);
+  const weeks = Array.from({length: cells.length / 7}, (_, i) => cells.slice(i * 7, i * 7 + 7));
+  const range = `${shortDate(cal[0].d)} – ${shortDate(c.payday)}`;
+  const toPayday = c.daysLeft === 1 ? "Payday tomorrow" : `${c.daysLeft} days to payday`;
+  const bills = days.filter(x => x.bill).map(x => niceDate(x.d));
+  const billsSaid = !bills.length ? "" : ` Bills due ${bills.length > 1 ? `${bills.slice(0, -1).join(", ")} and ${bills[bills.length - 1]}` : bills[0]}.`;
+  return {range, toPayday, weeks, days, said: `Pay cycle, ${range}, day ${dayNo} of ${total}.${billsSaid} Payday ${niceDate(c.payday)}.`};
 }

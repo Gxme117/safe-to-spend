@@ -1,5 +1,5 @@
 import {addDays, addMonths, dayDiff, longDate, niceDate, ord} from "../dates";
-import {money, parseAmount, splitPounds} from "../money";
+import {money, moneyExact, parseAmount, splitPounds} from "../money";
 
 describe("dates", () => {
   test("adding days and months crosses month and year ends", () => {
@@ -34,6 +34,11 @@ describe("money", () => {
   test("splitPounds gives the big number its parts", () => {
     expect(splitPounds(1234.5)).toEqual({whole: "1,234", pence: "50"});
     expect(splitPounds(-16)).toEqual({whole: "16", pence: "00"});
+  });
+  test("moneyExact always shows the pence, as a bank does", () => {
+    expect(moneyExact(0)).toBe("£0.00");
+    expect(moneyExact(1269.99)).toBe("£1,269.99");
+    expect(moneyExact(-40)).toBe("−£40.00");
   });
   test("parseAmount reads what people type", () => {
     expect(parseAmount("£1,250.50")).toBe(1250.5);

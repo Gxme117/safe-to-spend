@@ -79,8 +79,8 @@ test("what if I spend: the engine's answer, in one line", async () => {
   expect(screen.getByText(/£6/)).toBeOnTheScreen();
 });
 
-test("without enough, the number goes below £0 calmly", async () => {
+test("without enough, the number stops at £0 calmly", async () => {
   await show([groceries], baseState({bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}]}));
-  expect(screen.getByRole("button", {name: /^Safe to Spend Today, −£16\. You need £400 more/})).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: /^Safe to Spend Today, £0\. You need £400 more/})).toBeOnTheScreen();
   expect(screen.queryByText(/short|move|\bover/i)).toBeNull();
 });
