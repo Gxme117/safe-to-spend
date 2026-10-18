@@ -167,7 +167,6 @@ function Pile({items, w, h, lit, sel, tap, add}: {items: LivingItem[]; w: number
       {items.map(x => (
         <Floater key={x.id} sim={sim} id={x.id} drag={drag}>
           <Bubble d={pos[x.id].r * 2} icon={x.icon} look={x.id === lit ? "lit" : x.paid ? "paid" : "plain"} paid={x.paid} open={x.id === sel} onPress={() => tap(x.id)}
-            amount={`${x.estimate ? "~" : ""}${money(Math.round(x.amount))}`}
             label={`${x.name}, ${x.estimate ? "about " : ""}${money(Math.round(x.amount))}${x.paid ? ", paid" : ""}`} />
         </Floater>
       ))}

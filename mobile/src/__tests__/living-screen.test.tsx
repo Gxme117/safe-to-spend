@@ -29,8 +29,8 @@ test("a tap opens the sheet short, one line of name and amount; a tap on it show
   await show();
   await fireEvent.press(screen.getByRole("button", {name: "Rent, £400"}));
   expect(screen.getByText("Rent")).toBeOnTheScreen();
-  // on the bubble, and at the end of the sheet's line
-  expect(screen.getAllByText("£400")).toHaveLength(2);
+  // at the end of the sheet's line (the bubble shows only its icon)
+  expect(screen.getAllByText("£400")).toHaveLength(1);
   expect(screen.queryByText("Due Thu 15 Oct, in 10 days")).toBeNull();
   expect(screen.queryByRole("button", {name: "Edit"})).toBeNull();
   // another bubble swaps it, still short
@@ -58,9 +58,9 @@ test("what it all costs a month, what's still to go out before payday, and a bub
   expect(screen.getByRole("button", {name: "Groceries, about £200"})).toBeOnTheScreen();
   expect(screen.getByRole("button", {name: "Phone, £20, paid"})).toBeOnTheScreen();
   expect(screen.getByRole("button", {name: "Add a bill"})).toBeOnTheScreen();
-  // big bubbles show what they cost under the icon (~ for an everyday estimate); the smallest only say it in their label
-  expect(screen.getByText("£400")).toBeOnTheScreen();
-  expect(screen.getByText("~£200")).toBeOnTheScreen();
+  // bubbles show only their icon: what they cost is in their label and their sheet
+  expect(screen.queryByText("£400")).toBeNull();
+  expect(screen.queryByText("~£200")).toBeNull();
   expect(screen.queryByText("£20")).toBeNull();
 });
 

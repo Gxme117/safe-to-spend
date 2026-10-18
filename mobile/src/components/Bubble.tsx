@@ -1,8 +1,8 @@
 import {useState} from "react";
-import {Animated, Easing, Pressable, Text} from "react-native";
+import {Animated, Easing, Pressable} from "react-native";
 import Svg, {Circle, Defs, RadialGradient, Stop} from "react-native-svg";
 import type {LookIcon as Name} from "@/lib/looks";
-import {living, textSize} from "@/theme/tokens";
+import {living} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 import {useReducedMotion} from "./BigMoney";
 import {Icon} from "./Icon";
@@ -14,8 +14,6 @@ const LINE = 2.25;
 const OPTICAL: Partial<Record<Name, number>> = {drop: 1.1, dumbbell: 1.08, globe: 0.94, landmark: 0.94};
 // three icon sizes, by the bubble's diameter
 const iconSize = (d: number) => d < 70 ? 18 : d <= 140 ? 24 : 32;
-// bubbles this big across (the ones with the bigger icons) show what they cost under the icon
-const AMOUNT_FROM = 70;
 // pressed, a bubble shrinks a little, and springs back when let go (.18s, overshooting a touch)
 const PRESSED = 0.92, SPRING = Easing.bezier(0.3, 1.6, 0.5, 1);
 // a paid bubble's outline
@@ -27,13 +25,13 @@ export function BubbleIcon({name, color, size}: {name: Name; color: string; size
   return <LookIcon name={name} color={color} size={px} line={LINE * 24 / px} />;
 }
 
-/** One bubble on the Living tab: a circle sized by what it costs, a line icon in the middle, and on a big one what it costs.
+/** One bubble on the Living tab: a circle sized by what it costs, with a line icon in the middle (what it costs is in its sheet).
  *  Highlighted, it's the Today calendar's yellow glow (green when paid); paid, a flat pale fill with a grey outline. What it is and whether it's paid is in `label`.
  *  A tap doesn't dim it: it shrinks while held and springs back. */
-export function Bubble({d, icon, look, paid, label, amount, open, onPress}: {
-  d: number; icon: Name; look: "plain" | "lit" | "paid"; paid: boolean; label: string; amount: string; open: boolean; onPress: () => void;
+export function Bubble({d, icon, look, paid, label, open, onPress}: {
+  d: number; icon: Name; look: "plain" | "lit" | "paid"; paid: boolean; label: string; open: boolean; onPress: () => void;
 }) {
-  const {dark, f} = useTheme();
+  const {dark} = useTheme();
   const reduced = useReducedMotion();
   const [scale] = useState(() => new Animated.Value(1));
   const press = (to: number) => { if (!reduced) Animated.timing(scale, {toValue: to, duration: 180, easing: SPRING, useNativeDriver: true}).start(); };
@@ -47,12 +45,6 @@ export function Bubble({d, icon, look, paid, label, amount, open, onPress}: {
       <Animated.View style={{width: d, height: d, borderRadius: d / 2, backgroundColor: fill, alignItems: "center", justifyContent: "center", overflow: "hidden",
         borderWidth: look === "paid" ? PAID_LINE : 0, borderColor: k.paidLine, transform: [{scale}]}}>
         {look === "lit" ? <Glow d={d} paid={paid} /> : null}
-        {/* what it costs, above the icon (being tried out; it was under it), on bubbles big enough to read it; smaller ones say it in
-            their label and their sheet */}
-        {d >= AMOUNT_FROM ? (
-          <Text maxFontSizeMultiplier={1.2} numberOfLines={1}
-            style={{marginBottom: 2, fontFamily: f.bold, fontSize: textSize.homeSmall, lineHeight: 16, color: ink, fontVariant: ["tabular-nums"]}}>{amount}</Text>
-        ) : null}
         <BubbleIcon name={icon} color={ink} size={iconSize(d)} />
       </Animated.View>
     </Pressable>
