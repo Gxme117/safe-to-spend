@@ -7,9 +7,10 @@ import {LivingSheet} from "@/components/LivingSheet";
 import {Floater, usePitSim} from "@/components/PitSim";
 import {T} from "@/components/ui";
 import type {Calc} from "@/lib/calc";
+import {uid} from "@/lib/defaults";
 import {bubbleRadii, livingAction, livingDraft, livingDue, livingItems, livingMarked, livingPayment, livingPayments, livingTotals, pack, pileOrder, R_ADD, saveLiving, type LivingDraft, type LivingItem} from "@/lib/living";
 import {money} from "@/lib/money";
-import type {Ctx} from "@/lib/types";
+import type {Bill, Ctx} from "@/lib/types";
 import {useCalc} from "@/store/useCalc";
 import {useMoney} from "@/store/useMoney";
 import {s} from "@/theme/tokens";
@@ -44,22 +45,28 @@ function Living({ctx, c}: {ctx: Ctx; c: Calc}) {
   const [sheetH, setSheetH] = useState(400);
   const reduced = useReducedMotion();
   const find = (id: string | null) => items.find(x => x.id === id) ?? null;
-  const isOpen = !!find(sel);
+  // the "+" form: it covers the pile, which stays where it is
+  const [adding, setAdding] = useState(false);
+  const shown = !!find(sel);
+  const isOpen = shown || adding;
   // before any tap, the biggest is highlighted
   const lit = find(sel) ?? find(last) ?? items[0] ?? null;
   const [open] = useState(() => new Animated.Value(0));
+  const [up] = useState(() => new Animated.Value(0));
   useEffect(() => {
     Animated.timing(open, {toValue: isOpen ? 1 : 0, duration: reduced ? 0 : SLIDE, easing: EASE, useNativeDriver: true}).start();
-  }, [isOpen, reduced, open]);
-  const tap = (id: string) => { if (sel === id) setSel(null); else { setSel(id); setLast(id); setNone(false); } };
-  const close = useCallback(() => setSel(null), []);
-  const clear = useCallback(() => { setSel(null); setNone(true); }, []);
+    Animated.timing(up, {toValue: shown ? 1 : 0, duration: reduced ? 0 : SLIDE, easing: EASE, useNativeDriver: true}).start();
+  }, [isOpen, shown, reduced, open, up]);
+  const tap = (id: string) => { setAdding(false); if (sel === id) setSel(null); else { setSel(id); setLast(id); setNone(false); } };
+  const close = useCallback(() => { setSel(null); setAdding(false); }, []);
+  const clear = useCallback(() => { setSel(null); setAdding(false); setNone(true); }, []);
+  const startAdd = () => { setSel(null); setAdding(true); };
   // the sheet's height eases to each new one (short to tall), so the pile rides up and down with it rather than jumping
   const [height] = useState(() => new Animated.Value(sheetH));
   useEffect(() => {
     Animated.timing(height, {toValue: sheetH, duration: reduced ? 0 : SLIDE, easing: EASE, useNativeDriver: true}).start();
   }, [sheetH, reduced, height]);
-  const lift = Animated.multiply(open, Animated.multiply(Animated.add(height, REST), -1));
+  const lift = Animated.multiply(up, Animated.multiply(Animated.add(height, REST), -1));
   // the sheet's main button: log the bill's payment (or remove the ones logged here), or log spending from an everyday amount
   const act = async (x: LivingItem) => {
     const st = useMoney.getState();
@@ -99,6 +106,16 @@ function Living({ctx, c}: {ctx: Ctx; c: Calc}) {
     if ("bill" in r) st.saveBill(r.bill); else st.saveCategories(r.categories);
     return null;
   };
+  // Add bill: it drops into the pile at its size, highlighted
+  const added = (b: Bill) => {
+    const bill = {...b, id: "b" + uid()};
+    const st = useMoney.getState();
+    st.saveBill(bill);
+    st.notify(`${bill.name} added`);
+    setAdding(false);
+    setLast(`bill:${bill.id}`);
+    setNone(false);
+  };
   return (
     // the header starts a little below where an iOS large title would (a navigation bar's 44pt under the status bar), on the grid
     <View style={{flex: 1, paddingTop: 64, gap: 14}}>
@@ -112,10 +129,10 @@ function Living({ctx, c}: {ctx: Ctx; c: Calc}) {
         </T>
       </View>
       <Animated.View style={{flex: 1, paddingHorizontal: s[4], transform: [{translateY: lift}]}}>
-        <Pit items={items} lit={none ? null : lit?.id ?? null} sel={sel} tap={tap} close={clear} />
+        <Pit items={items} lit={none ? null : lit?.id ?? null} sel={sel} tap={tap} close={clear} add={startAdd} />
       </Animated.View>
       <LivingSheet ctx={ctx} item={lit} due={lit ? livingDue(ctx, c, lit) : {line: "", bold: ""}} payments={lit ? livingPayments(ctx, c, lit) : []}
-        open={open} isOpen={isOpen} onHeight={h => setSheetH(was => Math.abs(was - h) < 0.5 ? was : h)} close={close}
+        open={open} isOpen={isOpen} adding={adding} onAdd={added} onHeight={h => setSheetH(was => Math.abs(was - h) < 0.5 ? was : h)} close={close}
         action={lit ? livingAction(ctx, c, lit) : null} onAction={() => lit && act(lit)} onDelete={() => lit && remove(lit)}
         draftOf={() => livingDraft(ctx.state, lit!)} save={d => edit(lit!, d)} />
     </View>
@@ -123,20 +140,20 @@ function Living({ctx, c}: {ctx: Ctx; c: Calc}) {
 }
 
 // The pile, filling the page down to the tab bar. Positions are worked out once the pit's size is known.
-function Pit({items, lit, sel, tap, close}: {items: LivingItem[]; lit: string | null; sel: string | null; tap: (id: string) => void; close: () => void}) {
+function Pit({items, lit, sel, tap, close, add}: {items: LivingItem[]; lit: string | null; sel: string | null; tap: (id: string) => void; close: () => void; add: () => void}) {
   const [box, setBox] = useState<{w: number; h: number} | null>(null);
   return (
     // dropping in, the bubbles come out from under its top edge
     <View testID="pit" style={{flex: 1, overflow: "hidden"}} onLayout={e => { const {width: w, height: h} = e.nativeEvent.layout; setBox(b => b && b.w === w && b.h === h ? b : {w, h}); }}>
       {/* a tap on empty space closes the sheet and lets go of the highlight */}
       <Pressable testID="pit-space" onPress={close} accessible={false} style={StyleSheet.absoluteFill} />
-      {box ? (items.length ? <Pile items={items} w={box.w} h={box.h} lit={lit} sel={sel} tap={tap} /> : <Empty w={box.w} />) : null}
+      {box ? (items.length ? <Pile items={items} w={box.w} h={box.h} lit={lit} sel={sel} tap={tap} add={add} /> : <Empty w={box.w} add={add} />) : null}
     </View>
   );
 }
 
 // The bubbles drop in, then sit at their places (lib/pit.ts): drag one and it shoves the rest, let go and they all drift home
-function Pile({items, w, h, lit, sel, tap}: {items: LivingItem[]; w: number; h: number; lit: string | null; sel: string | null; tap: (id: string) => void}) {
+function Pile({items, w, h, lit, sel, tap, add}: {items: LivingItem[]; w: number; h: number; lit: string | null; sel: string | null; tap: (id: string) => void; add: () => void}) {
   const reduced = useReducedMotion();
   const radii = bubbleRadii(items.map(x => x.amount));
   // paid ones are packed last, so they settle on top
@@ -154,20 +171,20 @@ function Pile({items, w, h, lit, sel, tap}: {items: LivingItem[]; w: number; h: 
             label={`${x.name}, ${x.estimate ? "about " : ""}${money(Math.round(x.amount))}${x.paid ? ", paid" : ""}`} />
         </Floater>
       ))}
-      <Floater sim={sim} id="add" drag={drag}><AddBubble d={R_ADD * 2} /></Floater>
+      <Floater sim={sim} id="add" drag={drag}><AddBubble d={R_ADD * 2} onPress={add} /></Floater>
     </>
   );
 }
 
 // No bills yet: a bigger "+" in the middle, and what the page is for above it
-function Empty({w}: {w: number}) {
+function Empty({w, add}: {w: number; add: () => void}) {
   return (
     <>
       <View style={{position: "absolute", left: s[5], right: s[5], bottom: 236, alignItems: "center", gap: s[2]}}>
         <T size="livingTitle" weight="bold" style={{letterSpacing: -0.24, textAlign: "center"}}>Add your first bill</T>
         <T size="livingBody" muted style={{textAlign: "center", lineHeight: 21}}>Each one becomes a bubble, sized by what it costs. Together they show your cost of living.</T>
       </View>
-      <View style={{position: "absolute", left: w / 2 - 44, bottom: 120}}><AddBubble d={88} /></View>
+      <View style={{position: "absolute", left: w / 2 - 44, bottom: 120}}><AddBubble d={88} onPress={add} /></View>
     </>
   );
 }

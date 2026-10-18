@@ -175,3 +175,50 @@ test("Delete on an everyday amount drops it to nothing, keeping the category; Un
   await act(() => useMoney.getState().toast!.undo!());
   expect(screen.getByRole("button", {name: "Groceries, about £200"})).toBeOnTheScreen();
 });
+
+test("+ opens New bill in the sheet; Add bill stays grey until there's a name and an amount, then adds it to the pile", async () => {
+  await show();
+  await fireEvent.press(screen.getByRole("button", {name: "Add a bill"}));
+  expect(screen.getByText("New bill")).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: "Add bill"})).toBeDisabled();
+  expect(screen.getByText("Picks itself as you type")).toBeOnTheScreen();
+  await fireEvent.changeText(screen.getByLabelText("Name"), "Octopus");
+  // the icon follows the name
+  expect(screen.getByRole("radio", {name: "Energy", checked: true})).toBeOnTheScreen();
+  expect(screen.getByText("Picked from the name · tap to change")).toBeOnTheScreen();
+  await fireEvent.changeText(screen.getByLabelText("Amount"), "95");
+  await fireEvent.changeText(screen.getByLabelText("Due"), "the 26th");
+  expect(screen.getByText("Counts once each month")).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", {name: "Add bill"}));
+  expect(useMoney.getState().state!.bills.at(-1)).toMatchObject({name: "Octopus", amount: 95, freq: "monthly", day: 26});
+  expect(useMoney.getState().state!.bills.at(-1)!.icon).toBeUndefined();
+  expect(screen.getByRole("button", {name: "Octopus, £95"})).toBeOnTheScreen();
+  expect(useMoney.getState().toast?.msg).toBe("Octopus added");
+});
+
+test("New bill: How often changes the hint and the note; a tapped icon is kept; a one-off needs its date", async () => {
+  await show();
+  await fireEvent.press(screen.getByRole("button", {name: "Add a bill"}));
+  await fireEvent.changeText(screen.getByLabelText("Name"), "Festival");
+  await fireEvent.changeText(screen.getByLabelText("Amount"), "120");
+  await fireEvent.press(screen.getByRole("radio", {name: "One-off"}));
+  expect(screen.getByPlaceholderText("e.g. Fri 23 Oct")).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: "Add bill"})).toBeDisabled();
+  await fireEvent.changeText(screen.getByLabelText("Due"), "soon");
+  expect(screen.getByText('Not sure when that is. Try "Fri 23 Oct"')).toBeOnTheScreen();
+  await fireEvent.changeText(screen.getByLabelText("Due"), "Fri 23 Oct");
+  await fireEvent.press(screen.getByRole("radio", {name: "Music"}));
+  expect(screen.getByText("Your choice")).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", {name: "Add bill"}));
+  expect(useMoney.getState().state!.bills.at(-1)).toMatchObject({name: "Festival", amount: 120, freq: "oneoff", date: "2026-10-23", icon: "music"});
+});
+
+test("Cancel closes New bill without adding anything", async () => {
+  await show();
+  const n = useMoney.getState().state!.bills.length;
+  await fireEvent.press(screen.getByRole("button", {name: "Add a bill"}));
+  await fireEvent.changeText(screen.getByLabelText("Name"), "Gym");
+  await fireEvent.press(screen.getByRole("button", {name: "Cancel"}));
+  expect(useMoney.getState().state!.bills).toHaveLength(n);
+  expect(screen.queryByText("New bill")).toBeNull();
+});

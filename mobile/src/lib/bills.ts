@@ -3,9 +3,10 @@ import {parseAmount, r2} from "./money";
 import type {Bill, BillFreq, BillMethod, Ctx, IsoDate} from "./types";
 
 export const BILL_FREQ: Record<BillFreq, string> = {
-  monthly: "Every month", weekly: "Every week", fortnightly: "Every 2 weeks", fourweekly: "Every 4 weeks", quarterly: "Every 3 months", yearly: "Every year",
+  monthly: "Every month", weekly: "Every week", fortnightly: "Every 2 weeks", fourweekly: "Every 4 weeks", quarterly: "Every 3 months", yearly: "Every year", oneoff: "Just once",
 };
-export const PER_MONTH: Record<BillFreq, number> = {monthly: 1, weekly: 52 / 12, fortnightly: 26 / 12, fourweekly: 13 / 12, quarterly: 1 / 3, yearly: 1 / 12};
+// a one-off counts in full, in the month it goes out
+export const PER_MONTH: Record<BillFreq, number> = {monthly: 1, weekly: 52 / 12, fortnightly: 26 / 12, fourweekly: 13 / 12, quarterly: 1 / 3, yearly: 1 / 12, oneoff: 1};
 export const METHOD: Record<BillMethod, string> = {dd: "Direct debit", card: "Card", transfer: "I send it myself"};
 export const METHOD_META: Record<BillMethod, string> = {dd: "direct debit", card: "card", transfer: "you send it"};
 export const COMMON_BILLS = ["Rent", "Council tax", "Energy", "Water", "Phone", "Broadband", "Gym", "TV licence", "Insurance", "Car finance", "Loan"];
@@ -14,6 +15,7 @@ export const COMMON_BILLS = ["Rent", "Council tax", "Energy", "Water", "Phone", 
 export function billDates(b: Bill, from: IsoDate, to: IsoDate): IsoDate[] {
   const out: IsoDate[] = [], F = parseD(from), T = parseD(to);
   if (!billDated(b)) return out;   // no payment date yet: never guessed
+  if (b.freq === "oneoff") return b.date! >= from && b.date! <= to ? [b.date!] : out;
   if (b.freq === "monthly") {
     for (let i = -1; i < 40; i++) {
       const base = new Date(F.getFullYear(), F.getMonth() + i, 1), last = new Date(base.getFullYear(), base.getMonth() + 1, 0);
@@ -150,13 +152,14 @@ export function billWhenLong(b: Pick<Bill, "freq" | "day" | "date">, today: IsoD
   if (b.freq === "monthly") return b.day === "last" ? "Last working day of the month" : `${ord(Number(b.day))} of every month`;
   if (b.freq === "weekly") return `Every ${WEEKDAYS[parseD(b.date!).getDay()]}`;
   if (b.freq === "yearly") return `${dayMonth(b.date!, true)} every year`;
+  if (b.freq === "oneoff") return `Just once, on ${niceDate(b.date!)}`;
   // the next one, as it falls (a weekend moves it later)
   const next = billDates({id: "", name: "", amount: 0, freq: b.freq, date: b.date}, today, addDays(today, 120))[0];
   return next ? `Next on ${niceDate(next)}` : null;
 }
 
 /** A date it goes out, picked within one period either side of today: any one of them pins down the rest. */
-const PERIOD_DAYS: Partial<Record<BillFreq, number>> = {weekly: 7, fortnightly: 14, fourweekly: 28, quarterly: 92, yearly: 366};
+const PERIOD_DAYS: Partial<Record<BillFreq, number>> = {weekly: 7, fortnightly: 14, fourweekly: 28, quarterly: 92, yearly: 366, oneoff: 366};
 export const datePickRange = (freq: BillFreq, today: IsoDate) => {
   const n = PERIOD_DAYS[freq] ?? 31;
   return {min: addDays(today, -(n - 1)), max: addDays(today, n - 1)};

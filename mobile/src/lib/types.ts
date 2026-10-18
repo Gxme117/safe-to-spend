@@ -1,5 +1,6 @@
 // The same shapes as the web app's `state` doc and `tx-YYYY-MM` items (src/app.js),
 // so data can move between the two later without reshaping.
+import type {LookIcon} from "./looks";
 
 export type IsoDate = string; // "2026-10-03"
 
@@ -34,7 +35,8 @@ export interface Income {
 /** Where something came from: found in your bank's payments (and kept by you at setup), or typed in. Missing means typed. */
 export type Source = "bank" | "you";
 
-export type BillFreq = "monthly" | "weekly" | "fortnightly" | "fourweekly" | "quarterly" | "yearly";
+/** oneoff: it goes out once, on its date */
+export type BillFreq = "monthly" | "weekly" | "fortnightly" | "fourweekly" | "quarterly" | "yearly" | "oneoff";
 export type BillMethod = "dd" | "card" | "transfer";
 
 export interface Bill {
@@ -50,6 +52,7 @@ export interface Bill {
   cat?: string;
   source?: Source;
   payee?: string;   // who it's paid to, as the bank names them, when it was found there
+  icon?: LookIcon;  // chosen by you; otherwise it's guessed from the name (billLook)
 }
 
 export type Group = "bills" | "everyday" | "free";

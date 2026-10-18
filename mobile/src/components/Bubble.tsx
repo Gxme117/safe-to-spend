@@ -1,5 +1,5 @@
 import {useState} from "react";
-import {Animated, Easing, Pressable, Text, View} from "react-native";
+import {Animated, Easing, Pressable, Text} from "react-native";
 import Svg, {Circle, Defs, RadialGradient, Stop} from "react-native-svg";
 import type {LookIcon as Name} from "@/lib/looks";
 import {living, textSize} from "@/theme/tokens";
@@ -77,13 +77,13 @@ export function Glow({d, paid}: {d: number; paid?: boolean}) {
 }
 
 /** The dashed "+" bubble: add a bill. */
-export function AddBubble({d}: {d: number}) {
+export function AddBubble({d, onPress}: {d: number; onPress: () => void}) {
   const {dark} = useTheme();
   const ink = living[dark ? "dark" : "light"].add;
   return (
-    <View accessible accessibilityRole="button" accessibilityLabel="Add a bill"
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Add a bill"
       style={{width: d, height: d, borderRadius: d / 2, borderWidth: 2, borderStyle: "dashed", borderColor: ink, alignItems: "center", justifyContent: "center"}}>
       <Icon name="plus" color={ink} size={20} />
-    </View>
+    </Pressable>
   );
 }

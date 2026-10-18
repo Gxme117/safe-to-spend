@@ -1,5 +1,6 @@
 import {calc} from "../calc";
-import {bubbleRadii, livingAction, livingDraft, livingDue, livingItems, livingMarked, livingPayment, livingPayments, livingTotals, pack, pileOrder, R_ADD, saveLiving} from "../living";
+import {billDates} from "../bills";
+import {addBill, addIcon, addNote, newAddDraft, parseDue, bubbleRadii, livingAction, livingDraft, livingDue, livingItems, livingMarked, livingPayment, livingPayments, livingTotals, pack, pileOrder, R_ADD, saveLiving} from "../living";
 import {baseState, ctx, TODAY, tx} from "./fixtures";
 
 // the sample in design/living-screen.html: rent, groceries (4 weekly shops), council tax, energy, travel, water, internet, gym, phone, Spotify, Netflix
@@ -162,4 +163,67 @@ test("a paid bill's payments: filed against it, or in its category around its du
   expect(of("Phone")).toEqual([filed]);
   expect(of("Rent")).toEqual([byCat]);
   expect(of("Groceries")).toEqual([]);
+});
+
+describe("adding a bill", () => {
+  // today is Mon 5 Oct 2026
+  test("Due is read as you'd say it, for each How often", () => {
+    expect(parseDue("monthly", "the 26th", TODAY)).toEqual({day: 26});
+    expect(parseDue("monthly", "last working day", TODAY)).toEqual({day: "last"});
+    expect(parseDue("monthly", "32nd", TODAY)).toBeNull();
+    // the next Saturday, or today when it's that day
+    expect(parseDue("weekly", "Saturdays", TODAY)).toEqual({date: "2026-10-10"});
+    expect(parseDue("weekly", "every monday", TODAY)).toEqual({date: TODAY});
+    expect(parseDue("weekly", "26th", TODAY)).toBeNull();
+    // the next time it comes round
+    expect(parseDue("yearly", "3 March", TODAY)).toEqual({date: "2027-03-03"});
+    expect(parseDue("yearly", "Dec 12", TODAY)).toEqual({date: "2026-12-12"});
+    expect(parseDue("yearly", "29 Feb", TODAY)).toEqual({date: "2028-02-29"});
+    expect(parseDue("yearly", "31 June", TODAY)).toBeNull();
+    expect(parseDue("oneoff", "Fri 23 Oct", TODAY)).toEqual({date: "2026-10-23"});
+    expect(parseDue("oneoff", "2/11", TODAY)).toEqual({date: "2026-11-02"});
+    // a day on its own: the next one
+    expect(parseDue("oneoff", "the 3rd", TODAY)).toEqual({date: "2026-11-03"});
+    expect(parseDue("oneoff", "soon", TODAY)).toBeNull();
+    expect(parseDue("monthly", "  ", TODAY)).toEqual({});
+  });
+
+  test("Add bill needs a name and an amount; Due can wait, except on a one-off", () => {
+    const d = {...newAddDraft(), name: "Car insurance", amount: "42.5"};
+    expect(addBill(d, "b1", TODAY)).toEqual({id: "b1", name: "Car insurance", amount: 42.5, freq: "monthly", from: {kind: "main"}});
+    expect(addBill({...d, due: "the 26th"}, "b1", TODAY)).toMatchObject({day: 26});
+    expect(addBill({...d, name: " "}, "b1", TODAY)).toBeNull();
+    expect(addBill({...d, amount: "0"}, "b1", TODAY)).toBeNull();
+    expect(addBill({...d, due: "whenever"}, "b1", TODAY)).toBeNull();
+    expect(addBill({...d, freq: "oneoff"}, "b1", TODAY)).toBeNull();
+    expect(addBill({...d, freq: "oneoff", due: "Fri 23 Oct"}, "b1", TODAY)).toMatchObject({freq: "oneoff", date: "2026-10-23"});
+    // an icon you tapped is kept; one picked from the name isn't stored
+    expect(addBill({...d, icon: "shield"}, "b1", TODAY)).toMatchObject({icon: "shield"});
+  });
+
+  test("the icon is picked from the name until you choose one", () => {
+    expect(addIcon({...newAddDraft(), name: "Octopus Energy"})).toBe("bulb");
+    expect(addIcon({...newAddDraft(), name: "Octopus Energy", icon: "house"})).toBe("house");
+    expect(addIcon(newAddDraft())).toBe("receipt");
+  });
+
+  test("the line under How often says what it'll count as", () => {
+    const d = {...newAddDraft(), amount: "20"};
+    expect(addNote({...d, freq: "weekly"})).toBe("About £87 a month");
+    expect(addNote({...d, freq: "monthly"})).toBe("Counts once each month");
+    expect(addNote({...d, amount: "600", freq: "yearly"})).toBe("Spread out as £50 a month");
+    expect(addNote({...d, freq: "oneoff"})).toBe("Counts once, when it's due");
+  });
+
+  test("a one-off is held back until its date, then drops off the pile after its pay cycle", () => {
+    const trip = {id: "trip", name: "Festival", amount: 120, freq: "oneoff" as const, date: "2026-10-20", icon: "music" as const};
+    const c0 = ctx({state: baseState({bills: [trip]})});
+    const c = calc(c0);
+    expect(c.billsLeft).toBe(120);
+    expect(livingItems(c0, c).find(x => x.ref === "trip")).toMatchObject({name: "Festival", amount: 120, icon: "music"});
+    // next pay cycle
+    const later = ctx({state: baseState({bills: [trip]}), today: "2026-11-02"});
+    expect(livingItems(later, calc(later)).some(x => x.name === "Festival")).toBe(false);
+    expect(billDates(trip, "2026-10-01", "2026-12-31")).toEqual(["2026-10-20"]);
+  });
 });

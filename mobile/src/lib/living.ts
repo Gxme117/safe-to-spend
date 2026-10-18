@@ -21,11 +21,12 @@ export interface LivingItem {
 export function livingItems(ctx: Ctx, c: Calc): LivingItem[] {
   const {state, txs} = ctx;
   const until = c.payday ? addDays(c.payday, -1) : addDays(ctx.today, 30);
-  const bills: LivingItem[] = state.bills.filter(b => b.amount > 0).map(b => {
+  // a one-off is part of the pay cycle it goes out in, and gone after it
+  const bills: LivingItem[] = state.bills.filter(b => b.amount > 0 && !(b.freq === "oneoff" && b.date && b.date < c.cycleFrom)).map(b => {
     const due = billDated(b) ? billDates(b, c.cycleFrom, until) : [];
     // no payment date: paid once a payment for it has landed this pay cycle
     const paid = billDated(b) ? due.length > 0 && due.every(d => billPaid(ctx, b, d)) : txs.some(it => it.billId === b.id && it.date >= c.cycleFrom);
-    return {id: `bill:${b.id}`, ref: b.id, name: b.name, amount: billMonthly(b), icon: billLook(b.name).icon, paid, estimate: false};
+    return {id: `bill:${b.id}`, ref: b.id, name: b.name, amount: billMonthly(b), icon: b.icon ?? billLook(b.name).icon, paid, estimate: false};
   });
   const everyday: LivingItem[] = state.categories.filter(x => catGroup(x) === "everyday" && x.budget > 0).map(x =>
     ({id: `cat:${x.id}`, ref: x.id, name: x.name, amount: x.budget, icon: catLook(x.id, x.name).icon, paid: false, estimate: true}));
@@ -132,6 +133,90 @@ export function saveLiving(state: AppState, item: LivingItem, d: LivingDraft): {
     if (d.day.trim()) b.day = day; else if (d.last) b.day = "last"; else delete b.day;
   } else if (d.date) b.date = d.date; else delete b.date;
   return {bill: b};
+}
+
+/** The "+" form (design/LIVING_SPEC.md §8): a new bill's name, amount, when it's due (typed as you'd say it) and how often. `icon` is
+ *  null while it's picked from the name; once you tap one it's yours. */
+export type AddFreq = "weekly" | "monthly" | "yearly" | "oneoff";
+export interface AddDraft { name: string; amount: string; due: string; freq: AddFreq; icon: LookIcon | null }
+export const newAddDraft = (): AddDraft => ({name: "", amount: "", due: "", freq: "monthly", icon: null});
+
+/** The icon grid, as drawn: home, food, council, energy, travel, water, internet, fitness, phone, music, TV, and other. */
+export const ADD_ICONS: {icon: LookIcon; name: string}[] = [
+  {icon: "house", name: "Home"}, {icon: "cart", name: "Food"}, {icon: "landmark", name: "Council"}, {icon: "bulb", name: "Energy"},
+  {icon: "train", name: "Travel"}, {icon: "drop", name: "Water"}, {icon: "globe", name: "Internet"}, {icon: "dumbbell", name: "Fitness"},
+  {icon: "phone", name: "Phone"}, {icon: "music", name: "Music"}, {icon: "tv", name: "TV"}, {icon: "receipt", name: "Other"},
+];
+/** What the bubble will show: yours, or the one its name suggests. */
+export const addIcon = (d: AddDraft): LookIcon => d.icon ?? billLook(d.name).icon;
+
+export const DUE_HINT: Record<AddFreq, string> = {weekly: "e.g. Saturdays", monthly: "e.g. the 26th", yearly: "e.g. 3 March", oneoff: "e.g. Fri 23 Oct"};
+
+const DAYS3 = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const MONTHS3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const isoOf = (y: number, m: number, d: number): IsoDate => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const daysIn = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
+
+/**
+ * When it's due, from what you typed: "the 26th" or "last" for a monthly bill, a weekday for a weekly one ("Saturdays": the next one),
+ * a day and month for a yearly or one-off one ("3 March", "Fri 23 Oct", "23/10": the next time it comes round). A one-off also takes
+ * a day on its own ("the 23rd": the next 23rd). Blank is no date ({}); null is a date it couldn't make out.
+ */
+export function parseDue(freq: AddFreq, text: string, today: IsoDate): {day?: number | "last"; date?: IsoDate} | null {
+  const t = text.trim().toLowerCase();
+  if (!t) return {};
+  const words = t.split(/[^a-z0-9]+/).filter(Boolean);
+  const [ty, tm, td] = today.split("-").map(Number);
+  if (freq === "monthly") {
+    if (/\blast\b/.test(t)) return {day: "last"};
+    const n = Number(t.match(/\d{1,2}/)?.[0]);
+    return n >= 1 && n <= 31 ? {day: n} : null;
+  }
+  if (freq === "weekly") {
+    const w = DAYS3.findIndex(d => words.some(x => x.startsWith(d)));
+    if (w < 0) return null;
+    const now = new Date(ty, tm - 1, td);
+    return {date: addDays(today, (w - now.getDay() + 7) % 7)};
+  }
+  // a day and a month, as words ("3 march") or numbers ("3/3")
+  const slash = t.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
+  const m = slash ? Number(slash[2]) - 1 : MONTHS3.findIndex(x => words.some(w => w.startsWith(x)));
+  const d = Number((slash?.[1]) ?? t.match(/\d{1,2}/)?.[0]);
+  if (!(d >= 1 && d <= 31)) return null;
+  if (m < 0 || m > 11) {
+    if (freq !== "oneoff") return null;
+    // just a day: the next time the month has it
+    for (let i = 0; i < 12; i++) {
+      const y = ty + Math.floor((tm - 1 + i) / 12), mm = (tm - 1 + i) % 12;
+      const iso = d <= daysIn(y, mm) ? isoOf(y, mm, d) : null;
+      if (iso && iso >= today) return {date: iso};
+    }
+    return null;
+  }
+  // the next one from today (29 February: the next leap year)
+  for (let y = ty; y <= ty + 4; y++) if (d <= daysIn(y, m) && isoOf(y, m, d) >= today) return {date: isoOf(y, m, d)};
+  return null;
+}
+
+/** The line under How often: what the bill will count as. */
+export function addNote(d: AddDraft): string {
+  const a = parseAmount(d.amount), ok = a > 0;
+  if (d.freq === "weekly") return ok ? `About ${money(Math.round(a * 52 / 12))} a month` : "Counts every week";
+  if (d.freq === "yearly") return ok ? `Spread out as ${money(r2(a / 12))} a month` : "Spread out across 12 months";
+  if (d.freq === "oneoff") return "Counts once, when it's due";
+  return "Counts once each month";
+}
+
+/**
+ * The bill the form makes, or why it can't yet (null: Add bill stays grey). It needs a name and an amount above 0. When it's due can be
+ * left blank (it holds back a month's share each pay cycle until it's paid, as setup's do), except on a one-off, which needs its date.
+ */
+export function addBill(d: AddDraft, id: string, today: IsoDate): Bill | null {
+  const name = d.name.trim().slice(0, 40), amount = parseAmount(d.amount), due = parseDue(d.freq, d.due, today);
+  if (!name || !(amount > 0) || !due || (d.freq === "oneoff" && !due.date)) return null;
+  const bill: Bill = {id, name, amount: r2(amount), freq: d.freq, from: {kind: "main"}, ...due};
+  if (d.icon) bill.icon = d.icon;
+  return bill;
 }
 
 // The cheapest is 44pt across (always tappable), the priciest 219pt; a lone bill 120pt. The "+" is 52pt.
