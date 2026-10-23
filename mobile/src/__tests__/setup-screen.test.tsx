@@ -528,7 +528,7 @@ test("swiping a sheet away keeps what you typed", async () => {
 test("an amount you don't know yet can stay blank (or 0): Done and Continue still work, and it's saved without one", async () => {
   await toAmounts("Rent / mortgage", "Gym");
   expect(screen.getByRole("button", {name: "Continue"})).toBeEnabled();
-  expect(screen.getByRole("button", {name: "Continue"})).toHaveStyle({backgroundColor: "#FFFFFF"});   // ink until every amount is in
+  expect(screen.getByRole("button", {name: "Continue"})).toHaveStyle({backgroundColor: "#ECEDEF"});   // ink until every amount is in
   await fireEvent.press(row("Gym"));
   await fireEvent.changeText(screen.getByLabelText("How much Gym is"), "0");
   // no amount: Done closes straight away, without asking for the date
@@ -655,7 +655,7 @@ test("what you normally spend: only your picks, in the list's order, and nothing
   expect(screen.getAllByText(/^(Groceries|Eating out|Transport)$/).map(x => x.props.children)).toEqual(["Groceries", "Eating out"]);
   expect(screen.getAllByText("Add amount")).toHaveLength(2);
   expect(screen.getByRole("button", {name: "Continue"})).toBeEnabled();
-  expect(screen.getByRole("button", {name: "Continue"})).toHaveStyle({backgroundColor: "#FFFFFF"});   // ink until every amount is in
+  expect(screen.getByRole("button", {name: "Continue"})).toHaveStyle({backgroundColor: "#ECEDEF"});   // ink until every amount is in
 });
 
 test("tap one: how much (the number pad opens), how often, and what that comes to a month", async () => {
@@ -726,7 +726,7 @@ test("back keeps your estimates, and a budget follows its estimate until you typ
 test("setup is dark for now, even when the app is set to light", async () => {
   await show();
   await act(() => useMoney.setState({theme: "light"}));
-  expect(screen.getByText("How much is in your account right now?")).toHaveStyle({color: "#FFFFFF"});
+  expect(screen.getByText("How much is in your account right now?")).toHaveStyle({color: "#ECEDEF"});
 });
 
 test("Continue lifts by what the keyboard covers, not its height: a hardware keyboard parks the number pad below the screen", () => {

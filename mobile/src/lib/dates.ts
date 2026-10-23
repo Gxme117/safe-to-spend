@@ -20,6 +20,11 @@ export const lastOfMonth = (k: string): IsoDate => isoD(new Date(+k.slice(0, 4),
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 // Built by hand rather than with toLocaleDateString: Hermes' Intl output differs by platform.
+/** A month ("2026-10") as "Oct", or "October" when `long`; with its year when it isn't `thisYear`'s: "Jan 2027". */
+export const monthName = (k: string, thisYear?: string, long = false) => {
+  const m = MONTHS[+k.slice(5, 7) - 1];
+  return `${long ? m : m.slice(0, 3)}${thisYear && k.slice(0, 4) !== thisYear ? ` ${k.slice(0, 4)}` : ""}`;
+};
 /** "Sat 3 Oct" */
 export const niceDate = (s: IsoDate) => { const d = parseD(s); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`; };
 /** "3 Oct" */

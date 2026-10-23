@@ -5,6 +5,7 @@ import {useAutoSync} from "@/components/Bank";
 import {CheckinCard} from "@/components/Cards";
 import {BigMoney} from "@/components/BigMoney";
 import {CycleGrid} from "@/components/CycleGrid";
+import {FigureLabels, REASON_LINE} from "@/components/FigureLabels";
 import {CardPeek} from "@/components/Hero";
 import {HeroEmpty} from "@/components/HeroEmpty";
 import {SpentToday} from "@/components/SpentToday";
@@ -35,12 +36,11 @@ export default function HomeScreen() {
 // Where things sit, as drawn: the number's line starts this far down the screen, under the cards; the lines under it this far below it;
 // the pay cycle this far below those; what's spare this far below the grid.
 // The £ sits a little left of the lines under it, as drawn (its side bearing would indent it).
-const NUMBER_TOP = 235, NUMBER_NUDGE = -6, LABEL_GAP = 3, CYCLE_GAP = 30, SPARE_GAP = 60;
+const NUMBER_TOP = 235, NUMBER_NUDGE = -6, CYCLE_GAP = 30, SPARE_GAP = 60;
 // a pull down past this (iOS lets the page go past its top) brings every account out
 const PULL = 64;
 // "What if I spend" this far under what's spare
-// and Spent today this far under the bar (both as drawn). The reason line under the number is this tall.
-const REASON_LINE = 24;
+// and Spent today this far under the bar (both as drawn)
 const WHAT_IF_GAP = 84, LIST_GAP = s[4];
 
 const styles = StyleSheet.create({
@@ -132,20 +132,6 @@ function WhatIf({ctx, onFocus}: {ctx: Ctx; onFocus: () => void}) {
   );
 }
 
-/** The lines under the big number: what it is, one line more, and the day on the right. Always two lines high, each kept to one line,
- *  so moving between days (or a day without an "out of") never moves the pay cycle below. */
-function Labels({title, line, side}: {title: string; line: string | null; side: string}) {
-  return (
-    <View style={{flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", gap: s[3], marginTop: LABEL_GAP}}>
-      <View style={{flex: 1}}>
-        <T size="figureLabel" weight="bold" lines={1} style={{textTransform: "uppercase", letterSpacing: 0.24, lineHeight: 28}}>{title}</T>
-        <T size="figureLabel" muted lines={1} style={{fontVariant: ["tabular-nums"], lineHeight: 28}}>{line ?? " "}</T>
-      </View>
-      <T size="figureLabel" weight="medium" style={{lineHeight: 28}}>{side}</T>
-    </View>
-  );
-}
-
 /** The big number for the day picked on the pay cycle.
  *  Today (or a day to come): what's left of today's amount, "out of" the amount itself, and the day. Tap for where it comes from.
  *  As drawn, there's no line under it: why it's this number is in what a screen reader hears, and on the Today's number page.
@@ -166,11 +152,11 @@ function Figure({ctx, c, h, picked}: {ctx: Ctx; c: Calc; h: Extract<Hero, {kind:
         : ahead ? `Safe to spend on ${niceDate(picked)}, ${money(ahead.amount)}. ${ahead.reason}`
         : `Safe to spend today, ${money(h.left)}${of ? `, ${of}` : ""}. ${h.reason}`}>
       <View style={{marginLeft: NUMBER_NUDGE}}><BigMoney value={other ? other.amount : h.left} size="giant" wholePounds={!gone} /></View>
-      {gone ? <Labels title="Spent" line={gone.reason} side={shortDate(picked)} />
+      {gone ? <FigureLabels title="Spent" line={gone.reason} side={shortDate(picked)} />
         // a day to come: what you could spend then. Its reason is too long for the line at this size, so the line says it's a
         // forecast and a screen reader hears the whole reason
-        : ahead ? <Labels title="Safe to spend" line="Forecast" side={shortDate(picked)} />
-        : <Labels title="Safe to spend" line={of} side={shortDay(c.t)} />}
+        : ahead ? <FigureLabels title="Safe to spend" line="Forecast" side={shortDate(picked)} />
+        : <FigureLabels title="Safe to spend" line={of} side={shortDay(c.t)} />}
       {/* why it's this number, in one plain line (a day gone already says why above); always there, so the pay cycle never moves.
           Today's amount all used, it says so and when it comes back, in two lines as drawn ("State · £0 today"), and keeps that room
           on every day while it's so */}

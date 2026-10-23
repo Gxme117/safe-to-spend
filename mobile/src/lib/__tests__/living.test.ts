@@ -1,6 +1,6 @@
 import {calc} from "../calc";
 import {billDates} from "../bills";
-import {addBill, addIcon, addNote, newAddDraft, parseDue, bubbleRadii, livingAction, livingDraft, livingDue, livingItems, livingMarked, livingPayment, livingPayments, livingTotals, pack, pileOrder, R_ADD, saveLiving} from "../living";
+import {addBill, addIcon, addNote, newAddDraft, parseDue, bubbleRadii, livingAction, livingByDue, livingDraft, livingDue, livingItems, livingLabel, livingMarked, livingPayment, livingPayments, livingTotals, pack, pileOrder, R_ADD, saveLiving} from "../living";
 import {baseState, ctx, TODAY, tx} from "./fixtures";
 
 // the sample in design/living-screen.html: rent, groceries (4 weekly shops), council tax, energy, travel, water, internet, gym, phone, Spotify, Netflix
@@ -66,6 +66,25 @@ test("every bill at its monthly cost and every everyday amount, biggest first; a
   ]);
 });
 
+test("what a screen reader says for each: its name and monthly cost, about for an estimate, and paid", () => {
+  const c0 = ctx({txs: [tx({amount: 20, date: "2026-10-01", billId: "phone", forDate: "2026-10-01"})]});
+  expect(livingItems(c0, calc(c0)).map(livingLabel)).toEqual(["Rent, £400", "Groceries, £200", "Phone, £20, paid"]);
+});
+
+test("the list's bills in the order they're due: one gone past first, then the soonest, then no date, then paid", () => {
+  const state = baseState({bills: [
+    {id: "rent", name: "Rent", amount: 400, freq: "monthly", day: 15, method: "dd"},
+    {id: "phone", name: "Phone", amount: 20, freq: "monthly", day: 1, method: "card"},
+    {id: "water", name: "Water", amount: 25, freq: "monthly", day: 7, method: "dd"},
+    {id: "council", name: "Council tax", amount: 120, freq: "monthly", day: 3, method: "dd"},
+    {id: "subs", name: "Subscriptions", amount: 15, freq: "monthly"},
+  ]});
+  const c0 = ctx({state, txs: [tx({amount: 20, date: "2026-10-01", billId: "phone", forDate: "2026-10-01"})]});
+  const c = calc(c0);
+  const bills = livingItems(c0, c).filter(x => !x.estimate);
+  expect(livingByDue(c0, c, bills).map(x => x.name)).toEqual(["Council tax", "Water", "Rent", "Subscriptions", "Phone"]);
+});
+
 test("paid ones are packed last, so they sit on top of the pile", () => {
   const items = [{id: "rent", paid: true}, {id: "food", paid: false}, {id: "phone", paid: true}, {id: "gym", paid: false}];
   expect(pileOrder(items).map(x => x.id)).toEqual(["food", "gym", "rent", "phone"]);
@@ -100,11 +119,10 @@ test("the sheet's due line: when a bill's due, that it's gone out, and what's be
   expect(due([], "Rent", "2026-10-15")).toEqual({line: "Due today", bold: ""});
   expect(due([], "Phone")).toEqual({line: "Was due Thu 1 Oct", bold: ""});
   expect(due([paidPhone], "Phone")).toEqual({line: "· Thu 1 Oct", bold: "", paid: true});
-  // everyday: what's left of it this pay cycle
-  expect(due([], "Groceries")).toEqual({line: "Nothing spent yet,", bold: "£200 left"});
-  expect(due([tx({amount: 50, date: "2026-10-02", cat: "groceries"})], "Groceries")).toEqual({line: "£50 spent so far,", bold: "£150 left"});
-  // gone past the amount: "extra", never "over"
-  expect(due([tx({amount: 230, date: "2026-10-02", cat: "groceries"})], "Groceries")).toEqual({line: "£230 spent so far,", bold: "£30 extra"});
+  // everyday: what's been spent of it this pay cycle, the same whether it's under or past the amount (never "over")
+  expect(due([], "Groceries")).toEqual({line: "Spent", bold: "£0 of £200"});
+  expect(due([tx({amount: 50, date: "2026-10-02", cat: "groceries"})], "Groceries")).toEqual({line: "Spent", bold: "£50 of £200"});
+  expect(due([tx({amount: 230, date: "2026-10-02", cat: "groceries"})], "Groceries")).toEqual({line: "Spent", bold: "£230 of £200"});
 });
 
 test("Mark as paid logs the bill's payment for its first unpaid due date; Mark as unpaid removes only payments logged here", () => {
@@ -184,6 +202,10 @@ describe("adding a bill", () => {
     expect(parseDue("oneoff", "2/11", TODAY)).toEqual({date: "2026-11-02"});
     // a day on its own: the next one
     expect(parseDue("oneoff", "the 3rd", TODAY)).toEqual({date: "2026-11-03"});
+    // added from a month to come: that month's, whatever's next from today; a month named is still the next one from today
+    expect(parseDue("oneoff", "the 3rd", TODAY, "2027-03-01")).toEqual({date: "2027-03-03"});
+    expect(parseDue("oneoff", "Fri 23 Oct", TODAY, "2027-03-01")).toEqual({date: "2026-10-23"});
+    expect(parseDue("oneoff", "the 3rd", TODAY, "2026-09-01")).toEqual({date: "2026-11-03"});
     expect(parseDue("oneoff", "soon", TODAY)).toBeNull();
     expect(parseDue("monthly", "  ", TODAY)).toEqual({});
   });

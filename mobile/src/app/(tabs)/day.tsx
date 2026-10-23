@@ -214,9 +214,9 @@ function EverydayChips({everyday}: {everyday: EverydayLeft[]}) {
         ? <T muted>{"Set what you spend on every month, like groceries or coffee, and your daily number shows what's truly free."}</T>
         : <View style={{flexDirection: "row", flexWrap: "wrap", gap: s[2]}}>
             {everyday.map(e => (
-              <View key={e.x.id} accessible accessibilityLabel={`${e.x.name}, ${e.left < 0 ? `${money(-e.left)} more than planned` : `${money(e.left)} left`}`} style={{flexDirection: "row", gap: s[2], borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingVertical: s[2], paddingHorizontal: s[3]}}>
+              <View key={e.x.id} accessible accessibilityLabel={`${e.x.name}, ${money(e.spent)} of ${money(e.x.budget)} spent`} style={{flexDirection: "row", gap: s[2], borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingVertical: s[2], paddingHorizontal: s[3]}}>
                 <T size="sm">{e.x.name}</T>
-                <T size="sm" weight="bold">{e.left < 0 ? `${money(-e.left)} extra` : `${money(e.left)} left`}</T>
+                <T size="sm" weight="bold">{`${money(e.spent)} of ${money(e.x.budget)}`}</T>
               </View>
             ))}
           </View>}

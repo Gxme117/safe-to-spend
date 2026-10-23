@@ -258,9 +258,9 @@ test("bills going out before payday are in today's Coming up, with their day", a
   expect(screen.getByText(/^Thu 15 Oct\. From /)).toBeOnTheScreen();
 });
 
-test("an everyday amount gone past says how much extra, never over", async () => {
+test("an everyday amount gone past says what's been spent of it, as it would under it, never over", async () => {
   await show([tx({amount: 230, date: "2026-10-02", cat: "groceries"})]);
-  expect(screen.getAllByText("£30 extra").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("£230 of £200").length).toBeGreaterThan(0);
   expect(screen.queryByText(/\bover\b/)).toBeNull();
 });
 

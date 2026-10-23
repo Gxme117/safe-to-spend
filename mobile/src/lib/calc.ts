@@ -82,11 +82,17 @@ export function calc(ctx: Ctx): Calc {
 /** What's left of each everyday amount at the end of day `d`, in the pay cycle `d` falls in. Payments after `d` aren't counted,
  *  so a past day shows what was left then, and a day after payday starts full. */
 export function everydayOn(ctx: Ctx, d: IsoDate): EverydayLeft[] {
-  const from = cycleStart({...ctx, today: d}), spent: Record<string, number> = {};
-  for (const it of ctx.txs) if (!it.billId && it.date >= from && it.date <= d) addSpend(spent, it);
-  clampSpend(spent);
+  const spent = spendIn(ctx, cycleStart({...ctx, today: d}), d);
   return ctx.state.categories.filter(x => catGroup(x) === "everyday")
     .map(x => ({x, spent: r2(spent[x.id] || 0), left: r2((x.budget || 0) - (spent[x.id] || 0))}));
+}
+
+/** What was spent in each category from `from` to `to` (both included), refunds off, never below 0. Bill payments aren't counted. */
+export function spendIn(ctx: Ctx, from: IsoDate, to: IsoDate): Record<string, number> {
+  const spent: Record<string, number> = {};
+  for (const it of ctx.txs) if (!it.billId && it.date >= from && it.date <= to) addSpend(spent, it);
+  clampSpend(spent);
+  return spent;
 }
 
 /**

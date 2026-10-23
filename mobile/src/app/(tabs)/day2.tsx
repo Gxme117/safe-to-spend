@@ -239,10 +239,11 @@ function Everyday({everyday}: {everyday: EverydayLeft[]}) {
         ? <T muted>{"Set what you spend on every month, like groceries or coffee, and your daily number shows what's truly free."}</T>
         : <View style={{gap: s[4]}}>
             {everyday.map(e => {
-              const said = e.left < 0 ? `${money(-e.left)} extra` : `${money(e.left)} left`;
+              // what's been spent of it, the same under it or past it (never "over")
+              const said = money(e.spent);
               const share = e.x.budget > 0 ? Math.max(0, Math.min(1, e.left / e.x.budget)) : 0;
               return (
-                <View key={e.x.id} accessible accessibilityLabel={`${e.x.name}, ${e.left < 0 ? `${money(-e.left)} more than planned` : `${money(e.left)} left`} of ${money(e.x.budget)}`} style={{gap: s[2]}}>
+                <View key={e.x.id} accessible accessibilityLabel={`${e.x.name}, ${said} of ${money(e.x.budget)} spent`} style={{gap: s[2]}}>
                   <View style={{flexDirection: "row", gap: s[2]}}>
                     <T weight="semibold" style={{flex: 1}} lines={1}>{e.x.name}</T>
                     <T weight="bold" style={{fontVariant: ["tabular-nums"]}}>{said}</T>

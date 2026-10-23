@@ -14,6 +14,8 @@ import {disconnect, fetchBank, MonzoFail, type MonzoError} from "@/services/monz
 export type ThemePref = "system" | "light" | "dark";
 /** The Safe to Spend card: the accent colour, or glass (iOS 26). */
 export type CardStyle = "colour" | "glass";
+/** The Living tab: the ball pit, or the same bills and everyday amounts as a list. */
+export type LivingView = "pit" | "list";
 /** `undo`: the toast stays 5s with an Undo button that puts back what was just removed. */
 export interface Toast { id: number; msg: string; good: boolean; undo?: () => void }
 /** A sync either brings in some new payments, or says what went wrong ("not-saved": the phone couldn't store them). */
@@ -28,6 +30,7 @@ interface MoneyStore {
   theme: ThemePref;
   accent: string | null;      // your own accent colour (#RRGGBB), or null for the default
   cardStyle: CardStyle;
+  livingView: LivingView;
   toast: Toast | null;
   syncing: boolean;           // a bank sync is running
   setupBank: number | null;   // the Monzo total (main + all pots), when connected during setup (not saved)
@@ -39,6 +42,7 @@ interface MoneyStore {
   setTheme(t: ThemePref): void;
   setAccent(hex: string | null): void;
   setCardStyle(v: CardStyle): void;
+  setLivingView(v: LivingView): void;
 
   setup(balance: number, income?: Income, bills?: Bill[], categories?: Category[]): void;
   setSetupBank(main: number | null, found?: SetupFound | null): void;
@@ -79,7 +83,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     if (s) set({state: {...s, ...fn(s)}});
   };
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -90,6 +94,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     setTheme(theme) { set({theme}); },
     setAccent(accent) { set({accent}); },
     setCardStyle(cardStyle) { set({cardStyle}); },
+    setLivingView(livingView) { set({livingView}); },
 
     // one write, so the app never renders a state without the pay that sets payday (or the bills and everyday amounts that hold money back)
     setup(balance, income, bills = [], categories) {
@@ -193,5 +198,5 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   name: "money-tracker",
   version: 1,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView}),
 }));

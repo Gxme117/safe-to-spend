@@ -16,9 +16,10 @@ export type Palette = typeof light;
 // Dark mode is a near-black with a touch of cool blue (not pure black, so white text doesn't glow on it),
 // with the cards lifted just enough to stand off it, in the same cool tint.
 const dark: Palette = {
-  bg: "#0C0D10", surface: "#191A1E", ink: "#FFFFFF", muted: "#A3A6AD", line: "#33353B",
+  // a dark grey page and slightly dimmed white text, not near-black and pure white (that glows and reads harsh); each raised layer a step lighter
+  bg: "#16171A", surface: "#202125", ink: "#ECEDEF", muted: "#A3A6AD", line: "#3A3C42",
   good: "#FABD54", accent: "#FABD54", accentInk: "#000000", goodSoft: "#3A2A10",
-  soft: "#26282D", amber: "#8F9298",
+  soft: "#2B2D32", amber: "#8F9298",
   splitBills: "#FF6369", splitEveryday: "#86D97A", splitSavings: "#7AA7FF",
   incoming: "#00E05A",
   figure: "#F5D77E",   // a soft, buttery custard yellow, matched by eye (Hemway don't publish a code for theirs)

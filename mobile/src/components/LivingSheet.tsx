@@ -1,6 +1,7 @@
 import {useMemo, useRef, useState, type ComponentProps, type ReactNode} from "react";
 import {Animated, Dimensions, Keyboard, LayoutAnimation, PanResponder, Pressable, TextInput, View} from "react-native";
-import {ADD_ICONS, addBill, addIcon, addNote, DUE_HINT, newAddDraft, parseDue, type AddDraft, type AddFreq, type LivingDraft, type LivingItem} from "@/lib/living";
+import {ADD_ICONS, addBill, addIcon, addNote, DUE_HINT, newAddDraft, parseDue, type AddDraft, type AddFreq, livingLabel, type LivingDraft, type LivingItem} from "@/lib/living";
+import type {BudgetHint} from "@/lib/budget";
 import {billLook} from "@/lib/looks";
 import {money} from "@/lib/money";
 import type {Bill, Ctx, IsoDate, Tx} from "@/lib/types";
@@ -21,16 +22,22 @@ const GROW = 320;
 const ACTION = {pay: "Mark as paid", unpay: "Mark as unpaid", log: "Log spending"} as const;
 
 /** A bubble's details, in a sheet up from the bottom of the Living tab. Short at first, one line: its icon on the yellow, its name and what it
- *  costs a month ("About" on an everyday amount), so tapping round the pile only swaps the words. Swipe it up or tap it for the rest,
- *  tall: what it costs, big, when it's due, the payments that paid it this pay cycle, then Mark as paid (Mark as unpaid, or Log spending on an everyday amount) and Edit.
+ *  costs a month, so tapping round the pile only swaps the words. Swipe it up or tap it for the rest,
+ *  tall: what it costs, big, when it's due (an everyday amount: what's been spent of it, and maybe a suggested new budget), the payments that paid it this pay cycle, then Mark as paid (Mark as unpaid, or Log spending on an everyday amount) and Edit.
  *  Edit turns the sheet into a form (name, amount, when it goes out) with Cancel and Save, lifted above the keyboard.
  *  It slides with `open` (0 to 1, from the screen), and reports its height so the pile can lift to rest on top of it. Close it from
  *  its handle or by swiping it down (tall, a swipe down makes it short first; not while editing). Delete removes it straight away (the toast has Undo). */
-export function LivingSheet({ctx, item, due, payments, open, isOpen, onHeight, close, action, onAction, onDelete, draftOf, save, adding, onAdd}: {
+export function LivingSheet({ctx, item, due, payments, hint, onHint, readOnly, open, isOpen, onHeight, close, action, onAction, onDelete, draftOf, save, adding, onAdd, month}: {
   ctx: Ctx; item: LivingItem | null; due: {line: string; bold: string; paid?: true}; payments: Tx[]; open: Animated.Value; isOpen: boolean; onHeight: (h: number) => void;
+  // an everyday amount's suggested new budget (lib/budget.ts), and its answer: change it, or keep it as it is
+  hint: BudgetHint | null; onHint: (change: boolean) => void;
+  // another month: the figures and payments only, no buttons
+  readOnly?: boolean;
   close: () => void; action: keyof typeof ACTION | null; onAction: () => void; onDelete: () => void; draftOf: () => LivingDraft; save: (d: LivingDraft) => string | null;
   // the "+" form instead of a bubble's details (Cancel and the handle close it)
   adding: boolean; onAdd: (bill: Bill) => void;
+  // added from a month to come: its first day (the form starts on One-off, and "the 12th" is that month's)
+  month?: IsoDate;
 }) {
   const today = ctx.today;
   const {c, dark} = useTheme();
@@ -87,7 +94,7 @@ export function LivingSheet({ctx, item, due, payments, open, isOpen, onHeight, c
         <View style={{width: 40, height: 5, borderRadius: 3, backgroundColor: c.line}} />
       </Pressable>
       {adding ? (
-        <AddForm today={today} onFocus={measure} onCancel={() => { Keyboard.dismiss(); close(); }} onAdd={b => { Keyboard.dismiss(); onAdd(b); }} />
+        <AddForm today={today} month={month} onFocus={measure} onCancel={() => { Keyboard.dismiss(); close(); }} onAdd={b => { Keyboard.dismiss(); onAdd(b); }} />
       ) : item && editing ? (
         <View style={{gap: 14}}>
           <T size="lg" weight="bold" lines={1}>{`Edit ${item.name}`}</T>
@@ -120,7 +127,7 @@ export function LivingSheet({ctx, item, due, payments, open, isOpen, onHeight, c
       ) : item ? <>
         {/* short, a tap anywhere on it makes it tall */}
         <Pressable onPress={() => size(true)} disabled={tall} accessible={!tall} accessibilityRole="button"
-          accessibilityLabel={`${item.name}, ${item.estimate ? "about " : ""}${money(Math.round(item.amount))}${item.paid ? ", paid" : ""}. Show more`}
+          accessibilityLabel={`${livingLabel(item)}. Show more`}
           style={{flexDirection: "row", alignItems: "center", gap: s[3]}}>
           <View style={{width: 44, height: 44, borderRadius: 22, overflow: "hidden", alignItems: "center", justifyContent: "center"}}>
             <Glow d={44} paid={item.paid} />
@@ -130,29 +137,40 @@ export function LivingSheet({ctx, item, due, payments, open, isOpen, onHeight, c
           {/* short, one line: what it costs sits at the end of it (greyed once paid) */}
           {tall ? null : (
             <T size="lg" weight="bold" lines={1} style={{color: item.paid ? c.muted : c.ink, fontVariant: ["tabular-nums"]}}>
-              {item.estimate ? <T size="lg" weight="medium" muted>About </T> : null}{money(Math.round(item.amount))}
+              {money(Math.round(item.amount))}
             </T>
           )}
         </Pressable>
         {tall ? <>
-        <View style={{flexDirection: "row", alignItems: "flex-end", gap: s[2]}}>
-          {/* sits on the amount's baseline */}
-          {item.estimate ? <T size="lg" weight="medium" muted style={{marginBottom: s[3]}}>About</T> : null}
-          {/* paid, the amount is greyed: it's gone out (the line under says so in words) */}
-          <BigMoney key={item.id} value={item.amount} size="display" wholePounds color={item.paid ? c.muted : undefined} />
-        </View>
+        {/* paid, the amount is greyed: it's gone out (the line under says so in words) */}
+        <BigMoney key={item.id} value={item.amount} size="display" wholePounds color={item.paid ? c.muted : undefined} />
         <T muted>
           {due.paid ? <T weight="bold" style={{color: living[dark ? "dark" : "light"].paidWord}}>Paid </T> : null}
           {due.line}{due.bold ? <T weight="bold">{` ${due.bold}`}</T> : null}
         </T>
+        {/* spending's kept landing well away from this budget: a new one, why, and what it'd do to the daily number. Only asked */}
+        {hint ? (
+          <View style={{gap: s[3], padding: s[4], borderRadius: 16, backgroundColor: home[dark ? "dark" : "light"].badge}}>
+            <View style={{gap: s[1]}}>
+              <T>{hint.reason}</T>
+              {hint.effect ? <T size="sm" muted>{hint.effect}</T> : null}
+            </View>
+            <View style={{flexDirection: "row", gap: 10}}>
+              <SheetButton label={`Change to ${money(hint.to)}`} onPress={() => onHint(true)} />
+              <SheetButton label={`Keep ${money(Math.round(item.amount))}`} kind="ghost" onPress={() => onHint(false)} />
+            </View>
+          </View>
+        ) : null}
         {/* what paid it: tap one to change what it was for */}
         {payments.length ? <View>{payments.map(it => <TxRow key={it.id} ctx={ctx} it={it} showDate />)}</View> : null}
-        {/* one line: the main button, then Edit and Delete */}
-        <View style={{flexDirection: "row", gap: 10, marginTop: 6}}>
-          {action ? <SheetButton label={ACTION[action]} onPress={onAction} grow={2} /> : null}
-          <SheetButton label="Edit" kind="ghost" onPress={startEdit} />
-          <SheetButton label="Delete" kind="ghost" danger onPress={onDelete} />
-        </View>
+        {/* one line: the main button, then Edit and Delete (another month is only to look at) */}
+        {readOnly ? null : (
+          <View style={{flexDirection: "row", gap: 10, marginTop: 6}}>
+            {action ? <SheetButton label={ACTION[action]} onPress={onAction} grow={2} /> : null}
+            <SheetButton label="Edit" kind="ghost" onPress={startEdit} />
+            <SheetButton label="Delete" kind="ghost" danger onPress={onDelete} />
+          </View>
+        )}
         </> : null}
       </> : null}
     </Animated.View>
@@ -163,14 +181,15 @@ const FREQS: {key: AddFreq; label: string}[] = [{key: "weekly", label: "Weekly"}
 
 /** "New bill" (design/LIVING_SPEC.md §8): name; amount and when it's due side by side; how often, with what it'll count as under it;
  *  the icon, picked from the name as you type until you tap one; then Cancel and Add bill (grey until there's a name and an amount). */
-function AddForm({today, onFocus, onCancel, onAdd}: {today: IsoDate; onFocus: () => void; onCancel: () => void; onAdd: (bill: Bill) => void}) {
+function AddForm({today, month, onFocus, onCancel, onAdd}: {today: IsoDate; month?: IsoDate; onFocus: () => void; onCancel: () => void; onAdd: (bill: Bill) => void}) {
   const {c, dark} = useTheme();
   const k = living[dark ? "dark" : "light"];
-  const [d, setD] = useState(newAddDraft);
+  // from a month to come, most likely a bill due then, so it starts on One-off
+  const [d, setD] = useState(() => newAddDraft(month ? "oneoff" : "monthly"));
   const set = (p: Partial<AddDraft>) => setD(x => ({...x, ...p}));
-  const bill = addBill(d, "", today), icon = addIcon(d);
+  const bill = addBill(d, "", today, month), icon = addIcon(d);
   // what you typed for Due, not made out (blank is fine)
-  const unclear = !!d.due.trim() && !parseDue(d.freq, d.due, today);
+  const unclear = !!d.due.trim() && !parseDue(d.freq, d.due, today, month);
   // the last circle is "other": it shows the name's guess when that isn't one of the others
   const icons = ADD_ICONS.map((x, i) => i === ADD_ICONS.length - 1 && !d.icon && !ADD_ICONS.some(y => y.icon === icon) ? {...x, icon} : x);
   const hint = d.icon ? "Your choice" : billLook(d.name).icon !== "receipt" ? "Picked from the name · tap to change" : "Picks itself as you type";

@@ -67,6 +67,7 @@ export interface Category {
   fixed: boolean;
   group?: Group;
   usual?: {amount: number; freq: SpendFreq; source?: Source};   // what you normally spend, at setup (budget can differ): typed, or found in your bank
+  budgetKept?: IsoDate;   // the day a suggested new budget was answered (changed or kept): only pay cycles that end after it count towards the next one
 }
 
 export type TxType = "expense" | "income" | "save";

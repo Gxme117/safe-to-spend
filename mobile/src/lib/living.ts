@@ -14,6 +14,7 @@ export interface LivingItem {
   icon: LookIcon;
   paid: boolean;      // everything due for it this pay cycle has gone out
   estimate: boolean;  // an everyday amount: what you allow, not a fixed bill
+  date?: IsoDate;     // another month (lib/livingMonth.ts): the day a bill went out (gone) or is due (to come)
 }
 
 /** Every bill (at its monthly cost, so £600 a year counts £50) and every everyday amount, biggest first.
@@ -33,6 +34,10 @@ export function livingItems(ctx: Ctx, c: Calc): LivingItem[] {
   return [...bills, ...everyday].sort((a, b) => b.amount - a.amount);
 }
 
+/** What a screen reader says for a bubble or a list row: "Council tax, £120", "Groceries, £200", "Spotify, £12, paid".
+ *  An everyday amount is a fixed budget, so it's said as it is, not "about". */
+export const livingLabel = (x: LivingItem) => `${x.name}, ${money(Math.round(x.amount))}${x.paid ? ", paid" : ""}`;
+
 /** The header: what it all costs a month, and what of it still has to go out before payday (the engine's `need`: unpaid bills due
  *  before payday, and what's left of everyday amounts). */
 export function livingTotals(items: LivingItem[], c: Calc) {
@@ -44,11 +49,10 @@ export function livingTotals(items: LivingItem[], c: Calc) {
 export function livingDue(ctx: Ctx, c: Calc, item: LivingItem): {line: string; bold: string; paid?: true} {
   const t = ctx.today;
   if (item.estimate) {
-    // what's left of it this pay cycle, in bold; gone past it, how much extra (never "over")
-    const e = c.everyday.find(x => x.x.id === item.ref);
-    const spent = e?.spent ?? 0, left = e ? e.left : item.amount;
-    if (left < 0) return {line: `${money(spent)} spent so far,`, bold: `${money(-left)} extra`};
-    return {line: spent > 0 ? `${money(spent)} spent so far,` : "Nothing spent yet,", bold: `${money(left)} left`};
+    // what's been spent of it this pay cycle, the same under it or past it ("Spent £230 of £200": never "over", nor "extra",
+    // which reads as money to spend)
+    const spent = c.everyday.find(x => x.x.id === item.ref)?.spent ?? 0;
+    return {line: "Spent", bold: `${money(spent)} of ${money(item.amount)}`};
   }
   const b = ctx.state.bills.find(x => x.id === item.ref);
   // paid: the sheet starts the line with "Paid", in green
@@ -65,6 +69,18 @@ export function livingDue(ctx: Ctx, c: Calc, item: LivingItem): {line: string; b
 // a bill's due dates this pay cycle, and the first of them (or after) not paid yet
 const cycleDates = (ctx: Ctx, c: Calc, b: Bill) => billDates(b, c.cycleFrom, c.payday ? addDays(c.payday, -1) : addDays(ctx.today, 30));
 const nextDue = (ctx: Ctx, c: Calc, b: Bill) => cycleDates(ctx, c, b).find(d => !billPaid(ctx, b, d)) ?? nextBill(b, ctx.today);
+
+/** The list's bills in the order they're due, so it reads as what's to come: the next unpaid date first (one gone past at the top),
+ *  then ones with no payment date, then ones paid this pay cycle. A tie goes to the bigger. */
+export function livingByDue(ctx: Ctx, c: Calc, items: LivingItem[]): LivingItem[] {
+  const when = (x: LivingItem) => {
+    const b = ctx.state.bills.find(y => y.id === x.ref);
+    return b && billDated(b) ? nextDue(ctx, c, b) ?? null : null;
+  };
+  const keyed = items.map(x => ({x, at: x.paid ? null : when(x)}));
+  const rank = (k: {x: LivingItem; at: IsoDate | null}) => k.x.paid ? 2 : k.at ? 0 : 1;
+  return keyed.sort((a, b) => rank(a) - rank(b) || (a.at ?? "").localeCompare(b.at ?? "") || b.x.amount - a.x.amount).map(k => k.x);
+}
 
 /** What the sheet's main button does: a bill still to pay can be marked paid, and one you marked paid unmarked (one paid from your
  *  bank can't be: that payment really went out). An everyday amount logs spending instead. */
@@ -139,7 +155,7 @@ export function saveLiving(state: AppState, item: LivingItem, d: LivingDraft): {
  *  null while it's picked from the name; once you tap one it's yours. */
 export type AddFreq = "weekly" | "monthly" | "yearly" | "oneoff";
 export interface AddDraft { name: string; amount: string; due: string; freq: AddFreq; icon: LookIcon | null }
-export const newAddDraft = (): AddDraft => ({name: "", amount: "", due: "", freq: "monthly", icon: null});
+export const newAddDraft = (freq: AddFreq = "monthly"): AddDraft => ({name: "", amount: "", due: "", freq, icon: null});
 
 /** The icon grid, as drawn: home, food, council, energy, travel, water, internet, fitness, phone, music, TV, and other. */
 export const ADD_ICONS: {icon: LookIcon; name: string}[] = [
@@ -160,9 +176,10 @@ const daysIn = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
 /**
  * When it's due, from what you typed: "the 26th" or "last" for a monthly bill, a weekday for a weekly one ("Saturdays": the next one),
  * a day and month for a yearly or one-off one ("3 March", "Fri 23 Oct", "23/10": the next time it comes round). A one-off also takes
- * a day on its own ("the 23rd": the next 23rd). Blank is no date ({}); null is a date it couldn't make out.
+ * a day on its own ("the 23rd": the next 23rd; added from a month to come, `month` its first day, the 23rd of that month on).
+ * Blank is no date ({}); null is a date it couldn't make out.
  */
-export function parseDue(freq: AddFreq, text: string, today: IsoDate): {day?: number | "last"; date?: IsoDate} | null {
+export function parseDue(freq: AddFreq, text: string, today: IsoDate, month?: IsoDate): {day?: number | "last"; date?: IsoDate} | null {
   const t = text.trim().toLowerCase();
   if (!t) return {};
   const words = t.split(/[^a-z0-9]+/).filter(Boolean);
@@ -185,11 +202,12 @@ export function parseDue(freq: AddFreq, text: string, today: IsoDate): {day?: nu
   if (!(d >= 1 && d <= 31)) return null;
   if (m < 0 || m > 11) {
     if (freq !== "oneoff") return null;
-    // just a day: the next time the month has it
+    // just a day: the next time the month has it, from the month on show if that's one to come
+    const from = month && month > today ? month : today, [fy, fm] = from.split("-").map(Number);
     for (let i = 0; i < 12; i++) {
-      const y = ty + Math.floor((tm - 1 + i) / 12), mm = (tm - 1 + i) % 12;
+      const y = fy + Math.floor((fm - 1 + i) / 12), mm = (fm - 1 + i) % 12;
       const iso = d <= daysIn(y, mm) ? isoOf(y, mm, d) : null;
-      if (iso && iso >= today) return {date: iso};
+      if (iso && iso >= from) return {date: iso};
     }
     return null;
   }
@@ -211,8 +229,8 @@ export function addNote(d: AddDraft): string {
  * The bill the form makes, or why it can't yet (null: Add bill stays grey). It needs a name and an amount above 0. When it's due can be
  * left blank (it holds back a month's share each pay cycle until it's paid, as setup's do), except on a one-off, which needs its date.
  */
-export function addBill(d: AddDraft, id: string, today: IsoDate): Bill | null {
-  const name = d.name.trim().slice(0, 40), amount = parseAmount(d.amount), due = parseDue(d.freq, d.due, today);
+export function addBill(d: AddDraft, id: string, today: IsoDate, month?: IsoDate): Bill | null {
+  const name = d.name.trim().slice(0, 40), amount = parseAmount(d.amount), due = parseDue(d.freq, d.due, today, month);
   if (!name || !(amount > 0) || !due || (d.freq === "oneoff" && !due.date)) return null;
   const bill: Bill = {id, name, amount: r2(amount), freq: d.freq, from: {kind: "main"}, ...due};
   if (d.icon) bill.icon = d.icon;
