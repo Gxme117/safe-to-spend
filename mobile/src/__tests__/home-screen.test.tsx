@@ -42,12 +42,35 @@ test("without enough for bills and everyday it's £0, and under the pay cycle it
   expect(screen.getByRole("button", {name: "Safe to spend today, £0. You need £400 more to cover your bills and everyday"})).toBeOnTheScreen();
 });
 
-test("the pay cycle is drawn a circle a day and read out in one sentence", async () => {
+test("without enough, but with money in savings, it says to move it from savings", async () => {
+  const bank = {source: "Monzo", accountId: "acc", main: 0, asOf: "2026-10-05T08:00:00Z", pots: [{id: "hol", name: "Holiday", balance: 150, role: "save" as const}]};
+  await show([groceries], baseState({bills: [{id: "car", name: "Car", amount: 1200, freq: "monthly", day: 20}], bank}));
+  expect(screen.getByRole("button", {name: "Safe to spend today, £0. Move £150 from savings, then you need £250 more"})).toBeOnTheScreen();
+  expect(screen.getByText("£150 from savings, then £250 more")).toBeOnTheScreen();
+});
+
+test("the month is drawn a circle a day and read out in one sentence", async () => {
   await show([groceries]);
-  expect(screen.getByText("30 Sep – 30 Oct")).toBeOnTheScreen();
-  expect(screen.getByText("25 days to payday")).toBeOnTheScreen();
-  expect(screen.getByLabelText("Pay cycle, 30 Sep – 30 Oct, day 6 of 30. Bills due Thu 15 Oct. Payday Fri 30 Oct.")).toBeOnTheScreen();
+  expect(screen.getByText("October")).toBeOnTheScreen();
+  // shown, but a screen reader has it in the month's sentence
+  expect(screen.getByText("25 days to payday", {includeHiddenElements: true})).toBeOnTheScreen();
+  expect(screen.getByLabelText("October. 25 days to payday. Bills due Thu 15 Oct. Payday Fri 30 Oct.")).toBeOnTheScreen();
   expect(screen.getByText(/^£\d[\d,]* spare until payday$/)).toBeOnTheScreen();
+});
+
+test("< and > step the month: another month lands on its 1st, this month back on today", async () => {
+  await show([groceries]);
+  await fireEvent.press(screen.getByRole("button", {name: "Show November"}));
+  expect(screen.getByText("November")).toBeOnTheScreen();
+  expect(screen.queryByText("25 days to payday", {includeHiddenElements: true})).toBeNull();
+  expect(screen.getByRole("button", {name: "Sun 1 Nov", selected: true})).toBeOnTheScreen();
+  expect(screen.getByLabelText(/^Safe to spend on Sun 1 Nov, £\d[\d,.]*\./)).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", {name: "Show October"}));
+  await fireEvent.press(screen.getByRole("button", {name: "Show September"}));
+  expect(screen.getByRole("button", {name: "Tue 1 Sep", selected: true})).toBeOnTheScreen();
+  expect(screen.getByLabelText(/^Spent on Tue 1 Sep, £/)).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", {name: "Show October"}));
+  expect(screen.getByRole("button", {name: "Mon 5 Oct, today", selected: true})).toBeOnTheScreen();
 });
 
 test("tapping a day on the pay cycle moves the highlight there, and stays on the page", async () => {
@@ -62,10 +85,9 @@ test("tapping a day on the pay cycle moves the highlight there, and stays on the
 
 test("a day gone, tapped, says what was spent that day in the number's place; today brings the number back", async () => {
   await show([groceries, tx({amount: 4.5, date: "2026-10-02", cat: "eating"})]);
-  // days gone show no date, until one is picked: then it says which day you're on
-  expect(screen.queryByText("2")).toBeNull();
-  await fireEvent.press(screen.getByRole("button", {name: "Fri 2 Oct"}));
+  // days gone show their date too
   expect(screen.getByText("2")).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", {name: "Fri 2 Oct"}));
   expect(screen.getByLabelText("Spent on Fri 2 Oct, £54.50. 2 payments")).toBeOnTheScreen();
   expect(screen.queryByText("Safe to spend")).toBeNull();
   await fireEvent.press(screen.getByRole("button", {name: "Thu 1 Oct"}));
@@ -74,21 +96,16 @@ test("a day gone, tapped, says what was spent that day in the number's place; to
   expect(screen.getByText("Safe to spend")).toBeOnTheScreen();
 });
 
-test("the bank cards hang down from the top, balances to the penny, and the eye hides the balance there too", async () => {
+test("tucked up, the bank cards are out of sight above the screen; out, balances to the penny, and the eye hides them", async () => {
   await show([groceries]);
+  expect(screen.queryByRole("button", {name: /balance/})).toBeNull();
+  await fireEvent.press(screen.getByRole("button", {name: "Show all your accounts"}));
   expect(screen.getByRole("button", {name: "C card balance £0.00. Tap to hide"})).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole("button", {name: /^Monzo balance £[\d,]+\.\d\d\. Tap to hide$/}));
   expect(screen.getByRole("button", {name: "Monzo balance hidden. Tap to show"})).toBeOnTheScreen();
-  await fireEvent.press(screen.getByRole("button", {name: "Monzo balance hidden. Tap to show"}));
-});
-
-test("tapping a hanging card brings every account out; the balance inside still only hides balances", async () => {
-  await show([groceries]);
-  const monzo = () => screen.getByRole("button", {name: /^Monzo balance/});
-  // a tap anywhere on the card but its balance
-  await fireEvent.press(monzo().parent!.parent!);
+  // still out: the balance only hides balances
   expect(screen.getByText("3 accounts")).toBeOnTheScreen();
-  expect(screen.getByRole("button", {name: /^Monzo balance £[\d,]+\.\d\d\. Tap to hide$/})).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", {name: "Monzo balance hidden. Tap to show"}));
 });
 
 test("out, tapping a card swaps it with the top one, and tapping the top one swaps it with the one under it", async () => {
@@ -114,7 +131,7 @@ test("without an income there's no number or pay cycle yet, just the way to add 
   await show([], baseState({incomes: []}));
   expect(screen.getByText("Start with your income")).toBeOnTheScreen();
   expect(screen.queryByText("Safe to spend")).toBeNull();
-  expect(screen.queryByLabelText(/^Pay cycle/)).toBeNull();
+  expect(screen.queryByLabelText(/^October/)).toBeNull();
 });
 
 test("the handle (or a tap on a card) brings every account out with the total, and tucks them back", async () => {
@@ -198,15 +215,6 @@ test("a day gone, picked on the pay cycle, turns Spent today into that day's rec
   expect(screen.getByText("Nothing spent that day")).toBeOnTheScreen();
 });
 
-test("tucked up only two cards hang; the third waits above the screen and tops the fan when they're out", async () => {
-  await show([groceries]);
-  expect(screen.getByRole("button", {name: /^Monzo balance/})).toBeOnTheScreen();
-  expect(screen.getByRole("button", {name: "C card balance £0.00. Tap to hide"})).toBeOnTheScreen();
-  expect(screen.queryByRole("button", {name: /^W card balance/})).toBeNull();
-  await fireEvent.press(screen.getByRole("button", {name: "Show all your accounts"}));
-  expect(screen.getByRole("button", {name: "W card balance £0.00. Tap to hide"})).toBeOnTheScreen();
-});
-
 test("when pay is due, Today asks whether it arrived, above the number, before counting it", async () => {
   await show([groceries]);
   expect(screen.getByText("Did your Pharmacy pay arrive?")).toBeOnTheScreen();
@@ -224,4 +232,48 @@ test("not at £0, it's the usual one-line reason", async () => {
   await show([groceries, tx({amount: 5, date: TODAY, cat: "eating"})]);
   expect(screen.queryByText(/You've used today's/)).toBeNull();
   expect(screen.getByText("£5 spent of today's £16")).toBeOnTheScreen();
+});
+
+test("this pay's savings show above the number until they're moved; moving them keeps the number the same", async () => {
+  await show([groceries], baseState({saving: 100}));
+  expect(screen.getByText("£100 to put away this pay")).toBeOnTheScreen();
+  // £400 free less £100 to put away: £12 a day
+  expect(screen.getByText("out of £12")).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", {name: "I've moved it"}));
+  await waitFor(() => expect(screen.queryByText("£100 to put away this pay")).toBeNull());
+  expect(useMoney.getState().txs.at(-1)).toMatchObject({type: "save", amount: 100, cat: "savings", date: TODAY});
+  expect(screen.getByText("out of £12")).toBeOnTheScreen();
+});
+
+test("above the month, a bar says what's bills, everyday, savings and free", async () => {
+  await show([groceries], baseState({saving: 100}));
+  expect(screen.getByRole("image", {name: "Bills £400, Everyday £150, Savings £100, Free £300"})).toBeOnTheScreen();
+  // a day to come shows where it would be by then
+  await fireEvent.press(screen.getByRole("button", {name: "Fri 30 Oct, payday"}));
+  expect(screen.getByRole("image", {name: "Bills £420, Everyday £200, Savings £100, Free £1,080"})).toBeOnTheScreen();
+});
+
+test("a day gone, picked, shows what was left of its pay cycle at the end of it", async () => {
+  await show([groceries, tx({amount: 20, date: "2026-10-04"})], baseState({saving: 100}));
+  expect(screen.getByRole("image", {name: "Bills £400, Everyday £150, Savings £100, Free £280"})).toBeOnTheScreen();
+  // on the 2nd the £20 hadn't gone yet
+  await fireEvent.press(screen.getByRole("button", {name: "Fri 2 Oct"}));
+  expect(screen.getByRole("image", {name: "Bills £400, Everyday £150, Savings £100, Free £300"})).toBeOnTheScreen();
+});
+
+test("each part of the bar has its name and whole-pound figure under it; a part at £0 isn't drawn", async () => {
+  await show([groceries, tx({amount: 3.2, date: TODAY, cat: "eating"})]);
+  expect(screen.getByText("Everyday")).toBeOnTheScreen();
+  expect(screen.getByText("£150")).toBeOnTheScreen();
+  // £396.80 free, shown to the pound; the screen reader still hears the pence
+  expect(screen.getByText("£397")).toBeOnTheScreen();
+  expect(screen.getByRole("image", {name: "Bills £400, Everyday £150, Savings £0, Free £396.80"})).toBeOnTheScreen();
+  expect(screen.queryByText("Savings")).toBeNull();
+});
+
+test("\"Not this time\" lets this pay's savings off", async () => {
+  await show([groceries], baseState({saving: 100}));
+  await fireEvent.press(screen.getByRole("button", {name: "Not this time"}));
+  await waitFor(() => expect(screen.queryByText("£100 to put away this pay")).toBeNull());
+  expect(screen.getByText("out of £16")).toBeOnTheScreen();
 });

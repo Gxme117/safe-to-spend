@@ -51,6 +51,7 @@ const BILLS: [RegExp, Look][] = [
 const BILL: Look = {icon: "receipt", tint: "sand"};
 const PAY: Look = {icon: "banknote", tint: "green"};
 const MONEY_IN: Look = {icon: "coins", tint: "green"};
+const SAVINGS: Look = {icon: "coins", tint: "mint"};
 
 /** What a name probably was, as an everyday category's look; null when nothing fits. */
 function guess(name: string): Look | null {
@@ -68,6 +69,7 @@ export function billLook(name: string): Look {
 
 /** A payment's look: its bill's, money in's, or its category's; with no category (or Other), a guess from its name. */
 export function txLook(ctx: Ctx, it: Tx): Look {
+  if (it.cat === "savings") return SAVINGS;
   if (it.type === "income") return it.srcId ? PAY : MONEY_IN;
   if (it.billId) return billLook(ctx.state.bills.find(b => b.id === it.billId)?.name || it.note);
   const cat = it.cat && it.cat !== "other" ? CATS[it.cat] ?? guess(ctx.state.categories.find(x => x.id === it.cat)?.name || "") : null;

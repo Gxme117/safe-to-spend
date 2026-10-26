@@ -35,6 +35,13 @@ test("more than what's free says how much more bills and everyday would need, ca
   expect(w.line).not.toMatch(/\b(short|over)\b/i);
 });
 
+test("more than what's free, with money in savings, says what you'd move from savings and anything still needed", () => {
+  const bank = {source: "Monzo", accountId: "acc", main: 0, asOf: "2026-10-05T08:00:00Z", pots: [{id: "hol", name: "Holiday", balance: 20, role: "save" as const}]};
+  const c = base({state: baseState({bank})}), h = num(c);
+  expect(whatIf(c, h.free + 15)!.line).toBe("You'd need to move £15 from savings to cover it");
+  expect(whatIf(c, h.free + 30)!.line).toBe("You'd need £20 from savings and £10 more");
+});
+
 test("the breakdown adds up: what's free until payday, then today's share of it", () => {
   const c = base({txs: [tx({amount: 50, date: "2026-10-02", cat: "groceries"}), tx({amount: 10, date: TODAY, cat: "eating"})]});
   const r = calc(c), h = num(c), b = todayBreakdown(c, r)!;
@@ -55,6 +62,16 @@ test("without enough, the breakdown shows what's still to cover and the gap a da
   const c = makeCtx({state: baseState({balance: 100})}), h = num(c), b = todayBreakdown(c, calc(c))!;
   expect(b.now[b.now.length - 1]).toMatchObject({label: "Still to cover", amount: h.free});
   expect(b.today).toEqual([{label: "Shared over the days to payday", note: "25 days", amount: h.left, total: true}]);
+});
+
+test("savings not moved yet are a line of their own, and the lines still add up", () => {
+  const c = base({state: baseState({saving: 100})});
+  const r = calc(c), h = num(c), b = todayBreakdown(c, r)!;
+  expect(b.now.find(x => x.label === "Savings to put away")).toMatchObject({amount: -100, note: "This pay, until it's moved"});
+  expect(sum(b.now.slice(0, -1))).toBe(h.free);
+  // moved, the line goes
+  const moved = base({state: baseState({saving: 100}), txs: [tx({amount: 50, date: "2026-10-02", cat: "groceries"}), tx({type: "save", amount: 100, date: TODAY, cat: "savings"})]});
+  expect(todayBreakdown(moved, calc(moved))!.now.some(x => x.label === "Savings to put away")).toBe(false);
 });
 
 test("no daily number, no breakdown and no what-if", () => {

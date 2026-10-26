@@ -15,12 +15,13 @@ export function useReducedMotion() {
   return reduced;
 }
 
-/** Counts up from £0 when the number first appears, then from the last shown value to the new one, as on the web (.9s, easing out).
- *  Jumps straight there with Reduce Motion on, or when `on` is false. */
-function useCountUp(target: number, on: boolean, ms = 900) {
+/** Counts up from £0 when the number first appears (unless `fromZero` is false: then it starts where it is), then from the last
+ *  shown value to the new one, as on the web (.9s, easing out). Jumps straight there with Reduce Motion on, or when `on` is false. */
+export const COUNT_MS = 900;
+export function useCountUp(target: number, on: boolean, ms = COUNT_MS, fromZero = true) {
   const reduced = useReducedMotion();
-  const [shown, setShown] = useState(on ? 0 : target);
-  const from = useRef(on ? 0 : target);
+  const [shown, setShown] = useState(on && fromZero ? 0 : target);
+  const from = useRef(on && fromZero ? 0 : target);
   useEffect(() => {
     if (!on || reduced || from.current === target) { from.current = target; setShown(target); return; }
     const start = Date.now(), a = from.current;

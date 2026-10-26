@@ -1,7 +1,9 @@
+import {aside} from "./banks";
 import {billDated, billDates, billMonthly, billPaid, billSource} from "./bills";
 import {addDays, dayDiff, niceDate, niceTime, parseD} from "./dates";
 import {ciKey, cycleStart, isReceived, lowAmt, mainIncome, nextPayday, occurrences, usualAmt} from "./income";
 import {money, r2} from "./money";
+import {perPayday} from "./pay";
 import type {Bill, Category, Ctx, Group, Income, IsoDate, Tx} from "./types";
 
 // Every category belongs to one group: bills (fixed), everyday (a monthly amount you choose), or free.
@@ -33,6 +35,23 @@ export interface Calc {
   cycleFrom: IsoDate;
   need: number;                    // bills + everyday: what has to be paid before payday
   short: number;                   // how much more that needs than you have
+  savingLeft: number;              // this pay cycle's savings not moved yet
+  savingHeld: number;              // the part of that held back: only what bills and everyday leave over
+}
+
+/** "Not this time" for a pay cycle's savings, keyed by when the cycle started (in `skipped`). */
+export const saveKey = (cycleFrom: IsoDate) => `save_${cycleFrom}`;
+
+/** Each pay cycle's share of what you chose to put away a month: a year's worth over a year of paydays. */
+export function savingPerPay(ctx: Ctx) {
+  const src = mainIncome(ctx), m = ctx.state.saving || 0;
+  return src && m > 0 ? perPayday(m * 12, src.freq) : 0;
+}
+
+/** Money moved into savings from `from` to `to`, less any moved back out. */
+export function savedNet(txs: Tx[], from: IsoDate, to: IsoDate) {
+  return r2(txs.reduce((a, it) => it.date < from || it.date > to ? a
+    : it.type === "save" ? a + it.amount : it.type === "income" && it.cat === "savings" ? a - it.amount : a, 0));
 }
 
 export function calc(ctx: Ctx): Calc {
@@ -76,7 +95,12 @@ export function calc(ctx: Ctx): Calc {
   const everydayLeft = r2(everyday.reduce((s, e) => s + Math.max(0, e.left), 0));
   const need = r2(billsLeft + everydayLeft);
   const short = r2(Math.max(0, need - balance));   // bills and everyday come first; savings is the back-up
-  return {t, cur, spent, balance, payday, daysLeft, billsLeft, billsDue, billsUndated, everyday, everydayLeft, cycleFrom, need, short};
+
+  // savings: this cycle's share is held back until it's moved (then it's left the balance, so it isn't taken twice),
+  // and only out of what bills and everyday leave over: when a pay can't afford it, savings give way
+  const savingLeft = state.skipped[saveKey(cycleFrom)] ? 0 : r2(Math.max(0, savingPerPay(ctx) - savedNet(txs, cycleFrom, t)));
+  const savingHeld = r2(Math.min(savingLeft, Math.max(0, balance - need)));
+  return {t, cur, spent, balance, payday, daysLeft, billsLeft, billsDue, billsUndated, everyday, everydayLeft, cycleFrom, need, short, savingLeft, savingHeld};
 }
 
 /** What's left of each everyday amount at the end of day `d`, in the pay cycle `d` falls in. Payments after `d` aren't counted,
@@ -132,7 +156,8 @@ export function hero(ctx: Ctx, c: Calc): Hero {
   if (!ctx.state.incomes.length) return {kind: "no-income"};
   if (c.daysLeft === 0) return {kind: "payday-today"};
   if (c.daysLeft == null || c.daysLeft < 0 || !c.payday) return {kind: "no-payday"};
-  const free = r2(c.balance - c.billsLeft - c.everydayLeft);   // right now: after bills and what's left of your everyday amounts
+  // right now: after bills, what's left of your everyday amounts, and savings not moved yet
+  const free = r2(c.balance - c.billsLeft - c.everydayLeft - c.savingHeld);
   const spentToday = r2(freeSpentByDay(ctx)[c.t] || 0);
   // today's amount is what was free at the start of today, shared over the days to payday: what you spend today comes off it
   // once (in `left`), not off the share as well. Money that arrives today still raises it. Rounded down, never below £0.
@@ -141,14 +166,33 @@ export function hero(ctx: Ctx, c: Calc): Hero {
   const left = r2(Math.max(0, perDay - spentToday));
   // no "pace" judgement: spending big one day simply lowers the amount for the days after, and that's fine
   const reason = free < 0
-    // how deep the gap is, said plainly: no "short", and never asks you to move money in
-    ? `You need ${money(-free)} more to cover your bills${c.everydayLeft ? " and everyday" : ""}`
+    // how to close the gap, calmly: from savings first, then how much more is needed. Never "short"
+    ? gapLine(ctx, c, -free)
     : !spentToday
       ? `Lasts you until payday, ${niceDate(c.payday)}`
       : spentToday <= perDay
         ? `${money(spentToday)} spent of today's ${money(perDay)}`
         : c.daysLeft > 1 ? `${money(spentToday)} spent today. From tomorrow, ${money(Math.floor(free / (c.daysLeft - 1)))} a day` : `${money(spentToday)} spent today. Payday is tomorrow`;
   return {kind: "number", perDay, left, free, spentToday, reason};
+}
+
+/** A gap split into what savings can cover (`move`) and what's still needed after that (`more`). */
+export function closeGap(ctx: Ctx, gap: number) {
+  const move = r2(Math.min(gap, Math.max(0, aside(ctx.state))));
+  return {move, more: r2(gap - move)};
+}
+
+/**
+ * When there isn't enough for bills and everyday (`gap` is how much more they need): how to close it, in one calm line.
+ * Money in savings (pots set aside, never spending money) covers it first; what savings can't cover is said as how much more you need.
+ * `would`: for a payment you're only trying out ("What if I spend").
+ */
+export function gapLine(ctx: Ctx, c: Calc, gap: number, would = false): string {
+  const {move, more} = closeGap(ctx, gap);
+  const what = `your bills${c.everydayLeft ? " and everyday" : ""}`;
+  if (!move) return `You${would ? "'d" : ""} need ${money(gap)} more to cover ${what}`;
+  if (!more) return would ? `You'd need to move ${money(move)} from savings to cover it` : `Move ${money(move)} from savings to cover what's coming`;
+  return would ? `You'd need ${money(move)} from savings and ${money(more)} more` : `Move ${money(move)} from savings, then you need ${money(more)} more`;
 }
 
 /**
@@ -167,6 +211,13 @@ export function tomorrowLine(c: Calc, h: Hero): string | null {
  * are set aside first, as today's number does. Never below £0, as today. Null without a number today or a payday to count to.
  */
 export function forecast(ctx: Ctx, c: Calc, d: IsoDate): {amount: number; free: number} | null {
+  const w = walk(ctx, c, d);
+  return w && {amount: w.amount, free: w.free};
+}
+
+/** The forecast's walk to day `d`, and what it passed on the way: the savings held for the pay cycle `d` falls in (`saved`), and the pay
+ *  cycle `d` falls in (`from` its start, `payday` its end). */
+function walk(ctx: Ctx, c: Calc, d: IsoDate) {
   const h = hero(ctx, c);
   if (h.kind !== "number" || !c.payday || d <= c.t) return null;
   const incomes = ctx.state.incomes, everyday = ctx.state.categories.filter(x => catGroup(x) === "everyday");
@@ -178,7 +229,8 @@ export function forecast(ctx: Ctx, c: Calc, d: IsoDate): {amount: number; free: 
     + everyday.reduce((a, x) => a + (x.budget || 0), 0));
   // the end of today: today's amount spent (or more, if you already have), nothing while there isn't enough
   let free = h.free < 0 ? h.free : Math.min(h.free + h.spentToday - h.perDay, h.free);
-  let payday: IsoDate = c.payday, day = c.t;
+  let payday: IsoDate = c.payday, day = c.t, from = c.cycleFrom, saved = c.savingHeld;
+  const perPaySave = savingPerPay(ctx);
   for (;;) {
     day = addDays(day, 1);
     free = r2(free + incoming(day));
@@ -186,10 +238,15 @@ export function forecast(ctx: Ctx, c: Calc, d: IsoDate): {amount: number; free: 
       const next = nextPayday({...ctx, today: addDays(payday, 1)});
       if (!next) return null;
       free = r2(free - setAside(payday, next));
+      // then that cycle's savings, out of what's left over
+      const put = Math.min(perPaySave, Math.max(0, free));
+      free = r2(free - put);
+      saved = r2(put);
+      from = payday;
       payday = next;
     }
     const share = Math.max(0, Math.floor(free / dayDiff(day, payday)));
-    if (day === d) return {amount: share, free};
+    if (day === d) return {amount: share, free, saved, from, payday};
     if (share > 0) free = r2(free - share);
   }
 }
@@ -322,7 +379,7 @@ export function split(c: Calc) {
   const have = Math.max(c.balance, 0);
   const bills = r2(Math.min(c.billsLeft, have));
   const everyday = r2(Math.min(c.everydayLeft, Math.max(have - bills, 0)));
-  const free = r2(Math.max(0, c.balance - bills - everyday));
+  const free = r2(Math.max(0, c.balance - bills - everyday - c.savingHeld));
   return {total: c.balance, parts: [
     {key: "bills" as const, label: "Bills", amount: bills},
     {key: "everyday" as const, label: "Everyday", amount: everyday},
@@ -330,17 +387,59 @@ export function split(c: Calc) {
   ], short: c.short};
 }
 
-/** All your money in one line: bills, everyday, savings (pots set aside, never spending money), then free. */
-export function moneyBar(c: Calc, savings: number) {
+/** What's left of this pay cycle, in one line: bills still to go out, everyday still to spend, this pay's savings still to put away,
+ *  and what's free. Together they're your spending money (savings already in a pot aren't: they're not spending money). */
+export function moneyBar(c: Calc): BarPart[] {
   const [bills, everyday, free] = split(c).parts;
-  return [bills, everyday, {key: "savings" as const, label: "Savings", amount: r2(Math.max(0, savings))}, free];
+  return [bills, everyday, {key: "savings", label: "Savings", amount: c.savingHeld}, free];
+}
+export interface BarPart { key: "bills" | "everyday" | "savings" | "free"; label: string; amount: number }
+
+/** The engine as it stood at the end of a day gone: payments after it come back off (or back onto) the balance and out of the list. */
+export function ctxAt(ctx: Ctx, c: Calc, d: IsoDate): Ctx {
+  const after = ctx.txs.reduce((a, it) => it.date > d ? a + (it.type === "income" ? it.amount : -it.amount) : a, 0);
+  return {
+    state: {...ctx.state, balance: r2(c.balance - after), balanceSetAt: Number.MAX_SAFE_INTEGER},
+    txs: ctx.txs.filter(it => it.date <= d), today: d,
+  };
+}
+
+/**
+ * The same bar on another day picked. A day gone: what was left of its pay cycle at the end of it, the engine run as of then (`ctxAt`).
+ * A day to come: what would be left at the start of it if you spend each day's amount until then (as `forecast`): bills still to
+ * go out that pay cycle, everyday spent at an even pace through it, that pay's savings, and what's free. Null when there's nothing to show.
+ */
+export function moneyBarOn(ctx: Ctx, c: Calc, d: IsoDate): BarPart[] | null {
+  if (d === c.t) return moneyBar(c);
+  if (d < c.t) {
+    const then = calc(ctxAt(ctx, c, d));
+    return then.daysLeft ? moneyBar(then) : null;
+  }
+  const w = walk(ctx, c, d);
+  if (!w) return null;
+  const now = w.payday === c.payday;
+  const bills = now
+    ? c.billsDue.reduce((a, x) => x.d >= d ? a + (x.b.amount || 0) : a, 0) + c.billsUndated
+    : ctx.state.bills.reduce((a, b) => !(b.amount > 0) ? a
+      : !billDated(b) ? a + billMonthly(b) : a + billDates(b, d, addDays(w.payday, -1)).length * b.amount, 0);
+  const left = dayDiff(d, w.payday);
+  const everyday = now
+    ? c.everydayLeft * left / dayDiff(c.t, w.payday)
+    : ctx.state.categories.reduce((a, x) => catGroup(x) === "everyday" ? a + (x.budget || 0) : a, 0) * left / dayDiff(w.from, w.payday);
+  return [
+    {key: "bills", label: "Bills", amount: r2(bills)},
+    {key: "everyday", label: "Everyday", amount: r2(everyday)},
+    {key: "savings", label: "Savings", amount: w.saved},
+    {key: "free", label: "Free", amount: r2(Math.max(0, w.free))},
+  ];
 }
 
 /** The "Free until payday" summary on the Month tab. */
 export function freeSummary(c: Calc) {
-  const free = r2(c.balance - c.billsLeft - c.everydayLeft);
+  const free = r2(c.balance - c.billsLeft - c.everydayLeft - c.savingHeld);
+  const after = [`${money(c.billsLeft)} of bills`, c.everydayLeft ? `${money(c.everydayLeft)} of everyday` : "", c.savingHeld ? `${money(c.savingHeld)} for savings` : ""].filter(Boolean);
   return free >= 0
-    ? {free, lead: "Free until payday", sub: `After ${money(c.billsLeft)} of bills${c.everydayLeft ? ` and ${money(c.everydayLeft)} of everyday` : ""}. Spend it whenever suits you`}
+    ? {free, lead: "Free until payday", sub: `After ${after.length > 1 ? `${after.slice(0, -1).join(", ")} and ${after[after.length - 1]}` : after[0]}. Spend it whenever suits you`}
     : {free, lead: "Still to cover before payday", sub: `You need ${money(-free)} more to cover your bills${c.everydayLeft ? " and everyday" : ""}. Money coming in covers it by itself.`};
 }
 

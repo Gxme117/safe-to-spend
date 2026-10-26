@@ -3,6 +3,7 @@ import {Alert, View, type StyleProp, type ViewStyle} from "react-native";
 import {niceDate, niceTime, nowHM} from "@/lib/dates";
 import {lowAmt, pendingCheckins, usualAmt} from "@/lib/income";
 import {money, parseAmount} from "@/lib/money";
+import {saveKey, type Calc} from "@/lib/calc";
 import type {Ctx} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
 import {s} from "@/theme/tokens";
@@ -15,6 +16,31 @@ function TodoDot() {
 }
 
 type Pending = ReturnType<typeof pendingCheckins>[number];
+
+/** This pay's savings, while some of it is still held back from the daily number. Moving it (logged here, or a move to a
+ *  savings pot that Monzo's sync brings in) stops the hold; "Not this time" lets this pay off. */
+export function SaveCard({ctx, c, style}: {ctx: Ctx; c: Calc; style?: StyleProp<ViewStyle>}) {
+  if (!c.savingHeld) return null;
+  const {addTx, skip, notify} = useMoney.getState();
+  const amount = c.savingHeld, bank = !!ctx.state.bank;
+  const moved = async () => { if (await addTx({type: "save", amount, cat: "savings", note: "", date: c.t})) notify(`${money(amount)} put away`, true); };
+  return (
+    <Card style={style}>
+      <View style={{flexDirection: "row", alignItems: "center", gap: s[2]}}>
+        <TodoDot />
+        <T weight="semibold" size="sm">Savings</T>
+      </View>
+      <T weight="bold" size="lg">{money(amount)} to put away this pay</T>
+      <T muted>{bank
+        ? "It's kept out of your daily number until it's in a savings pot in Monzo. Move it there and it's picked up by itself."
+        : "It's kept out of your daily number until you move it to your savings."}</T>
+      <View style={{flexDirection: "row", flexWrap: "wrap", gap: s[2]}}>
+        {bank ? null : <Button kind="good" label="I've moved it" onPress={moved} />}
+        <Button kind="ghost" label="Not this time" onPress={() => skip(saveKey(c.cycleFrom))} />
+      </View>
+    </Card>
+  );
+}
 
 /** "Did your pay arrive?" Money only counts once it lands. */
 export function CheckinCard({ctx, style}: {ctx: Ctx; style?: StyleProp<ViewStyle>}) {

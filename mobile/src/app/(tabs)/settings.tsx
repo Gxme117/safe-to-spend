@@ -4,15 +4,41 @@ import {ScrollView, View} from "react-native";
 import {Choice} from "@/components/Form";
 import {BankSettings, DataCard, YouCard} from "@/components/Profile";
 import {Button, Card, CardHead, Field, Input, PageTitle, Row, T} from "@/components/ui";
+import {savingPerPay} from "@/lib/calc";
 import {niceDate} from "@/lib/dates";
 import {FREQ, lowAmt} from "@/lib/income";
 import {money, parseAmount} from "@/lib/money";
+import type {Ctx} from "@/lib/types";
 import {useCalc} from "@/store/useCalc";
 import {useMoney, type CardStyle, type ThemePref} from "@/store/useMoney";
 import {parseHex} from "@/theme/color";
 import {GLASS} from "@/theme/glass";
 import {palettes, radius, s} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
+
+/** What you put away a month. Each pay's share is held back from the daily number until it's moved; blank or 0 turns it off. */
+function SavingsCard({ctx}: {ctx: Ctx}) {
+  const [amt, setAmt] = useState(ctx.state.saving ? String(ctx.state.saving) : "");
+  const [error, setError] = useState("");
+  const per = savingPerPay(ctx);
+  const save = () => {
+    const a = amt.trim() ? parseAmount(amt) : 0;
+    if (Number.isNaN(a) || a < 0) return setError("Enter an amount, e.g. 100");
+    useMoney.getState().setSaving(a);
+    useMoney.getState().notify(a > 0 ? `Saving ${money(a)} a month` : "Savings turned off");
+  };
+  return (
+    <Card>
+      <CardHead title="Savings" />
+      <Field label="How much do you want to put away each month?"
+        hint={`Held back from your daily number each pay until it's moved to savings.${per && ctx.state.saving !== per ? ` That's ${money(per)} each pay.` : ""}`}>
+        <Input prefix="£" value={amt} onChangeText={v => { setAmt(v); setError(""); }} keyboardType="decimal-pad" selectTextOnFocus placeholder="0" accessibilityLabel="Savings each month" />
+      </Field>
+      {error ? <T weight="semibold" size="sm">{error}</T> : null}
+      <Button label="Save" onPress={save} />
+    </Card>
+  );
+}
 
 export default function SettingsScreen() {
   const r = useCalc();
@@ -56,6 +82,8 @@ export default function SettingsScreen() {
         ) : <T muted>No income yet. Your payday is worked out from it.</T>}
         {c.payday ? <T muted size="sm">Next payday: {niceDate(c.payday)}.</T> : null}
       </Card>
+
+      <SavingsCard ctx={ctx} />
 
       <Card>
         <CardHead title="Everyday amounts" right={<Button small kind="ghost" label="Plan" onPress={() => router.push("/everyday")} />} />

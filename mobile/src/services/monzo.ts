@@ -1,6 +1,7 @@
 // Talking to Monzo. Your client ID and secret, and the tokens, live in the iOS Keychain (expo-secure-store):
 // never in the repo, never in app state. This is a personal Monzo developer client, for your own account only.
 import * as SecureStore from "expo-secure-store";
+import {accountKey} from "@/lib/banks";
 import {today} from "@/lib/dates";
 import {findAll, type SetupFound} from "@/lib/found";
 import {REDIRECT_URI, type RawPot, type RawTx, setupSince, totalPence, type Synced} from "@/lib/monzo";
@@ -120,7 +121,7 @@ export async function approvedYet() {
 }
 
 async function mainAccount() {
-  const {accounts} = await api<{accounts: {id: string; closed?: boolean}[]}>("/accounts?account_type=uk_retail");
+  const {accounts} = await api<{accounts: {id: string; closed?: boolean; sort_code?: string; account_number?: string}[]}>("/accounts?account_type=uk_retail");
   const acc = accounts.find(a => !a.closed);
   if (!acc) throw new MonzoFail("other", "no open current account");
   return acc;
@@ -147,7 +148,8 @@ export async function fetchBank(since: string): Promise<Synced> {
   const bal = await api<{balance: number}>(`/balance?account_id=${q}`);
   const {pots} = await api<{pots: RawPot[]}>(`/pots?current_account_id=${q}`);
   const txs = await fetchTxs(q, since);
-  return {accountId: acc.id, mainPence: bal.balance, pots, txs};
+  const number = accountKey(acc.sort_code, acc.account_number);
+  return {accountId: acc.id, mainPence: bal.balance, pots, txs, ...(number ? {numbers: [number]} : {})};
 }
 
 /** Forget everything Monzo-related on this phone. */

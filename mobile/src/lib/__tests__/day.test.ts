@@ -1,6 +1,6 @@
 import {calc, forecast, hero} from "../calc";
 import {addDays} from "../dates";
-import {cycleDays, dayView, dueByDay, runway, weekLeft, weekMarks} from "../day";
+import {dayView, monthDays, dueByDay, runway, weekLeft, weekMarks} from "../day";
 import type {Ctx} from "../types";
 import {baseState, ctx as makeCtx, TODAY, tx} from "./fixtures";
 
@@ -138,33 +138,47 @@ test("the runway looks a week ahead even when payday is sooner, and has no figur
   expect(runway(none, calc(none)).every(x => x.when === "past" || x.amount === null)).toBe(true);
 });
 
-test("the pay-cycle grid runs from the last payday to the next, Monday first, with the line above it", () => {
-  const c = rich(), g = cycleDays(c, calc(c))!;
-  expect(g.range).toBe("30 Sep – 30 Oct");
+test("the month grid runs from the 1st to the last day, Monday first, with the line above it", () => {
+  const c = rich(), g = monthDays(c, calc(c), "2026-10")!;
+  expect(g.range).toBe("October");
   expect(g.toPayday).toBe("25 days to payday");
-  // weeks of 7, Monday first: Wed 30 Sep has two blanks before it, Mon 5 Oct starts the next row, the last row is filled out with blanks
+  // weeks of 7, Monday first: Thu 1 Oct has three blanks before it, Mon 5 Oct starts the next row, the last row is filled out with blanks
   expect(g.weeks.every(w => w.length === 7)).toBe(true);
-  expect(g.weeks[0].map(x => x?.d ?? null)).toEqual([null, null, "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+  expect(g.weeks[0].map(x => x?.d ?? null)).toEqual([null, null, null, "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
   expect(g.weeks[1][0]!.d).toBe("2026-10-05");
-  expect(g.weeks[4].map(x => x?.n ?? null)).toEqual([26, 27, 28, 29, 30, null, null]);
-  expect(g.days.map(x => x.d)).toEqual(Array.from({length: 31}, (_, i) => addDays("2026-09-30", i)));
+  expect(g.weeks[4].map(x => x?.n ?? null)).toEqual([26, 27, 28, 29, 30, 31, null]);
+  expect(g.days.map(x => x.d)).toEqual(Array.from({length: 31}, (_, i) => addDays("2026-10-01", i)));
   expect(g.days.find(x => x.when === "today")!.d).toBe(TODAY);
-  expect(g.days.filter(x => x.when === "past").length).toBe(5);
+  expect(g.days.filter(x => x.when === "past").length).toBe(4);
   expect(g.days.filter(x => x.payday).map(x => x.d)).toEqual(["2026-10-30"]);
 });
 
 test("the grid marks bills still to go out, not ones gone, and says it all in one sentence", () => {
-  const c = rich(), g = cycleDays(c, calc(c))!;
+  const c = rich(), g = monthDays(c, calc(c), "2026-10")!;
   // the gym today and rent on the 15th; the phone bill went out on the 1st
   expect(g.days.filter(x => x.bill).map(x => x.d)).toEqual([TODAY, "2026-10-15"]);
-  expect(g.said).toBe("Pay cycle, 30 Sep – 30 Oct, day 6 of 30. Bills due Mon 5 Oct and Thu 15 Oct. Payday Fri 30 Oct.");
+  expect(g.said).toBe("October. 25 days to payday. Bills due Mon 5 Oct and Thu 15 Oct. Payday Fri 30 Oct.");
+});
+
+test("another month: a month gone marks only its payday, a month to come every bill and payday, and neither counts to payday", () => {
+  const c = rich(), r = calc(c);
+  const sep = monthDays(c, r, "2026-09")!;
+  expect(sep).toMatchObject({range: "September", toPayday: ""});
+  expect(sep.days.every(x => x.when === "past" && !x.bill)).toBe(true);
+  expect(sep.days.filter(x => x.payday).map(x => x.d)).toEqual(["2026-09-30"]);
+  // Sun 1 Nov and Sun 15 Nov go out the Monday after; pay is the last working day
+  const nov = monthDays(c, r, "2026-11")!;
+  expect(nov.days.filter(x => x.bill).map(x => x.d)).toEqual(["2026-11-02", "2026-11-05", "2026-11-16"]);
+  expect(nov.days.filter(x => x.payday).map(x => x.d)).toEqual(["2026-11-30"]);
+  expect(nov.said).toBe("November. Bills due Mon 2 Nov, Thu 5 Nov and Mon 16 Nov. Payday Mon 30 Nov.");
+  expect(monthDays(c, r, "2027-01")!.range).toBe("January 2027");
 });
 
 test("no grid without a payday to count to, or on payday; the day before it says payday's tomorrow", () => {
   const none = makeCtx({state: baseState({incomes: []})});
-  expect(cycleDays(none, calc(none))).toBeNull();
+  expect(monthDays(none, calc(none), "2026-10")).toBeNull();
   const payday = makeCtx({today: "2026-10-30"});
-  expect(cycleDays(payday, calc(payday))).toBeNull();
+  expect(monthDays(payday, calc(payday), "2026-10")).toBeNull();
   const eve = makeCtx({today: "2026-10-29"});
-  expect(cycleDays(eve, calc(eve))!.toPayday).toBe("Payday tomorrow");
+  expect(monthDays(eve, calc(eve), "2026-10")!.toPayday).toBe("Payday tomorrow");
 });

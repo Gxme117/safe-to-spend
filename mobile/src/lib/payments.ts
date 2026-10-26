@@ -63,6 +63,7 @@ export function fileUnder(ctx: Ctx, it: Tx, pick: Filing): {patch: FilingPatch; 
 
 /** What money in was, in a few words. */
 export function moneyInWhat(ctx: Ctx, it: Tx) {
+  if (it.cat === "savings") return "Moved from savings";
   const src = ctx.state.incomes.find(s => s.id === it.cat);
   if (src) return src.name;
   const k = IN_KINDS.find(x => x.id === it.cat);

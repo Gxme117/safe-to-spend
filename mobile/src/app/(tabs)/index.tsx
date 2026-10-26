@@ -1,18 +1,19 @@
 import {router} from "expo-router";
 import {useRef, useState} from "react";
-import {Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from "react-native";
+import {Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ScrollViewInstance, type TextInputInstance} from "react-native";
 import {useAutoSync} from "@/components/Bank";
-import {CheckinCard} from "@/components/Cards";
+import {CheckinCard, SaveCard} from "@/components/Cards";
 import {BigMoney} from "@/components/BigMoney";
-import {CycleGrid} from "@/components/CycleGrid";
+import {CycleGrid, type MonthSteps} from "@/components/CycleGrid";
 import {FigureLabels, REASON_LINE} from "@/components/FigureLabels";
-import {CardPeek} from "@/components/Hero";
+import {CardPeek, MoneyBar} from "@/components/Hero";
 import {HeroEmpty} from "@/components/HeroEmpty";
 import {SpentToday} from "@/components/SpentToday";
 import {T} from "@/components/ui";
-import {dayFigure, hero, type Calc, type Hero} from "@/lib/calc";
-import {niceDate, shortDate, shortDay} from "@/lib/dates";
-import {cycleDays} from "@/lib/day";
+import {closeGap, dayFigure, hero, moneyBarOn, type Calc, type Hero} from "@/lib/calc";
+import {addMonths, monthName, niceDate, shortDate, shortDay} from "@/lib/dates";
+import {monthDays} from "@/lib/day";
+import {MONTHS_EACH_WAY} from "@/lib/livingMonth";
 import {money, parseAmount} from "@/lib/money";
 import {usedUp, whatIf} from "@/lib/today";
 import type {Ctx, IsoDate} from "@/lib/types";
@@ -36,7 +37,7 @@ export default function HomeScreen() {
 // Where things sit, as drawn: the number's line starts this far down the screen, under the cards; the lines under it this far below it;
 // the pay cycle this far below those; what's spare this far below the grid.
 // The £ sits a little left of the lines under it, as drawn (its side bearing would indent it).
-const NUMBER_TOP = 235, NUMBER_NUDGE = -6, CYCLE_GAP = 30, SPARE_GAP = 60;
+const NUMBER_TOP = 166, NUMBER_NUDGE = -6, CYCLE_GAP = 30, SPARE_GAP = 60;
 // a pull down past this (iOS lets the page go past its top) brings every account out
 const PULL = 64;
 // "What if I spend" this far under what's spare
@@ -51,10 +52,19 @@ const styles = StyleSheet.create({
 
 function Home({ctx, c}: {ctx: Ctx; c: Calc}) {
   const {c: k} = useTheme();
-  // the day highlighted on the pay cycle: today until you tap another (a new day starts back on today, as Home is keyed by it)
+  // the day highlighted on the month: today until you tap another (a new day starts back on today, as Home is keyed by it)
   const [picked, pick] = useState<IsoDate>(c.t);
+  // the month on show; < and > step it, 12 months each way, landing on today in this month and on the 1st in any other
+  const thisMonth = c.t.slice(0, 7), [ym, setYm] = useState(thisMonth);
   const h = hero(ctx, c);
-  const grid = h.kind === "number" ? cycleDays(ctx, c) : null;
+  const grid = h.kind === "number" ? monthDays(ctx, c, ym) : null;
+  const bar = h.kind !== "number" ? null
+    : moneyBarOn(ctx, c, picked);
+  const named = (n: number) => `Show ${monthName(addMonths(ym, n), c.t.slice(0, 4), true)}`;
+  const step: MonthSteps = {
+    back: ym > addMonths(thisMonth, -MONTHS_EACH_WAY), fwd: ym < addMonths(thisMonth, MONTHS_EACH_WAY), backLabel: named(-1), fwdLabel: named(1),
+    go: n => { const to = addMonths(ym, n); setYm(to); pick(to === thisMonth ? c.t : `${to}-01`); },
+  };
   // every account, the cards fanned out down the page: pull the page down (or tap the cards) to see them; while they're out the page
   // doesn't scroll, so a drag up tucks them back.
   // However they're opened (a pull, a tap on a card or the handle) they end on the same page: it's only held still once it's back at its
@@ -64,7 +74,7 @@ function Home({ctx, c}: {ctx: Ctx; c: Calc}) {
   const y = useRef(0);
   // where "What if I spend" is under the number, to bring it into view when the keyboard comes up
   const barY = useRef(0);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   const show = (to: boolean) => {
     if (to && Math.abs(y.current) > 0.5) { setAtTop(false); scroll.current?.scrollTo({y: 0}); }
     setOpen(to);
@@ -78,14 +88,18 @@ function Home({ctx, c}: {ctx: Ctx; c: Calc}) {
       <View style={{paddingHorizontal: s[6]}}>
         {/* did your pay (or money you're expecting) arrive? Only when one's due or missed, above the number it changes */}
         <CheckinCard ctx={ctx} style={{marginBottom: s[6]}} />
+        {/* this pay's savings, while they're still held back from the number */}
+        <SaveCard ctx={ctx} c={c} style={{marginBottom: s[6]}} />
         {h.kind !== "number" ? <HeroEmpty kind={h.kind} /> : <Figure ctx={ctx} c={c} h={h} picked={picked} />}
-        {grid ? <View style={{marginTop: CYCLE_GAP}}><CycleGrid grid={grid} picked={picked} pick={pick} /></View> : null}
+        {/* what's left of the pay cycle: bills, everyday, savings and free; on a day gone, what was left at its end; on a day to come,
+            what would be left at its start */}
+        {bar ? <View style={{marginTop: CYCLE_GAP}}><MoneyBar parts={bar} /></View> : null}
+        {grid ? <View style={{marginTop: CYCLE_GAP}}><CycleGrid grid={grid} picked={picked} pick={pick} step={step} /></View> : null}
         {/* what's free from now to payday, after bills and everyday; without enough, how much more covers them. Kept short to fit
             one line, and it wraps rather than shrinks if it doesn't */}
         {h.kind === "number" && h.free !== 0 ? (
           <T size="homeSmall" weight="medium" muted style={{marginTop: SPARE_GAP, textAlign: "center", textTransform: "uppercase", letterSpacing: 1.82, fontVariant: ["tabular-nums"]}}>
-            {h.free > 0 ? `${money(Math.floor(h.free))} spare until payday`
-              : `Need ${money(-h.free)} more for bills ${c.everydayLeft ? "and everyday" : "before payday"}`}
+            {h.free > 0 ? `${money(Math.floor(h.free))} spare until payday` : spareGap(ctx, -h.free, c.everydayLeft > 0)}
           </T>
         ) : null}
         {h.kind === "number" ? (
@@ -102,6 +116,13 @@ function Home({ctx, c}: {ctx: Ctx; c: Calc}) {
   );
 }
 
+/** Where what's spare goes, without enough for bills and everyday: what to move from savings, and what's still needed, in a few words */
+function spareGap(ctx: Ctx, gap: number, everyday: boolean) {
+  const {move, more} = closeGap(ctx, gap);
+  if (!move) return `Need ${money(gap)} more for bills ${everyday ? "and everyday" : "before payday"}`;
+  return more ? `${money(move)} from savings, then ${money(more)} more` : `${money(move)} to move from savings`;
+}
+
 /** Under what's spare ("Today · scrolled down"): a bar to try a spend before you make it, and a ? for where today's number comes from.
  *  Typed, one line under it says what it would do to today and the days after, worked out by the real engine with that payment added
  *  (`whatIf`), so it's what Today would then show. The same as on the Today's number page. */
@@ -109,7 +130,7 @@ function WhatIf({ctx, onFocus}: {ctx: Ctx; onFocus: () => void}) {
   const {c: k, dark, f} = useTheme();
   const g = home[dark ? "dark" : "light"];
   const [amt, setAmt] = useState("");
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputInstance>(null);
   const a = parseAmount(amt), w = a > 0 ? whatIf(ctx, a) : null;
   const text = {fontFamily: f.regular, fontSize: textSize.md + 1, fontVariant: ["tabular-nums" as const]};
   return (
@@ -153,9 +174,9 @@ function Figure({ctx, c, h, picked}: {ctx: Ctx; c: Calc; h: Extract<Hero, {kind:
         : `Safe to spend today, ${money(h.left)}${of ? `, ${of}` : ""}. ${h.reason}`}>
       <View style={{marginLeft: NUMBER_NUDGE}}><BigMoney value={other ? other.amount : h.left} size="giant" wholePounds={!gone} /></View>
       {gone ? <FigureLabels title="Spent" line={gone.reason} side={shortDate(picked)} />
-        // a day to come: what you could spend then. Its reason is too long for the line at this size, so the line says it's a
-        // forecast and a screen reader hears the whole reason
-        : ahead ? <FigureLabels title="Safe to spend" line="Forecast" side={shortDate(picked)} />
+        // a day to come: what you could spend then, and its date; the line under says it's "Coming up", and a screen reader
+        // hears the whole reason
+        : ahead ? <FigureLabels title="Safe to spend" line="Coming up" side={shortDate(picked)} />
         : <FigureLabels title="Safe to spend" line={of} side={shortDay(c.t)} />}
       {/* why it's this number, in one plain line (a day gone already says why above); always there, so the pay cycle never moves.
           Today's amount all used, it says so and when it comes back, in two lines as drawn ("State · £0 today"), and keeps that room

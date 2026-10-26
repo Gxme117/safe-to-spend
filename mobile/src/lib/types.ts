@@ -100,7 +100,9 @@ export interface AppState {
   categories: Category[];
   skipped: Record<string, true>;   // `${incomeId}_${date}`: not coming
   snoozed: Record<string, IsoDate>; // `${incomeId}_${date}`: asked again tomorrow
-  bank?: Bank;                      // set once a bank is connected
+  bank?: Bank;                      // Monzo, once connected
+  links?: Bank[];                   // other banks, linked through Open Banking. Read every bank through `allBanks` (lib/banks.ts)
+  saving?: number;                  // what you chose to put away a month: each pay cycle's share is held back until it's moved to savings
 }
 
 /** "spend" pots count as spending money; "save" pots (savings, business) never do. */
@@ -115,11 +117,14 @@ export interface Pot {
 
 /** What the bank said at the last sync. The same shape as the web app's `state.bank`. */
 export interface Bank {
-  source: string;     // "Monzo"
-  accountId: string;
+  source: string;     // "Monzo", or a linked bank's name
+  accountId: string;  // Monzo's account id; a linked bank's own id here (its session is in the Keychain under it)
   main: number;       // the main account, pounds
-  pots: Pot[];
+  pots: Pot[];        // Monzo's pots; a linked bank's other accounts
   asOf: string;       // ISO timestamp of the sync
+  numbers?: string[]; // each account's sort code and account number, digits only: payments between them are your own money moving
+  via?: "enablebanking";  // linked through Open Banking
+  validUntil?: string;    // a linked bank: when you'll need to approve again
 }
 
 /** Everything the engine needs. Passing it in (instead of reading globals) keeps every function testable. */

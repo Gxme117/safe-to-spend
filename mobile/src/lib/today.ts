@@ -1,4 +1,4 @@
-import {calc, forecast, hero, type Calc, type Hero} from "./calc";
+import {calc, forecast, gapLine, hero, type Calc, type Hero} from "./calc";
 import {addDays} from "./dates";
 import {money, r2} from "./money";
 import type {Ctx, Tx} from "./types";
@@ -19,6 +19,7 @@ export function todayBreakdown(ctx: Ctx, c: Calc): {now: BreakdownRow[]; today: 
     {label: "Spending money", amount: c.balance},
     ...c.billsLeft ? [{label: "Bills before payday", note: billsNote, amount: -c.billsLeft}] : [],
     ...c.everydayLeft ? [{label: "Everyday still to spend", amount: -c.everydayLeft}] : [],
+    ...c.savingHeld ? [{label: "Savings to put away", note: "This pay, until it's moved", amount: -c.savingHeld}] : [],
     {label: h.free < 0 ? "Still to cover" : "Free until payday", amount: h.free, total: true},
   ];
   const days = `${c.daysLeft} day${c.daysLeft > 1 ? "s" : ""}`;
@@ -45,7 +46,7 @@ export function whatIf(ctx: Ctx, amount: number): {line: string; hero: Extract<H
   const buy: Tx = {id: "what-if", type: "expense", amount: r2(Math.max(0, amount)), cat: "", note: "", date: ctx.today, created: Number.MAX_SAFE_INTEGER};
   const ctx2 = {...ctx, txs: [...ctx.txs, buy]}, c2 = calc(ctx2), h2 = hero(ctx2, c2);
   if (h2.kind !== "number") return null;
-  if (h2.free < 0) return {hero: h2, line: `You'd need ${money(-h2.free)} more to cover your bills${c2.everydayLeft ? " and everyday" : ""}`};
+  if (h2.free < 0) return {hero: h2, line: gapLine(ctx2, c2, -h2.free, true)};
   if (h2.spentToday <= h2.perDay) return {hero: h2, line: `Today's ${money(h2.perDay)} covers it. ${money(h2.left)} left today`};
   if (c.daysLeft < 2) return {hero: h2, line: `It fits. Payday is tomorrow`};
   const after = Math.floor(h2.free / (c.daysLeft - 1)), before = Math.floor(h.free / (c.daysLeft - 1));

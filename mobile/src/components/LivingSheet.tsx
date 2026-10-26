@@ -1,5 +1,5 @@
 import {useMemo, useRef, useState, type ComponentProps, type ReactNode} from "react";
-import {Animated, Dimensions, Keyboard, LayoutAnimation, PanResponder, Pressable, TextInput, View} from "react-native";
+import {Animated, Dimensions, Keyboard, LayoutAnimation, PanResponder, Pressable, TextInput, View, type HostInstance} from "react-native";
 import {ADD_ICONS, addBill, addIcon, addNote, DUE_HINT, newAddDraft, parseDue, type AddDraft, type AddFreq, livingLabel, type LivingDraft, type LivingItem} from "@/lib/living";
 import type {BudgetHint} from "@/lib/budget";
 import {billLook} from "@/lib/looks";
@@ -55,7 +55,7 @@ export function LivingSheet({ctx, item, due, payments, hint, onHint, readOnly, o
     setTall(to);
   };
   // the keyboard covers the tab bar first: the sheet only rises by what it covers above that
-  const ref = useRef<View>(null);
+  const ref = useRef<HostInstance>(null);
   const [inset, setInset] = useState(0);
   const kb = useKeyboardLift(inset, reduced);
   const swipe = useMemo(() => PanResponder.create({

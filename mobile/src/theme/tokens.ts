@@ -8,7 +8,7 @@ const light = {
   bg: "#FAF8F3", surface: "#F1EEE7", ink: "#000000", muted: "#5E5E5E", line: "#D4D4D4",
   good: "#0B7A54", accent: "#FABD54", accentInk: "#000000", goodSoft: "#FFF1D6",
   soft: "#E6E6E6", amber: "#8C8C8C",
-  splitBills: "#E5484D", splitEveryday: "#86D97A", splitSavings: "#5B8DEF",
+  splitBills: "#FF2D55", splitEveryday: "#5AB4DC", splitSavings: "#FFA41C",   // iOS's system pink; a calmer sky blue; savings in the calendar's picked-day orange
   incoming: "#00C24E",   // money coming in (dots and amounts): a bright green that still shows on paper white
   figure: "#F5D77E",     // the Day page's big number: custard yellow in both modes (faint on paper white, by choice)
 };
@@ -20,7 +20,7 @@ const dark: Palette = {
   bg: "#16171A", surface: "#202125", ink: "#ECEDEF", muted: "#A3A6AD", line: "#3A3C42",
   good: "#FABD54", accent: "#FABD54", accentInk: "#000000", goodSoft: "#3A2A10",
   soft: "#2B2D32", amber: "#8F9298",
-  splitBills: "#FF6369", splitEveryday: "#86D97A", splitSavings: "#7AA7FF",
+  splitBills: "#FF375F", splitEveryday: "#7CCBEB", splitSavings: "#FFA41C",
   incoming: "#00E05A",
   figure: "#F5D77E",   // a soft, buttery custard yellow, matched by eye (Hemway don't publish a code for theirs)
 };
@@ -35,6 +35,9 @@ export const home = {
     card: "#FFFFFF", rule: "#ECEAE6", badge: "#F0EEEA"},
   dark: {page: {} as Partial<Palette>, past: dark.ink, ring: dark.line, dayInk: dark.muted, card: dark.surface, rule: dark.line, badge: dark.soft},
 };
+
+// The Tim tab's page in light mode: his picture's own flat background (as the "Accountant-Tim" frame), so he blends into it.
+export const timPage = "#F5F5F5";
 
 // The Living tab's bubbles (design/LIVING_SPEC.md): a bubble and its icon, a paid one with its grey outline, and the dashed "+" outline.
 // The paid fill is almost the page's colour, so the outline keeps a paid bubble's edge (the spec dropped it; on the phone it was wanted back).

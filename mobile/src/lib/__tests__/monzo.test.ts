@@ -1,5 +1,6 @@
 import {calc} from "@/lib/calc";
-import {applySync, aside, authUrl, importTxs, lastPay, missingDetails, parseRedirect, payee, REDIRECT_URI, type RawTx, setPotRole, setupSince, syncSince, totalPence} from "@/lib/monzo";
+import {aside, setPotRole} from "@/lib/banks";
+import {applySync, authUrl, importTxs, lastPay, missingDetails, parseRedirect, payee, REDIRECT_URI, type RawTx, setupSince, syncSince, totalPence} from "@/lib/monzo";
 import {baseState, ctx, TODAY, tx} from "./fixtures";
 
 const NOW = new Date(2026, 9, 3, 14, 5).getTime();
@@ -35,7 +36,7 @@ test("a sync re-anchors the balance to the account and all its pots; new pots co
     {id: "p1", name: "Bills", balance: 250, role: "spend"},
     {id: "p2", name: "Holiday", balance: 1200.5, role: "spend", goal: 2000},
   ]);
-  expect(aside(s.bank)).toBe(0);
+  expect(aside(s)).toBe(0);
 });
 
 test("pots keep the role you gave them", () => {
@@ -43,7 +44,7 @@ test("pots keep the role you gave them", () => {
   const again = applySync(first, got([{id: "p1", name: "Bills", balance: 10000}, {id: "p2", name: "Holiday", balance: 500}]), NOW + 1);
   expect(again.bank?.pots.map(p => p.role)).toEqual(["spend", "save"]);
   expect(again.balance).toBe(940.12);
-  expect(aside(again.bank)).toBe(5);
+  expect(aside(again)).toBe(5);
 });
 
 test("the total is the main account plus every pot still open", () => {
@@ -79,6 +80,22 @@ test("card payments come in with the shop's name; known categories are used, oth
   expect(got[0].paidAt).toBe(Date.parse("2026-10-03T12:00:00Z")); // but they keep when they really happened, for sorting
 });
 
+test("moves to and from a savings pot count as savings moved; moves to a spending pot are nothing", () => {
+  const bank = {source: "Monzo", accountId: "acc", main: 0, asOf: "2026-10-05T08:00:00Z",
+    pots: [{id: "pot_save", name: "Rainy day", balance: 300, role: "save" as const}, {id: "pot_spend", name: "Bills", balance: 50, role: "spend" as const}]};
+  const got = importTxs(ctx({state: baseState({bank})}), [
+    raw({id: "in", amount: -10000, category: "savings", description: "pot_save"}),
+    raw({id: "out", amount: 2500, category: "savings", description: "pot_save"}),
+    raw({id: "bills", amount: -4000, category: "savings", description: "pot_spend"}),
+  ], NOW, ids);
+  expect(got.map(t => [t.monzoId, t.type, t.amount, t.cat, t.note])).toEqual([
+    ["in", "save", 100, "savings", "Rainy day"],
+    ["out", "income", 25, "savings", "Rainy day"],
+  ]);
+  // stamped before the sync, like any other: the bank's balance already shows the move
+  expect(got.every(t => t.created === NOW - 1)).toBe(true);
+});
+
 test("skips payments already saved, declines, pot moves and zero amounts", () => {
   const saved = tx({amount: 5, date: TODAY, monzoId: "dup"});
   const got = importTxs(ctx({txs: [saved]}), [
@@ -91,6 +108,16 @@ test("skips payments already saved, declines, pot moves and zero amounts", () =>
     raw({id: "ok"}),   // the same one twice in one reply
   ], NOW, ids);
   expect(got.map(t => [t.monzoId, t.cat])).toEqual([["ok", "eating"]]);
+});
+
+test("moves to and from your other connected accounts aren't spending or income; other transfers still are", () => {
+  const barclays = {source: "Barclays", accountId: "l1", main: 100, pots: [], asOf: "2026-10-03T12:00:00Z", numbers: ["20000012345678"]};
+  const got = importTxs(ctx({state: baseState({links: [barclays]})}), [
+    raw({id: "out", amount: -50000, counterparty: {name: "Me", sort_code: "20-00-00", account_number: "12345678"}}),
+    raw({id: "in", amount: 2000, counterparty: {name: "Me", sort_code: "200000", account_number: "12345678"}}),
+    raw({id: "mum", amount: 2000, counterparty: {name: "Mum", sort_code: "200000", account_number: "87654321"}}),
+  ], NOW, ids);
+  expect(got.map(t => t.monzoId)).toEqual(["mum"]);
 });
 
 test("payments saved without a time or logo get Monzo's back; ones that have them are left alone", () => {

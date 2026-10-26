@@ -15,6 +15,7 @@ import {Row, T} from "./ui";
 /** What a payment was for: its bill, category, pay, or what kind of money in it was. */
 export function txWhat(ctx: Ctx, it: Tx) {
   if (it.billId) return ctx.state.bills.find(b => b.id === it.billId)?.name || "Bill";
+  if (it.type === "save") return "Moved to savings";
   if (it.type === "income") return moneyInWhat(ctx, it);
   return ctx.state.categories.find(x => x.id === it.cat)?.name || "Other";
 }
@@ -35,8 +36,9 @@ export function TxRow({ctx, it, showDate}: {ctx: Ctx; it: Tx; showDate?: boolean
   const remove = () => askRemove(it);
   return (
     <Row name={it.note || what} leading={<MerchantLogo name={it.note || what} uri={it.logo} look={txLook(ctx, it)} />} meta={meta || undefined} amount={income ? `+${money(it.amount)}` : `−${money(it.amount)}`} good={income}
-      onPress={() => router.push(`/payment/${it.id}`)} onLongPress={remove}
-      accessibilityHint={`Tap to ${income ? "say what this was" : "change what it was for"}. Hold to delete`} />
+      // a move to savings has nothing to say about what it was for: only holding it (to delete) does anything
+      onPress={it.type === "save" ? undefined : () => router.push(`/payment/${it.id}`)} onLongPress={remove}
+      accessibilityHint={it.type === "save" ? "Hold to delete" : `Tap to ${income ? "say what this was" : "change what it was for"}. Hold to delete`} />
   );
 }
 

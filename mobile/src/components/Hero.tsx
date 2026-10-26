@@ -5,11 +5,11 @@ import Storage from "expo-sqlite/kv-store";
 import {Animated, Easing, PanResponder, Pressable, StyleSheet, useWindowDimensions, View, type StyleProp, type ViewStyle} from "react-native";
 import Svg, {Defs, FeGaussianBlur, Filter, Text as SvgText} from "react-native-svg";
 import {create} from "zustand";
-import {moneyBar, type Calc} from "@/lib/calc";
+import {moneyBar, type BarPart, type Calc} from "@/lib/calc";
 import type {DayView} from "@/lib/day";
 import {isoD, niceDate, pad} from "@/lib/dates";
 import {money, moneyExact, r2} from "@/lib/money";
-import {aside} from "@/lib/monzo";
+import {aside} from "@/lib/banks";
 import {bringOut, bringToFront, startOrder} from "@/lib/stack";
 import type {Ctx} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
@@ -17,7 +17,7 @@ import {deepen, inkOn} from "@/theme/color";
 import {GLASS} from "@/theme/glass";
 import {faceMetrics, radius, s, textSize} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
-import {BigMoney, useReducedMotion} from "./BigMoney";
+import {BigMoney, COUNT_MS, useCountUp, useReducedMotion} from "./BigMoney";
 import {Icon} from "./Icon";
 import {Mug} from "./Mug";
 import {Button, Card, T} from "./ui";
@@ -56,7 +56,7 @@ export function Hero({ctx, c, v, live = true}: {ctx: Ctx; c: Calc; v: DayView; l
     <View style={{gap: s[3]}}>
       <Wallet ctx={ctx} c={c} live={live} front={<Front label="Safe to Spend" amount={h.left} reason={h.reason} add={v.d} live={live} onOpen={() => router.push("/today")} />} />
       <Reason text={h.reason} />
-      <MoneyBar c={c} savings={aside(ctx.state.bank)} />
+      <MoneyBar parts={moneyBar(c)} />
     </View>
   );
 }
@@ -70,30 +70,68 @@ function Reason({text}: {text: string}) {
   );
 }
 
-/** A thin bar under today's card: what's bills, everyday, savings and free. With the balance hidden, the key keeps its names but not the amounts. */
-function MoneyBar({c, savings}: {c: Calc; savings: number}) {
-  const {c: theme} = useTheme();
+// a part's column is never narrower than this, so its name and figure fit (tiny parts are drawn a little bigger than their share)
+const BAR_COL = 64;
+// moving to another day, the segments slide to their new sizes in step with the numbers counting: the same time and the same
+// easing out (only the layout moves, so it can't use the native driver)
+const BAR_MS = COUNT_MS, BAR_EASE = Easing.out(Easing.cubic);
+type BarTo = {grow: number; min: number; gap: number; show: number};
+
+/** What's bills, everyday, savings and free: a rounded segment each, sized by its amount, with its name and figure under it,
+ *  lined up with where it starts. A part at £0 shrinks away. One line whatever the amounts: each column shrinks its words to fit.
+ *  When the amounts change (another day picked), the segments slide to their new sizes; with Reduce Motion they jump there.
+ *  With the balance hidden, the figures are dots. A screen reader hears every amount, to the penny, in one go. */
+export function MoneyBar({parts}: {parts: BarPart[]}) {
+  const {c: theme, dark} = useTheme();
   const hidden = useHidden(st => st.hidden);
-  const parts = moneyBar(c, savings);
-  const colour = {bills: theme.splitBills, everyday: theme.splitEveryday, savings: theme.splitSavings, free: theme.accent};
-  const sum = parts.reduce((a, p) => a + p.amount, 0);
+  const reduced = useReducedMotion();
+  // free is black in light mode and white in dark, so it stands apart from the colours
+  const colour = {bills: theme.splitBills, everyday: theme.splitEveryday, savings: theme.splitSavings, free: dark ? "#FFFFFF" : "#000000"};
+  const sum = parts.reduce((a, p) => a + Math.max(0, p.amount), 0);
+  const last = parts.map(p => p.amount > 0).lastIndexOf(true);
+  // where each column is heading: its share of the width, its smallest width, the gap after it (none after the last), and whether it shows
+  const to: BarTo[] = parts.map((p, i) => p.amount > 0
+    ? {grow: p.amount / sum, min: BAR_COL, gap: i < last ? s[1] : 0, show: 1} : {grow: 0, min: 0, gap: 0, show: 0});
+  const [vs] = useState(() => to.map(t => ({grow: new Animated.Value(t.grow), min: new Animated.Value(t.min), gap: new Animated.Value(t.gap), show: new Animated.Value(t.show)})));
+  const heading = JSON.stringify(to);
+  useEffect(() => {
+    const next: BarTo[] = JSON.parse(heading);
+    const keys = ["grow", "min", "gap", "show"] as const;
+    if (reduced) { vs.forEach((v, i) => keys.forEach(k => v[k].setValue(next[i][k]))); return; }
+    const run = Animated.parallel(vs.flatMap((v, i) => keys.map(k =>
+      Animated.timing(v[k], {toValue: next[i][k], duration: BAR_MS, easing: BAR_EASE, useNativeDriver: false}))));
+    run.start();
+    return () => run.stop();
+  }, [heading, reduced, vs]);
   if (!sum) return null;
   return (
-    <View style={{gap: s[2]}}>
-      <View accessible accessibilityRole="image" accessibilityLabel={hidden ? "Bills, everyday, savings and free" : parts.map(p => `${p.label} ${money(p.amount)}`).join(", ")}
-        style={{flexDirection: "row", gap: 2, height: 6, borderRadius: 3, overflow: "hidden"}}>
-        {parts.filter(p => p.amount > 0).map(p => <View key={p.key} style={{flex: p.amount / sum, minWidth: 3, backgroundColor: colour[p.key]}} />)}
-      </View>
-      <View style={{flexDirection: "row", flexWrap: "wrap", rowGap: s[1], columnGap: s[3]}} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-        {parts.map(p => (
-          <View key={p.key} style={{flexDirection: "row", alignItems: "center", gap: s[1]}}>
-            <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: colour[p.key]}} />
-            <T muted size="xs">{p.label}</T>
-            {hidden ? null : <T weight="bold" size="xs" style={{fontVariant: ["tabular-nums"]}}>{money(p.amount)}</T>}
-          </View>
-        ))}
-      </View>
+    <View accessible accessibilityRole="image" accessibilityLabel={hidden ? "Bills, everyday, savings and free" : parts.map(p => `${p.label} ${money(p.amount)}`).join(", ")}
+      style={{flexDirection: "row"}}>
+      {parts.map((p, i) => (
+        <Animated.View key={p.key} style={{flexGrow: vs[i].grow, flexBasis: 0, minWidth: vs[i].min, paddingRight: vs[i].gap, opacity: vs[i].show, overflow: "hidden"}}>
+          {/* fully rounded ends, like a pill */}
+          <View style={{height: 8, borderRadius: 4, backgroundColor: colour[p.key]}} />
+          {/* the words keep a column's smallest width while it slides, so they're clipped, never squeezed */}
+          {p.amount > 0 ? (
+            <View style={{minWidth: BAR_COL - s[1]}}>
+              <T size="homeSmall" muted lines={1} fit style={{marginTop: s[3], paddingRight: s[1]}}>{p.label}</T>
+              <BarFigure value={p.amount} hidden={hidden} />
+            </View>
+          ) : null}
+        </Animated.View>
+      ))}
     </View>
+  );
+}
+
+/** A part's figure, to the pound. Another day picked, it counts to the new amount as the main number does; it starts where it is,
+ *  so the page doesn't open on four counters. */
+function BarFigure({value, hidden}: {value: number; hidden: boolean}) {
+  const shown = useCountUp(Math.round(value), !hidden, COUNT_MS, false);
+  return (
+    <T size="md" weight="medium" lines={1} fit style={{marginTop: s[1], paddingRight: s[1], fontVariant: ["tabular-nums"]}}>
+      {hidden ? "••••" : money(Math.round(shown))}
+    </T>
   );
 }
 
@@ -286,15 +324,18 @@ export function CardHeads({ctx, c, label, style, children}: {ctx: Ctx; c: Calc; 
   );
 }
 
-// Home's cards hang down from the very top of the screen, as drawn: each one's sides, where its bottom edge is (before the tilt), and its tilt.
-// Tucked up, only two ever hang: the bottom card at the back, the one above it in front but higher up, so the back one's edge shows
-// under it. Any card above those waits just off the top of the screen (ABOVE), and comes down to the top of the fan when they're out.
+// Home's cards as drawn hanging from the very top of the screen: each one's sides, where its bottom edge is (before the tilt), and its tilt.
+// Tucked up, one card hangs (HANG[0]); the rest wait just off the top of the screen (ABOVE) and come down into the fan when they're out.
+// HANG[0] also sets a card's size out.
 type Hang = {left: number; right: number; bottom: number; tilt: number};
-const HANG: readonly Hang[] = [{left: 31.5, right: 36.5, bottom: 127, tilt: 0}, {left: 41, right: 27, bottom: 54, tilt: 7}];
+const HANG: readonly Hang[] = [{left: 31.5, right: 36.5, bottom: 92, tilt: 0}, {left: 41, right: 27, bottom: 54, tilt: 7}];
 const ABOVE: Hang = {left: 41, right: 27, bottom: -48, tilt: 7};
+// For now no card hangs: tucked up, they all wait above the screen and only the handle shows. True brings your bank card back down.
+const HANGS: boolean = false;
 /** How far down Home's page the cards reach. */
 export const PEEK_DEPTH = HANG[0].bottom;
-const GRAB_TOP = PEEK_DEPTH + s[5];
+// tucked up, the handle sits just under the hanging card
+const GRAB_TOP = PEEK_DEPTH + s[4];
 
 // Out ("Desk · cards expanded", measured at 440pt): the cards fan down the page top to bottom, your bank card last, nearest the number.
 // Each one's centre from the middle of the screen, and its tilt; the first card's centre this far down the screen, the next ones STEP below.
@@ -316,10 +357,10 @@ function updatedAt(ctx: Ctx, c: Calc) {
     : isoD(at) === c.t ? `${pad(at.getHours())}:${pad(at.getMinutes())}` : niceDate(isoD(at));
 }
 
-/** Home's bank cards (the minimal design): hanging down from the top of the screen, just their bottom edges showing, each with its
- *  balance (to the penny, as a bank shows it) and name, a little askew. The eye works as on the wallet; the card that isn't connected
- *  has no eye, as drawn, though a tap on its £0.00 still hides every balance.
- *  Tap a card or the handle (or pull the page down, `open`) and they fan out down the page to show every account, the total above them,
+/** Home's bank cards (the minimal design): out of sight above the top of the screen until the page is pulled down (or the handle tapped,
+ *  `open`), each with its balance (to the penny, as a bank shows it) and name, a little askew. The eye works as on the wallet; the card
+ *  that isn't connected has no eye, as drawn, though a tap on its £0.00 still hides every balance.
+ *  Out, they fan down the page to show every account, the total above them,
  *  and the page below moves down to make room. Out, tap a card and it swaps places with the top one. Drag up (the cards follow the
  *  finger) or tap the handle to tuck them back.
  *  It takes up the page down to where the number starts (`top`), so nothing below sits over the cards. */
@@ -329,7 +370,7 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
   const {width} = useWindowDimensions();
   const reduced = useReducedMotion();
   const cards = [
-    {bg: BANK_BG, ink: BANK_INK, mark: "monzo", label: "Monzo", said: "Monzo balance", amount: r2(c.balance + aside(ctx.state.bank)), eye: true},
+    {bg: BANK_BG, ink: BANK_INK, mark: "monzo", label: "Monzo", said: "Monzo balance", amount: r2(c.balance + aside(ctx.state)), eye: true},
     ...OTHERS.map(o => ({bg: o.bg, ink: o.ink ?? inkOn(o.bg), mark: o.mark, label: o.label, said: `${o.label} card balance`, amount: 0, eye: false})),
   ].slice(0, SPREAD.length);
   const n = cards.length;
@@ -341,14 +382,14 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
     const at = SPREAD[row === 0 ? 0 : SPREAD.length - n + row];
     return {dx: at.dx, cy: SPREAD_TOP + row * STEP, tilt: at.tilt};
   };
-  const hangs = (row: number) => row >= n - 2 ? HANG[n - 1 - row] : ABOVE;
+  // tucked up, every card waits just above the top of the screen, out of sight until the page is pulled down
   const cardH = (h: Hang) => (width - h.left - h.right) / 1.586;
-  const hang = (row: number) => {
-    const h = hangs(row);
-    return {dx: (h.left - h.right) / 2, cy: h.bottom - cardH(h) / 2, tilt: h.tilt};
-  };
+  const hung = {dx: (ABOVE.left - ABOVE.right) / 2, cy: ABOVE.bottom - cardH(ABOVE) / 2, tilt: ABOVE.tilt};
+  // except the bottom one (your bank card at first), which hangs from the top of the screen, its balance showing (not for now: `HANGS`)
+  const hangs = {dx: (HANG[0].left - HANG[0].right) / 2, cy: HANG[0].bottom - cardH(HANG[0]) / 2, tilt: HANG[0].tilt};
+  const tuck = (row: number) => HANGS && row === n - 1 ? hangs : hung;
   // the cup of coffee travels as the top card out does
-  const mugDx = out(0).dx - hang(0).dx, mugDy = out(0).cy - hang(0).cy;
+  const mugDx = out(0).dx - hung.dx, mugDy = out(0).cy - hung.cy;
   const addTop = out(n - 1).cy + cardH(HANG[0]) / 2 + ADD_GAP;
 
   // Out, tap a card and it swaps places with the top one (tap the top one and it swaps with the one under it). The card coming
@@ -368,7 +409,7 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
   const along = (v: Animated.Value, of: (row: number) => number) =>
     n === 1 ? new Animated.Value(of(0)) : v.interpolate({inputRange: rowRange, outputRange: rowRange.map(of)});
   // how far the page below moves down when they're out
-  const shift = addTop + ADD_H + GRAB_GAP - GRAB_TOP;
+  const grabTop = GRAB_TOP, shift = addTop + ADD_H + GRAB_GAP - grabTop;
 
   // 0 tucked up, 1 out. The header, "Add an account" and the handle's line stay drawn until they've faded on the way back
   const [o] = useState(() => new Animated.Value(0));
@@ -401,12 +442,12 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
         </Animated.View>
       ) : null}
       {cards.map((k, i) => {
-        // laid out at its own first hanging spot; from there it moves to its row's spot, hanging or out (between them by `o`)
-        const h = hangs(n - 1 - i), base = hang(n - 1 - i);
-        // waiting above the screen: not there for a screen reader either
-        const away = !open && rows[i] < n - 2;
+        // laid out where it waits above the screen; from there it moves to its row's spot out (between them by `o`)
+        const h = ABOVE, base = hung;
+        // waiting above the screen: not there for a screen reader either (the handle is)
+        const away = !open;
         const spot = (of: (s: {dx: number; cy: number; tilt: number}) => number) => {
-          const tucked = along(rowVs[i], r => of(hang(r))), spread = along(rowVs[i], r => of(out(r)));
+          const tucked = along(rowVs[i], r => of(tuck(r))), spread = along(rowVs[i], r => of(out(r)));
           return Animated.add(tucked, Animated.multiply(o, Animated.subtract(spread, tucked)));
         };
         return (
@@ -448,7 +489,7 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
         </Animated.View>
       ) : null}
       {/* the handle under the cards: tap it (or pull the page) to see every account, tap again to tuck them back */}
-      <Animated.View style={[styles.grab, {transform: [{translateY: Animated.multiply(o, shift)}]}]}>
+      <Animated.View style={[styles.grab, {top: grabTop, transform: [{translateY: Animated.multiply(o, shift)}]}]}>
         <Pressable onPress={() => setOpen(!open)} hitSlop={{top: s[4], bottom: s[4], left: s[7], right: s[7]}} accessibilityRole="button"
           accessibilityLabel={open ? "Tuck your accounts away" : "Show all your accounts"} style={{alignItems: "center", gap: s[2]}}>
           <View style={[styles.grabber, {backgroundColor: theme.line}]} />
@@ -508,12 +549,12 @@ function BankCard({ctx, c, hidden, onToggle}: {ctx: Ctx; c: Calc; hidden: boolea
   return (
     <View style={[styles.card, styles.bankFace]}>
       <View style={styles.markRow}>
-        <View style={{flex: 1}}><BalanceButton amount={r2(c.balance + aside(bank))} ink={BANK_INK} hidden={hidden} onToggle={onToggle} label="Monzo balance" /></View>
+        <View style={{flex: 1}}><BalanceButton amount={r2(c.balance + aside(ctx.state))} ink={BANK_INK} hidden={hidden} onToggle={onToggle} label="Monzo balance" /></View>
         <CardMark mark="monzo" label="Monzo" ink={BANK_INK} />
       </View>
       <View style={{flexDirection: "row", flexWrap: "wrap", columnGap: s[5], rowGap: s[2]}}>
         {bank ? item("Spending money", money(c.balance), true) : null}
-        {bank ? item("Set aside", money(aside(bank)), true) : null}
+        {bank ? item("Set aside", money(aside(ctx.state)), true) : null}
         {item("Updated", updated)}
       </View>
     </View>
@@ -600,7 +641,7 @@ const styles = StyleSheet.create({
   // a card's balance and name, sharing a baseline
   markRow: {flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: s[3]},
   // clear of the tilted cards' lowest corner
-  grab: {position: "absolute", top: GRAB_TOP, left: 0, right: 0, alignItems: "center"},
+  grab: {position: "absolute", left: 0, right: 0, alignItems: "center"},
   grabber: {width: 36, height: 5, borderRadius: 2.5},
   // "3 accounts" and the total, above the cards out, and in front of them (the top card's corner reaches up behind the total)
   accountsHead: {position: "absolute", top: 64, left: s[6], right: s[6], zIndex: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "baseline"},

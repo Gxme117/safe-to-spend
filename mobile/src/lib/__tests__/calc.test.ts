@@ -1,7 +1,8 @@
-import {billsLine, calc, calendar, comingUp, dayDetail, dayFigure, forecast, freeSummary, hero, moneyBar, payCycle, split, tomorrowLine} from "../calc";
+import {billsLine, calc, calendar, comingUp, dayDetail, dayFigure, forecast, freeSummary, hero, moneyBar, moneyBarOn, payCycle, saveKey, savingPerPay, split, tomorrowLine} from "../calc";
 import {niceTime} from "../dates";
 import {pendingCheckins} from "../income";
-import type {Ctx} from "../types";
+import {usedUp} from "../today";
+import type {AppState, Ctx, Tx} from "../types";
 import {baseState, ctx, TODAY, tx} from "./fixtures";
 
 const run = (c: Ctx) => { const r = calc(c); return {r, h: hero(c, r)}; };
@@ -51,6 +52,19 @@ describe("the daily number", () => {
     expect(h).toMatchObject({perDay: 16, left: 0, reason: "£100 spent today. From tomorrow, £12 a day"});
   });
 
+  test("PRD T1/T3: today-first. Spending comes off today's amount, and the days after adjust", () => {
+    // Tue 20 Oct, 10 days to payday. £500 to spend, groceries' £200 kept aside, no bills before payday: £300 free, £30 a day
+    const day = (...txs: ReturnType<typeof tx>[]) => ctx({today: "2026-10-20", state: baseState({balance: 500}), txs});
+    expect(run(day()).h).toMatchObject({perDay: 30, left: 30, free: 300});
+    // £30 spent: today's £30 is used, and tomorrow is still £30 (£270 over the 9 days after)
+    const used = day(tx({amount: 30, date: "2026-10-20"})), u = run(used);
+    expect(u.h).toMatchObject({perDay: 30, left: 0, spentToday: 30, free: 270});
+    expect(usedUp(used, u.r, u.h)?.lead).toBe("You've used today's £30.");
+    expect(forecast(used, u.r, "2026-10-21")?.amount).toBe(30);
+    // £50 spent: past today's amount, so the days after come down (£250 over 9 days)
+    expect(run(day(tx({amount: 50, date: "2026-10-20"}))).h).toMatchObject({perDay: 30, left: 0, reason: "£50 spent today. From tomorrow, £27 a day"});
+  });
+
   test("a bill paid early isn't held back any more", () => {
     const {r} = run(ctx({txs: [groceries, tx({amount: 400, date: "2026-10-05", cat: "rent", billId: "rent", forDate: "2026-10-15"})]}));
     expect(r.billsLeft).toBe(0);
@@ -64,6 +78,24 @@ describe("the daily number", () => {
     expect(r.short).toBe(400);
     expect(h).toMatchObject({kind: "number", perDay: 0, left: 0, reason: "You need £400 more to cover your bills and everyday"});
     expect(h.kind === "number" && h.reason).not.toMatch(/short|move/i);
+  });
+
+  test("short with money in savings: move it from savings first, then say what's still needed", () => {
+    const car = {id: "car", name: "Car", amount: 1200, freq: "monthly" as const, day: 20};
+    const withSavings = (amount: number) => {
+      const bank = {source: "Monzo", accountId: "acc", main: 0, asOf: "2026-10-05T08:00:00Z",
+        pots: [{id: "hol", name: "Holiday", balance: amount, role: "save" as const}, {id: "bills", name: "Bills", balance: 999, role: "spend" as const}]};
+      return run(ctx({state: baseState({bills: [car], bank}), txs: [groceries]}));
+    };
+    // savings covers all £400 (spend pots never count as savings)
+    expect(withSavings(500).h).toMatchObject({perDay: 0, left: 0, reason: "Move £400 from savings to cover what's coming"});
+    expect(withSavings(400).h).toMatchObject({reason: "Move £400 from savings to cover what's coming"});
+    // savings covers some of it: the rest is how much more is needed
+    expect(withSavings(150).h).toMatchObject({reason: "Move £150 from savings, then you need £250 more"});
+    // an empty pot: just how much more
+    expect(withSavings(0).h).toMatchObject({reason: "You need £400 more to cover your bills and everyday"});
+    const some = withSavings(150).h;
+    expect(some.kind === "number" && some.reason).not.toMatch(/short/i);
   });
 
   test("with no everyday left, the gap is just bills", () => {
@@ -302,7 +334,105 @@ describe("Safe to Spend on days to come", () => {
   });
 });
 
-test("the bar under today's card: bills, everyday, savings, then free", () => {
+describe("savings set aside each pay, counted once they move (PRD #12)", () => {
+  // PRD T1: balance £1,000; bills £400; everyday £200; savings £100; 10 days left (Tue 20 Oct to payday Fri 30 Oct)
+  const t1 = (over: Partial<AppState> = {}, txs: Tx[] = []) => {
+    const state = baseState({bills: [{id: "rent", name: "Rent", amount: 400, freq: "monthly", day: 25}], saving: 100, ...over});
+    return run(ctx({state, txs, today: "2026-10-20"}));
+  };
+  const moved = (amount: number) => tx({type: "save", amount, date: "2026-10-20", cat: "savings"});
+
+  test("T1: savings not moved yet are held back, so it's £30 a day", () => {
+    const {r, h} = t1();
+    expect(r.daysLeft).toBe(10);
+    expect(r.savingHeld).toBe(100);
+    expect(h).toMatchObject({free: 300, perDay: 30});
+  });
+
+  test("once it's moved it's left the balance, so it isn't held back again: still £30", () => {
+    expect(t1({}, [moved(100)])).toMatchObject({r: {balance: 900, savingHeld: 0}, h: {free: 300, perDay: 30}});
+    // part of it moved: only the rest is held back
+    expect(t1({}, [moved(40)])).toMatchObject({r: {balance: 960, savingLeft: 60, savingHeld: 60}, h: {perDay: 30}});
+  });
+
+  test("counted net: money moved back out of savings is held back again", () => {
+    const back = tx({type: "income", amount: 100, date: "2026-10-20", cat: "savings"});
+    expect(t1({}, [moved(100), back])).toMatchObject({r: {balance: 1000, savingHeld: 100}, h: {perDay: 30}});
+  });
+
+  test("savings give way: only what bills and everyday leave over is held, and it never makes a gap", () => {
+    const {r, h} = t1({balance: 650});
+    expect(r.savingHeld).toBe(50);
+    expect(h).toMatchObject({free: 0, perDay: 0});
+    expect(h.kind === "number" && h.reason).not.toMatch(/need|move/i);
+    // not even enough for bills and everyday: nothing held, and the line is about those
+    expect(t1({balance: 500})).toMatchObject({r: {savingHeld: 0}, h: {free: -100, reason: "You need £100 more to cover your bills and everyday"}});
+  });
+
+  test("\"Not this time\" lets this pay off", () => {
+    expect(t1({skipped: {[saveKey("2026-09-30")]: true}})).toMatchObject({r: {savingHeld: 0}, h: {perDay: 40}});
+  });
+
+  test("nothing chosen, nothing held", () => {
+    expect(t1({saving: undefined}).r.savingHeld).toBe(0);
+  });
+
+  test("each pay's share: a month's worth when paid monthly, a year's over 52 when weekly", () => {
+    expect(savingPerPay(ctx({state: baseState({saving: 100})}))).toBe(100);
+    const weekly = baseState({saving: 100, incomes: [{id: "job", name: "Shop", type: "work", freq: "weekly", varies: false, amount: 400, date: "2026-10-02", main: true}]});
+    expect(savingPerPay(ctx({state: weekly}))).toBe(23.08);
+  });
+
+  test("days to come: each payday holds back that pay's savings too, after its bills and everyday", () => {
+    const c = ctx({state: baseState({saving: 100}), txs: [tx({amount: 30, date: "2026-10-01", cat: "groceries"})]}), r = calc(c);
+    // now: £400 free less £100 savings, £12 a day for 25 days
+    expect(hero(c, r)).toMatchObject({free: 300, perDay: 12});
+    // payday: £1,800 in, £620 of bills and everyday, then £100 savings: £1,080 over 31 days
+    expect(forecast(c, r, "2026-10-30")).toEqual({amount: 34, free: 1080});
+  });
+
+  test("the Month tab's free money says savings are held back too", () => {
+    expect(freeSummary(t1().r).sub).toBe("After £400 of bills, £200 of everyday and £100 for savings. Spend it whenever suits you");
+  });
+});
+
+test("the bar on a day to come: where the money would be by then, spending each day's amount", () => {
   const c = ctx({txs: [tx({amount: 30, date: "2026-10-01", cat: "groceries"})]}), r = calc(c);
-  expect(moneyBar(r, 250).map(p => `${p.label} ${p.amount}`)).toEqual(["Bills 400", "Everyday 170", "Savings 250", "Free 400"]);
+  const bar = (d: string, cc = c) => moneyBarOn(cc, calc(cc), d)!.map(p => `${p.label} ${p.amount}`);
+  // tomorrow: rent still to go, a day's worth of everyday spent at an even pace (170 × 24/25), and £16 spent
+  expect(bar("2026-10-06")).toEqual(["Bills 400", "Everyday 163.2", "Savings 0", "Free 384"]);
+  // after rent's gone out, 10 days of everyday left, and 15 days' amounts spent
+  expect(bar("2026-10-20")).toEqual(["Bills 0", "Everyday 68", "Savings 0", "Free 160"]);
+  // payday: the new cycle's bills (Phone 1 Nov, Rent 15 Nov) and everyday in full, and what's free after them
+  expect(bar("2026-10-30")).toEqual(["Bills 420", "Everyday 200", "Savings 0", "Free 1180"]);
+  // with savings: that pay's savings still to put away (this pay's has gone by then)
+  const s = ctx({state: baseState({saving: 100}), txs: c.txs});
+  expect(bar("2026-10-20", s)).toEqual(["Bills 0", "Everyday 68", "Savings 100", "Free 120"]);
+  expect(bar("2026-10-30", s)).toEqual(["Bills 420", "Everyday 200", "Savings 100", "Free 1080"]);
+  // today is today's bar
+  expect(moneyBarOn(c, r, "2026-10-05")).toEqual(moneyBar(r));
+});
+
+test("the bar on a day gone: what was left of its pay cycle at the end of it", () => {
+  const spent = [tx({amount: 30, date: "2026-10-01", cat: "groceries"}), tx({amount: 20, date: "2026-10-04"})];
+  const c = ctx({txs: spent});
+  const bar = (d: string, cc = c) => moneyBarOn(cc, calc(cc), d)!.map(p => `${p.label} ${p.amount}`);
+  // the £20 on the 4th hadn't gone yet on the 2nd: £970 then, less rent and what was left of groceries
+  expect(bar("2026-10-02")).toEqual(["Bills 400", "Everyday 170", "Savings 0", "Free 400"]);
+  expect(bar("2026-10-04")).toEqual(["Bills 400", "Everyday 170", "Savings 0", "Free 380"]);
+  // savings held until they were moved (on the 3rd), then gone from the bar and from the balance
+  const s = ctx({state: baseState({saving: 100}), txs: [...spent, tx({type: "save", amount: 100, date: "2026-10-03", cat: "savings"})]});
+  expect(bar("2026-10-02", s)).toEqual(["Bills 400", "Everyday 170", "Savings 100", "Free 300"]);
+  expect(bar("2026-10-04", s)).toEqual(["Bills 400", "Everyday 170", "Savings 0", "Free 280"]);
+  // payday itself has no cycle left to show
+  expect(moneyBarOn(c, calc(c), "2026-09-30")).toBeNull();
+});
+
+test("the bar under today's card: what's left of the pay cycle, adding up to your spending money", () => {
+  const c = ctx({txs: [tx({amount: 30, date: "2026-10-01", cat: "groceries"})]}), r = calc(c);
+  expect(moneyBar(r).map(p => `${p.label} ${p.amount}`)).toEqual(["Bills 400", "Everyday 170", "Savings 0", "Free 400"]);
+  // this pay's savings not put away yet are savings, not free; savings already in a pot aren't spending money, so aren't here
+  const s = ctx({state: baseState({saving: 100}), txs: c.txs}), rs = calc(s);
+  expect(moneyBar(rs).map(p => `${p.label} ${p.amount}`)).toEqual(["Bills 400", "Everyday 170", "Savings 100", "Free 300"]);
+  expect(moneyBar(rs).reduce((a, p) => a + p.amount, 0)).toBe(rs.balance);
 });

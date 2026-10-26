@@ -5,7 +5,8 @@ import {backfill, deleteAllTx, deleteTx, insertMany, insertTx, listSince, update
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
 import type {SetupFound} from "@/lib/found";
-import {applySync, importTxs, missingDetails, setPotRole, syncSince} from "@/lib/monzo";
+import {setPotRole} from "@/lib/banks";
+import {applySync, importTxs, missingDetails, syncSince} from "@/lib/monzo";
 import {r2} from "@/lib/money";
 import type {FilingPatch} from "@/lib/payments";
 import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
@@ -16,6 +17,8 @@ export type ThemePref = "system" | "light" | "dark";
 export type CardStyle = "colour" | "glass";
 /** The Living tab: the ball pit, or the same bills and everyday amounts as a list. */
 export type LivingView = "pit" | "list";
+/** Who your accountant is on his tab: Tim, or Frank (another version from the Home S20 canvas, being tried out). */
+export type Accountant = "tim" | "frank";
 /** `undo`: the toast stays 5s with an Undo button that puts back what was just removed. */
 export interface Toast { id: number; msg: string; good: boolean; undo?: () => void }
 /** A sync either brings in some new payments, or says what went wrong ("not-saved": the phone couldn't store them). */
@@ -31,6 +34,7 @@ interface MoneyStore {
   accent: string | null;      // your own accent colour (#RRGGBB), or null for the default
   cardStyle: CardStyle;
   livingView: LivingView;
+  accountant: Accountant;
   toast: Toast | null;
   syncing: boolean;           // a bank sync is running
   setupBank: number | null;   // the Monzo total (main + all pots), when connected during setup (not saved)
@@ -43,11 +47,13 @@ interface MoneyStore {
   setAccent(hex: string | null): void;
   setCardStyle(v: CardStyle): void;
   setLivingView(v: LivingView): void;
+  setAccountant(v: Accountant): void;
 
   setup(balance: number, income?: Income, bills?: Bill[], categories?: Category[]): void;
   setSetupBank(main: number | null, found?: SetupFound | null): void;
   setBalance(balance: number): void;
   setName(name: string): void;
+  setSaving(monthly: number): void;
   reset(): Promise<void>;
   saveIncome(src: Income): void;
   removeIncome(id: string): void;
@@ -83,7 +89,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     if (s) set({state: {...s, ...fn(s)}});
   };
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", accountant: "tim", toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -95,6 +101,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     setAccent(accent) { set({accent}); },
     setCardStyle(cardStyle) { set({cardStyle}); },
     setLivingView(livingView) { set({livingView}); },
+    setAccountant(accountant) { set({accountant}); },
 
     // one write, so the app never renders a state without the pay that sets payday (or the bills and everyday amounts that hold money back)
     setup(balance, income, bills = [], categories) {
@@ -106,6 +113,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     async reset() { await deleteAllTx(); set({state: null, txs: []}); },
     setBalance(balance) { patch(() => ({balance: r2(balance), balanceSetAt: Date.now(), balanceAsOf: today()})); },
     setName(name) { patch(() => ({name: name.trim() || undefined})); },
+    setSaving(monthly) { patch(() => ({saving: monthly > 0 ? r2(monthly) : undefined})); },
 
     saveIncome(src) {
       patch(s => {
@@ -198,5 +206,5 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   name: "money-tracker",
   version: 1,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView, accountant: s.accountant}),
 }));

@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
 import Svg, {Circle, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "glasses" | "up";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -20,7 +20,10 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
       </>}
       {/* the Living tab's: three filled circles of different sizes, a mini ball pit */}
       {name === "pit" && <><Circle cx={9} cy={14} r={6.5} fill={color} /><Circle cx={18} cy={16.5} r={4} fill={color} /><Circle cx={16.5} cy={7} r={3} fill={color} /></>}
-      {name === "list" && <Path d="M4 6h16M4 12h16M4 18h16" {...p} />}
+      {/* Tim's tab, as drawn: a pair of round glasses */}
+      {name === "glasses" && <><Circle cx={7} cy={13} r={4} {...p} /><Circle cx={17} cy={13} r={4} {...p} /><Path d="M11 12.5c.6-.5 1.4-.5 2 0M3 13l-1-3M21 13l1-3" {...p} /></>}
+      {name === "up" && <Path d="M12 19V5M6 11l6-6 6 6" {...p} />}
+      {name === "list" &&<Path d="M4 6h16M4 12h16M4 18h16" {...p} />}
       {name === "plus" && <Path d="M12 5v14M5 12h14" {...p} />}
       {name === "close" && <Path d="M6 6l12 12M18 6L6 18" {...p} />}
       {name === "check" && <Path d="M5 12.5l4.5 4.5L19 7.5" {...p} />}

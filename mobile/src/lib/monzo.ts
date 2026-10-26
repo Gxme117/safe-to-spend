@@ -1,9 +1,10 @@
 // Monzo, without the network: building the login link, reading the link Safari lands on, and turning
 // what the API returned into app state. The calls themselves live in services/monzo.ts.
+import {accountKey, allBanks, anchor, ownAccounts} from "./banks";
 import {addDays, isoD} from "./dates";
 import {isReceived, occurrences} from "./income";
 import {r2} from "./money";
-import type {AppState, Bank, Ctx, IsoDate, Pot, PotRole, Tx} from "./types";
+import type {AppState, Bank, Ctx, IsoDate, Pot, Tx} from "./types";
 
 // Monzo's sign-in finishes with a redirect. Expo Go can't catch a fixed one, so the client is registered
 // with this dead address: Safari shows an error page, and you copy the link (which holds the code) from its address bar.
@@ -35,9 +36,11 @@ export interface RawTx {
   id: string; amount: number; created: string; description?: string; category?: string;
   decline_reason?: string; merchant?: {name?: string; logo?: string} | string | null;
   scheme?: string;                            // how it moved: "bacs" is a direct debit, "mastercard" the card (not in Monzo's docs, so never relied on alone)
-  counterparty?: {name?: string} | null;      // the person or company at the other end of a bank transfer
+  // the person or company at the other end of a bank transfer, and their account when the bank says
+  counterparty?: {name?: string; sort_code?: string; account_number?: string} | null;
 }
-export interface Synced { accountId: string; mainPence: number; pots: RawPot[]; txs: RawTx[] }
+/** `numbers`: the account's sort code and account number (`accountKey`), so moves to your other banks aren't spending. */
+export interface Synced { accountId: string; mainPence: number; pots: RawPot[]; txs: RawTx[]; numbers?: string[] }
 
 /** Where a sync starts reading payments: a day before the last one (to catch late ones), or the start of this month the first time. */
 export function syncSince(bank: Bank | undefined, now: number): string {
@@ -70,17 +73,29 @@ export const plain = (s: string) => s.toLowerCase().replace(/\d+/g, " ").replace
 const letters = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "");
 
 /**
- * New card payments and money in, as payments. Skips ones already saved, declines and moves between pots.
- * They're stamped just before the sync, so the balance (which Monzo already lowered) doesn't drop twice,
+ * New card payments and money in, as payments. Skips ones already saved, declines, moves between pots and moves
+ * between your own connected accounts (the balance already shows both sides).
+ * They're stamped just before the sync, so the balance (which the bank already lowered) doesn't drop twice,
  * and keep when they really happened (paidAt) so lists still put the newest first.
  */
 export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => string): Tx[] {
   const known = new Set(ctx.txs.map(t => t.monzoId).filter(Boolean));
   const cats = new Set(ctx.state.categories.map(c => c.id));
+  const own = ownAccounts(ctx.state);
+  const savings = new Map(allBanks(ctx.state).flatMap(b => b.pots).filter(p => p.role === "save").map(p => [p.id, p.name]));
   const out: Tx[] = [];
   for (const t of raw) {
     if (!t?.id || known.has(t.id) || t.decline_reason || !t.amount) continue;
-    if (String(t.description || "").startsWith("pot_") || t.category === "savings") continue;
+    // a move to or from a savings pot is kept, so this pay's savings count as moved (net); a move to a spending pot isn't anything
+    const pot = String(t.description || "");
+    if (savings.has(pot)) {
+      known.add(t.id);
+      out.push({id: newId(), type: t.amount < 0 ? "save" : "income", amount: r2(Math.abs(t.amount) / 100), cat: "savings", note: savings.get(pot) || "",
+        date: isoD(new Date(t.created)), created: stamp - 1, paidAt: Date.parse(t.created), monzoId: t.id});
+      continue;
+    }
+    if (pot.startsWith("pot_") || t.category === "savings") continue;
+    if (own.has(accountKey(t.counterparty?.sort_code, t.counterparty?.account_number))) continue;
     known.add(t.id);
     const date = isoD(new Date(t.created)), note = txName(t), amount = r2(Math.abs(t.amount) / 100);
     const row: Tx = {id: newId(), type: t.amount < 0 ? "expense" : "income", amount, cat: "monzo-in", note, date, created: stamp - 1, paidAt: Date.parse(t.created), monzoId: t.id};
@@ -145,13 +160,8 @@ export function missingDetails(txs: Tx[], raw: RawTx[]): Backfill[] {
   });
 }
 
-const spendTotal = (b: Pick<Bank, "main" | "pots">) => r2(b.main + b.pots.filter(p => p.role === "spend").reduce((a, p) => a + p.balance, 0));
-
-/** Money put aside in pots that aren't spending money. Never counted in the daily number. */
-export const aside = (b?: Bank) => b ? r2(b.pots.filter(p => p.role !== "spend").reduce((a, p) => a + p.balance, 0)) : 0;
-
 /**
- * The bank's numbers are the truth: re-anchor the balance to main account + spending pots.
+ * The bank's numbers are the truth: re-anchor the balance to every bank's main account + spending pots.
  * Pots keep the role you gave them. New pots count until you set them aside: the total comes first, sorting it out comes after.
  */
 export function applySync(state: AppState, got: Synced, now: number): AppState {
@@ -160,17 +170,7 @@ export function applySync(state: AppState, got: Synced, now: number): AppState {
     id: p.id, name: p.name.trim(), balance: r2((p.balance || 0) / 100), role: old.get(p.id)?.role ?? "spend",
     ...(p.goal_amount ? {goal: r2(p.goal_amount / 100)} : {}),
   }));
-  const bank: Bank = {source: "Monzo", accountId: got.accountId, main: r2(got.mainPence / 100), pots, asOf: new Date(now).toISOString()};
-  return {...state, bank, balance: spendTotal(bank), balanceSetAt: now, balanceAsOf: isoD(new Date(now))};
-}
-
-/** Moving a pot in or out of spending money shifts the balance by that pot, without losing payments logged since the sync. */
-export function setPotRole(state: AppState, id: string, role: PotRole): AppState {
-  const pot = state.bank?.pots.find(p => p.id === id);
-  if (!state.bank || !pot || pot.role === role) return state;
-  return {
-    ...state,
-    balance: r2(state.balance + (role === "spend" ? pot.balance : -pot.balance)),
-    bank: {...state.bank, pots: state.bank.pots.map(p => p.id === id ? {...p, role} : p)},
-  };
+  const numbers = got.numbers?.length ? got.numbers : state.bank?.numbers;
+  const bank: Bank = {source: "Monzo", accountId: got.accountId, main: r2(got.mainPence / 100), pots, asOf: new Date(now).toISOString(), ...(numbers ? {numbers} : {})};
+  return anchor({...state, bank}, now);
 }

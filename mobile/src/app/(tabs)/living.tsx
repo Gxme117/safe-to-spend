@@ -6,6 +6,7 @@ import {AddBubble, Bubble} from "@/components/Bubble";
 import {Icon} from "@/components/Icon";
 import {LivingList} from "@/components/LivingList";
 import {LivingSheet} from "@/components/LivingSheet";
+import {MonthStep} from "@/components/MonthStep";
 import {FigureLabels, REASON_LINE} from "@/components/FigureLabels";
 import {Floater, usePitSim} from "@/components/PitSim";
 import {T} from "@/components/ui";
@@ -202,18 +203,6 @@ function Living({ctx, c}: {ctx: Ctx; c: Calc}) {
         action={lit ? livingAction(ctx, c, lit) : null} onAction={() => lit && act(lit)} onDelete={() => lit && remove(lit)}
         draftOf={() => livingDraft(ctx.state, lit!)} save={d => edit(lit!, d)} />
     </View>
-  );
-}
-
-// The pile, filling the page down to the tab bar. Positions are worked out once the pit's size is known.
-// The month on show steps back or on; at the end of the range it's greyed and does nothing
-function MonthStep({dir, on, label, onPress}: {dir: "back" | "forward"; on: boolean; label: string; onPress: () => void}) {
-  const {c: k} = useTheme();
-  return (
-    <Pressable testID={`month-${dir}`} onPress={onPress} disabled={!on} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{disabled: !on}} hitSlop={s[2]}
-      style={{width: 32, height: 28, alignItems: "center", justifyContent: "center"}}>
-      <Icon name={dir} color={on ? k.muted : k.line} size={20} />
-    </Pressable>
   );
 }
 

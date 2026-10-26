@@ -3,7 +3,7 @@ import {useLayoutEffect, useReducer, useRef, useState} from "react";
 import {Animated, Easing, PanResponder, Pressable, ScrollView, useWindowDimensions, View} from "react-native";
 import {SyncButton, useAutoSync} from "@/components/Bank";
 import {useReducedMotion} from "@/components/BigMoney";
-import {CheckinCard} from "@/components/Cards";
+import {CheckinCard, SaveCard} from "@/components/Cards";
 import {ComingRowView} from "@/components/ComingRow";
 import {Hero} from "@/components/Hero";
 import {Icon} from "@/components/Icon";
@@ -116,6 +116,7 @@ function DayPane({ctx, c, v, live}: {ctx: Ctx; c: Calc; v: DayView; live: boolea
     <View style={{gap: s[4]}}>
       <Hero ctx={ctx} c={c} v={v} live={live} />
       {today ? <CheckinCard ctx={ctx} /> : null}
+      {today ? <SaveCard ctx={ctx} c={c} /> : null}
       {today ? <ComingUp v={v} /> : null}
       <DayPayments ctx={ctx} v={v} />
       <EverydayChips everyday={v.everyday} />
