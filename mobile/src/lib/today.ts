@@ -1,4 +1,4 @@
-import {calc, forecast, gapLine, hero, type Calc, type Hero} from "./calc";
+import {aheadWhat, calc, forecast, gapLine, hero, type Calc, type Hero} from "./calc";
 import {addDays} from "./dates";
 import {money, r2} from "./money";
 import type {Ctx, Tx} from "./types";
@@ -13,8 +13,9 @@ export interface BreakdownRow { label: string; note?: string; amount: number; to
 export function todayBreakdown(ctx: Ctx, c: Calc): {now: BreakdownRow[]; today: BreakdownRow[]} | null {
   const h = hero(ctx, c);
   if (h.kind !== "number" || !c.daysLeft) return null;
-  const n = c.billsDue.length;
-  const billsNote = [n ? `${n} bill${n > 1 ? "s" : ""}` : "", c.billsUndated ? "a month's share of the ones without a date" : ""].filter(Boolean).join(", plus ");
+  const n = c.billsDue.length, ahead = aheadWhat(c);
+  const billsNote = [n ? `${n} bill${n > 1 ? "s" : ""}` : "", c.billsUndated ? "a month's share of the ones without a date" : "",
+    ahead && `a bit saved up for ${ahead}`].filter(Boolean).join(", plus ");
   const now: BreakdownRow[] = [
     {label: "Spending money", amount: c.balance},
     ...c.billsLeft ? [{label: "Bills before payday", note: billsNote, amount: -c.billsLeft}] : [],

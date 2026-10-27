@@ -212,7 +212,7 @@ describe("adding a bill", () => {
 
   test("Add bill needs a name and an amount; Due can wait, except on a one-off", () => {
     const d = {...newAddDraft(), name: "Car insurance", amount: "42.5"};
-    expect(addBill(d, "b1", TODAY)).toEqual({id: "b1", name: "Car insurance", amount: 42.5, freq: "monthly", from: {kind: "main"}});
+    expect(addBill(d, "b1", TODAY)).toEqual({id: "b1", name: "Car insurance", amount: 42.5, freq: "monthly", from: {kind: "main"}, since: TODAY});
     expect(addBill({...d, due: "the 26th"}, "b1", TODAY)).toMatchObject({day: 26});
     expect(addBill({...d, name: " "}, "b1", TODAY)).toBeNull();
     expect(addBill({...d, amount: "0"}, "b1", TODAY)).toBeNull();

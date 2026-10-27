@@ -30,6 +30,8 @@ export interface Calc {
   billsLeft: number;               // bills still to go out before payday
   billsDue: {b: Bill; d: IsoDate}[];
   billsUndated: number;            // bills with no payment date yet: a month's share each, part of billsLeft
+  billsAhead: Ahead[];             // bills after payday, a share held back each pay before them (PRD #28)
+  billsAheadTotal: number;         // what's held for them so far, part of billsLeft
   everyday: EverydayLeft[];
   everydayLeft: number;            // what's left of everyday amounts this pay cycle
   cycleFrom: IsoDate;
@@ -53,6 +55,39 @@ export function savedNet(txs: Tx[], from: IsoDate, to: IsoDate) {
   return r2(txs.reduce((a, it) => it.date < from || it.date > to ? a
     : it.type === "save" ? a + it.amount : it.type === "income" && it.cat === "savings" ? a - it.amount : a, 0));
 }
+
+/** A bill after payday and what's held back for it so far. */
+export interface Ahead { b: Bill; d: IsoDate; held: number }
+
+/**
+ * Bills after payday, held back a share at a time over the pays before them (PRD #28), as at the pay cycle from `from` to `payday`.
+ * Each bill's next due date from payday on is shared over the pay cycles from the first one after it last went out (or the one it
+ * was added in, or you started tracking in, if later) to the one it's due in: amount ÷ those pays, each. It's counted up as the pays
+ * go by (2 pays in, 2 shares), so what was held last pay and is still in the balance isn't held twice, and the pay it's due in holds
+ * it all, as before. Paid already: nothing. Monthly pay and a monthly bill hold nothing ahead, as one pay covers it.
+ */
+export function billsAhead(ctx: Ctx, from: IsoDate, payday: IsoDate): Ahead[] {
+  const src = mainIncome(ctx);
+  if (!src || src.freq === "oneoff") return [];
+  const pays = (a: IsoDate, z: IsoDate) => a > z ? 0 : occurrences(src, a, z).length;
+  const cycleOf = (d: IsoDate) => cycleStart({...ctx, today: d});
+  const tracked = cycleOf(ctx.state.balanceAsOf || ctx.today);
+  const out: Ahead[] = [];
+  for (const b of ctx.state.bills) {
+    if (!(b.amount > 0) || !billDated(b)) continue;
+    const d = billDates(b, payday, addDays(payday, 400))[0];
+    if (!d || billPaid(ctx, b, d)) continue;
+    const prev = billDates(b, addDays(d, -400), addDays(d, -1)).pop();
+    let first = b.since && b.since > tracked ? cycleOf(b.since) : tracked;
+    const afterPrev = prev && occurrences(src, addDays(prev, 1), d)[0];
+    if (afterPrev && afterPrev > first) first = afterPrev;
+    if (from < first) continue;
+    const n = 1 + pays(addDays(first, 1), d), k = Math.min(n, 1 + pays(addDays(first, 1), from));
+    out.push({b, d, held: r2(b.amount * k / n)});
+  }
+  return out;
+}
+const aheadTotal = (xs: Ahead[]) => r2(xs.reduce((a, x) => a + x.held, 0));
 
 export function calc(ctx: Ctx): Calc {
   const {state, txs} = ctx, t = ctx.today, cur = t.slice(0, 7);
@@ -88,7 +123,9 @@ export function calc(ctx: Ctx): Calc {
     for (const c of cats) if (c.fixed) billsLeft += Math.max(0, (c.budget || 0) - (spent[c.id] || 0));
   }
   billsUndated = r2(billsUndated);
-  billsLeft = r2(billsLeft + billsUndated);
+  const billsAheadList = payday && state.bills.length ? billsAhead(ctx, cycleFrom, payday) : [];
+  const billsAheadTotal = aheadTotal(billsAheadList);
+  billsLeft = r2(billsLeft + billsUndated + billsAheadTotal);
 
   // everyday: what's left of each monthly amount since the last payday is kept aside, not counted as free
   const everyday = everydayOn(ctx, t);
@@ -100,7 +137,7 @@ export function calc(ctx: Ctx): Calc {
   // and only out of what bills and everyday leave over: when a pay can't afford it, savings give way
   const savingLeft = state.skipped[saveKey(cycleFrom)] ? 0 : r2(Math.max(0, savingPerPay(ctx) - savedNet(txs, cycleFrom, t)));
   const savingHeld = r2(Math.min(savingLeft, Math.max(0, balance - need)));
-  return {t, cur, spent, balance, payday, daysLeft, billsLeft, billsDue, billsUndated, everyday, everydayLeft, cycleFrom, need, short, savingLeft, savingHeld};
+  return {t, cur, spent, balance, payday, daysLeft, billsLeft, billsDue, billsUndated, billsAhead: billsAheadList, billsAheadTotal, everyday, everydayLeft, cycleFrom, need, short, savingLeft, savingHeld};
 }
 
 /** What's left of each everyday amount at the end of day `d`, in the pay cycle `d` falls in. Payments after `d` aren't counted,
@@ -184,12 +221,19 @@ export function closeGap(ctx: Ctx, gap: number) {
 
 /**
  * When there isn't enough for bills and everyday (`gap` is how much more they need): how to close it, in one calm line.
- * Money in savings (pots set aside, never spending money) covers it first; what savings can't cover is said as how much more you need.
+ * Money in savings (pots set aside, never spending money) covers it first; what savings can't cover is said as how much more you need,
+ * or for hourly pay with a take-home rate, as hours of work (rounded up).
  * `would`: for a payment you're only trying out ("What if I spend").
  */
 export function gapLine(ctx: Ctx, c: Calc, gap: number, would = false): string {
   const {move, more} = closeGap(ctx, gap);
   const what = `your bills${c.everydayLeft ? " and everyday" : ""}`;
+  const rate = mainIncome(ctx)?.rate;
+  if (more && rate && rate > 0) {
+    const n = Math.ceil(r2(more / rate)), hours = `${n} more hour${n === 1 ? "" : "s"} of work`;
+    if (!move) return would ? `You'd need about ${hours} to cover it` : `About ${hours} covers ${what}`;
+    return would ? `You'd need ${money(move)} from savings and about ${hours}` : `Move ${money(move)} from savings, and about ${hours} covers the rest`;
+  }
   if (!move) return `You${would ? "'d" : ""} need ${money(gap)} more to cover ${what}`;
   if (!more) return would ? `You'd need to move ${money(move)} from savings to cover it` : `Move ${money(move)} from savings to cover what's coming`;
   return would ? `You'd need ${money(move)} from savings and ${money(more)} more` : `Move ${money(move)} from savings, then you need ${money(more)} more`;
@@ -229,7 +273,7 @@ function walk(ctx: Ctx, c: Calc, d: IsoDate) {
     + everyday.reduce((a, x) => a + (x.budget || 0), 0));
   // the end of today: today's amount spent (or more, if you already have), nothing while there isn't enough
   let free = h.free < 0 ? h.free : Math.min(h.free + h.spentToday - h.perDay, h.free);
-  let payday: IsoDate = c.payday, day = c.t, from = c.cycleFrom, saved = c.savingHeld;
+  let payday: IsoDate = c.payday, day = c.t, from = c.cycleFrom, saved = c.savingHeld, ahead = c.billsAheadTotal;
   const perPaySave = savingPerPay(ctx);
   for (;;) {
     day = addDays(day, 1);
@@ -237,7 +281,11 @@ function walk(ctx: Ctx, c: Calc, d: IsoDate) {
     if (day === payday) {
       const next = nextPayday({...ctx, today: addDays(payday, 1)});
       if (!next) return null;
-      free = r2(free - setAside(payday, next));
+      // bills after the new payday: only this pay's share more, as what was held for them already came out of free
+      // (and a bill due this pay was partly held already, so it only takes the rest)
+      const now = aheadTotal(billsAhead(ctx, payday, next));
+      free = r2(free - setAside(payday, next) - now + ahead);
+      ahead = now;
       // then that cycle's savings, out of what's left over
       const put = Math.min(perPaySave, Math.max(0, free));
       free = r2(free - put);
@@ -246,7 +294,7 @@ function walk(ctx: Ctx, c: Calc, d: IsoDate) {
       payday = next;
     }
     const share = Math.max(0, Math.floor(free / dayDiff(day, payday)));
-    if (day === d) return {amount: share, free, saved, from, payday};
+    if (day === d) return {amount: share, free, saved, from, payday, ahead};
     if (share > 0) free = r2(free - share);
   }
 }
@@ -418,10 +466,10 @@ export function moneyBarOn(ctx: Ctx, c: Calc, d: IsoDate): BarPart[] | null {
   const w = walk(ctx, c, d);
   if (!w) return null;
   const now = w.payday === c.payday;
-  const bills = now
+  const bills = w.ahead + (now
     ? c.billsDue.reduce((a, x) => x.d >= d ? a + (x.b.amount || 0) : a, 0) + c.billsUndated
     : ctx.state.bills.reduce((a, b) => !(b.amount > 0) ? a
-      : !billDated(b) ? a + billMonthly(b) : a + billDates(b, d, addDays(w.payday, -1)).length * b.amount, 0);
+      : !billDated(b) ? a + billMonthly(b) : a + billDates(b, d, addDays(w.payday, -1)).length * b.amount, 0));
   const left = dayDiff(d, w.payday);
   const everyday = now
     ? c.everydayLeft * left / dayDiff(c.t, w.payday)
@@ -447,9 +495,18 @@ export function freeSummary(c: Calc) {
 export function billsLine(c: Calc) {
   if (!c.payday) return "";
   const before = r2(c.billsDue.reduce((s, x) => s + (x.b.amount || 0), 0)), undated = c.billsUndated;
-  if (before && undated) return `${money(before)} is due before payday on ${niceDate(c.payday)}, plus ${money(undated)} for bills without a date. It's held back from your spending money.`;
-  if (undated) return `${money(undated)} is held back for bills without a date. Add their dates to see when they go out.`;
+  // bills after payday: saved up a bit each pay, so it's all there in time
+  const what = aheadWhat(c), plus = what ? ` ${money(c.billsAheadTotal)} is saved up for ${what}, a bit each pay so it's ready in time.` : "";
+  if (before && undated) return `${money(before)} is due before payday on ${niceDate(c.payday)}, plus ${money(undated)} for bills without a date. It's held back from your spending money.${plus}`;
+  if (undated) return `${money(undated)} is held back for bills without a date. Add their dates to see when they go out.${plus}`;
+  if (!before && what) return `Nothing is due before payday on ${niceDate(c.payday)}.${plus}`;
   return before
-    ? `${money(before)} is due before payday on ${niceDate(c.payday)}, so it's held back from your spending money.`
+    ? `${money(before)} is due before payday on ${niceDate(c.payday)}, so it's held back from your spending money.${plus}`
     : `Nothing is due before payday on ${niceDate(c.payday)}.`;
+}
+
+/** Which bills after payday something's held for so far: "Rent on Mon 26 Oct", or "2 bills after payday". Empty when there's none. */
+export function aheadWhat(c: Calc) {
+  const xs = c.billsAhead.filter(x => x.held > 0);
+  return !xs.length ? "" : xs.length === 1 ? `${xs[0].b.name} on ${niceDate(xs[0].d)}` : `${xs.length} bills after payday`;
 }

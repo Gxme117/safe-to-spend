@@ -232,7 +232,7 @@ export function addNote(d: AddDraft): string {
 export function addBill(d: AddDraft, id: string, today: IsoDate, month?: IsoDate): Bill | null {
   const name = d.name.trim().slice(0, 40), amount = parseAmount(d.amount), due = parseDue(d.freq, d.due, today, month);
   if (!name || !(amount > 0) || !due || (d.freq === "oneoff" && !due.date)) return null;
-  const bill: Bill = {id, name, amount: r2(amount), freq: d.freq, from: {kind: "main"}, ...due};
+  const bill: Bill = {id, name, amount: r2(amount), freq: d.freq, from: {kind: "main"}, since: today, ...due};
   if (d.icon) bill.icon = d.icon;
   return bill;
 }

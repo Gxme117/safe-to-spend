@@ -31,6 +31,7 @@ export default function BillScreen() {
   const save = () => {
     const r = buildBill({name, amount: parseAmount(amount), varies, freq, day, date, method}, old?.id ?? "b" + uid(), old);
     if ("error" in r) return setError(r.error);
+    if (!old && st.today) r.bill.since = st.today;
     useMoney.getState().saveBill(r.bill);
     router.back();
     useMoney.getState().notify(old ? `${r.bill.name} updated` : `${r.bill.name} added. It's held back before payday`, !old);

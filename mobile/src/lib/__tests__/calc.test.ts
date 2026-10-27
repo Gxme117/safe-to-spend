@@ -1,7 +1,8 @@
-import {billsLine, calc, calendar, comingUp, dayDetail, dayFigure, forecast, freeSummary, hero, moneyBar, moneyBarOn, payCycle, saveKey, savingPerPay, split, tomorrowLine} from "../calc";
-import {niceTime} from "../dates";
+import {billsAhead, billsLine, calc, calendar, comingUp, dayDetail, dayFigure, forecast, freeSummary, gapLine, hero, moneyBar, moneyBarOn, payCycle, saveKey, savingPerPay, split, tomorrowLine} from "../calc";
+import {addDays, niceTime} from "../dates";
 import {pendingCheckins} from "../income";
-import {usedUp} from "../today";
+import {r2} from "../money";
+import {todayBreakdown, usedUp} from "../today";
 import type {AppState, Ctx, Tx} from "../types";
 import {baseState, ctx, TODAY, tx} from "./fixtures";
 
@@ -96,6 +97,25 @@ describe("the daily number", () => {
     expect(withSavings(0).h).toMatchObject({reason: "You need £400 more to cover your bills and everyday"});
     const some = withSavings(150).h;
     expect(some.kind === "number" && some.reason).not.toMatch(/short/i);
+  });
+
+  test("hourly pay with a take-home rate: what savings can't cover is said in hours of work, rounded up", () => {
+    const car = {id: "car", name: "Car", amount: 1200, freq: "monthly" as const, day: 20};
+    const hourly = (rate: number, saved = 0) => {
+      const bank = {source: "Monzo", accountId: "acc", main: 0, asOf: "2026-10-05T08:00:00Z", pots: [{id: "hol", name: "Holiday", balance: saved, role: "save" as const}]};
+      return ctx({state: baseState({bills: [car], bank, incomes: [{...baseState().incomes[0], rate}]}), txs: [groceries]});
+    };
+    // £400 more needed at £12 an hour: 33.3, so 34 hours
+    expect(run(hourly(12)).h).toMatchObject({reason: "About 34 more hours of work covers your bills and everyday"});
+    expect(run(hourly(400)).h).toMatchObject({reason: "About 1 more hour of work covers your bills and everyday"});
+    expect(run(hourly(12, 150)).h).toMatchObject({reason: "Move £150 from savings, and about 21 more hours of work covers the rest"});
+    // savings cover it all: no hours
+    expect(run(hourly(12, 500)).h).toMatchObject({reason: "Move £400 from savings to cover what's coming"});
+    // trying out a payment
+    const c = hourly(12), r = calc(c);
+    expect(gapLine(c, r, 24, true)).toBe("You'd need about 2 more hours of work to cover it");
+    const s = hourly(12, 10), rs = calc(s);
+    expect(gapLine(s, rs, 34, true)).toBe("You'd need £10 from savings and about 2 more hours of work");
   });
 
   test("with no everyday left, the gap is just bills", () => {
@@ -435,4 +455,72 @@ test("the bar under today's card: what's left of the pay cycle, adding up to you
   const s = ctx({state: baseState({saving: 100}), txs: c.txs}), rs = calc(s);
   expect(moneyBar(rs).map(p => `${p.label} ${p.amount}`)).toEqual(["Bills 400", "Everyday 170", "Savings 100", "Free 300"]);
   expect(moneyBar(rs).reduce((a, p) => a + p.amount, 0)).toBe(rs.balance);
+});
+
+describe("bills bigger than one pay, held back over the pays before them (PRD #28)", () => {
+  // PRD T12: weekly pay of £250 just arrived (Fri 2 Oct); £275 rent on Mon 26 Oct, 3½ weeks away, so 4 pays land before it
+  const paid = (d: string) => tx({type: "income", amount: 250, date: d, cat: "income", srcId: "job", forDate: d});
+  const weekly = (today: string, balance: number, over: Partial<AppState> = {}) => {
+    const pays = ["2026-10-02", "2026-10-09", "2026-10-16", "2026-10-23", "2026-10-30"].filter(d => d <= today).map(paid);
+    const state = baseState({
+      balance, balanceSetAt: 1e12, balanceAsOf: "2026-10-02", categories: [],
+      incomes: [{id: "job", name: "Cafe", type: "work", freq: "weekly", varies: false, amount: 250, date: "2026-10-02", main: true}],
+      bills: [{id: "rent", name: "Rent", amount: 275, freq: "monthly", day: 26}], ...over,
+    });
+    return ctx({state, txs: pays, today});
+  };
+
+  test("T12: £68.75 of rent is held back this week, so £181.25 over 7 days is £25 a day", () => {
+    const c = weekly("2026-10-02", 250), {r, h} = run(c);
+    expect(r.payday).toBe("2026-10-09");
+    expect(r.billsDue).toEqual([]);
+    expect(r.billsAhead.map(x => `${x.b.id} ${x.d} ${x.held}`)).toEqual(["rent 2026-10-26 68.75"]);
+    expect(r.billsLeft).toBe(68.75);
+    expect(h).toMatchObject({free: 181.25, perDay: 25});
+    expect(billsLine(r)).toBe("Nothing is due before payday on Fri 9 Oct. £68.75 is saved up for Rent on Mon 26 Oct, a bit each pay so it's ready in time.");
+    expect(todayBreakdown(c, r)!.now[1]).toMatchObject({label: "Bills before payday", note: "a bit saved up for Rent on Mon 26 Oct", amount: -68.75});
+  });
+
+  test("it's counted up as the pays go by, so what was held last week isn't held twice", () => {
+    // spending each week's £181.25 leaves last week's share in the balance
+    expect(run(weekly("2026-10-09", 318.75))).toMatchObject({r: {billsAheadTotal: 137.5}, h: {free: 181.25, perDay: 25}});
+    expect(run(weekly("2026-10-16", 387.5))).toMatchObject({r: {billsAheadTotal: 206.25}, h: {free: 181.25, perDay: 25}});
+    // the week it's due in holds it all, as any bill before payday, and nothing yet for next month's
+    const last = run(weekly("2026-10-23", 456.25));
+    expect(last.r).toMatchObject({billsLeft: 275, billsAheadTotal: 0});
+    expect(last.h).toMatchObject({free: 181.25, perDay: 25});
+  });
+
+  test("days to come: each payday sets aside one more share, never the whole bill at once", () => {
+    const c = weekly("2026-10-02", 250), r = calc(c);
+    for (const p of ["2026-10-09", "2026-10-16", "2026-10-23", "2026-10-30"]) {
+      const before = forecast(c, r, addDays(p, -1))!, after = forecast(c, r, p)!;
+      expect(r2(after.free - (before.free - before.amount))).toBe(181.25);
+    }
+  });
+
+  test("paid early: nothing held for it", () => {
+    const early = tx({amount: 275, date: "2026-10-02", billId: "rent", forDate: "2026-10-26"});
+    const c = weekly("2026-10-02", 250);
+    expect(calc({...c, txs: [...c.txs, early]}).billsAhead).toEqual([]);
+  });
+
+  test("paid monthly with monthly bills, nothing changes: one pay covers each", () => {
+    expect(calc(ctx()).billsAhead).toEqual([]);
+  });
+
+  test("a yearly bill is spread over the pays from when you started tracking, not dropped on one", () => {
+    const car = {id: "car", name: "Car insurance", amount: 600, freq: "yearly" as const, date: "2027-03-01"};
+    const c = ctx({state: baseState({bills: [...baseState().bills, car]})});
+    // 6 pays from Wed 30 Sep to Fri 26 Feb, the one before it's due: £100 each
+    const {r, h} = run(c);
+    expect(r.billsAhead.map(x => `${x.b.id} ${x.held}`)).toEqual(["car 100"]);
+    expect(h).toMatchObject({free: 300, perDay: 12});
+    // by December, 3 pays in: £300 held
+    const dec = {...c, today: "2026-12-10"}, rd = calc(dec);
+    expect(billsAhead(dec, rd.cycleFrom, rd.payday!).map(x => x.held)).toEqual([300]);
+    // added in December: shared over the 4 pays left from then, not caught up
+    const added = {...dec, state: baseState({bills: [{...car, since: "2026-12-10"}]})};
+    expect(billsAhead(added, rd.cycleFrom, rd.payday!).map(x => x.held)).toEqual([150]);
+  });
 });

@@ -1,8 +1,9 @@
 import {act, fireEvent, render, screen} from "@testing-library/react-native";
 import {Dimensions, StyleSheet} from "react-native";
+import {SafeAreaProvider} from "react-native-safe-area-context";
 import TimScreen from "@/app/(tabs)/tim";
 import {baseState, TODAY, tx} from "@/lib/__tests__/fixtures";
-import {ON_TWOS} from "@/lib/timEyes";
+import {nextBeats, ON_TWOS} from "@/lib/timEyes";
 import {hankenWidth} from "@/lib/textWidth";
 import {FRANK_ASK, frankFrames, introFrames, linesOf, speechMs, wordsFit} from "@/lib/timSpeech";
 import {useMoney} from "@/store/useMoney";
@@ -11,10 +12,11 @@ jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSyn
 jest.mock("expo-router", () => ({router: {push: jest.fn()}, useFocusEffect: (f: () => void | (() => void)) => jest.requireActual("react").useEffect(f, [f])}));
 jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {}), updateFiling: jest.fn(async () => {})}));
 
+const metrics = {frame: {x: 0, y: 0, width: 390, height: 844}, insets: {top: 0, left: 0, right: 0, bottom: 0}};
 const show = async (n = 3) => {
   const txs = Array.from({length: n}, (_, i) => tx({id: `t${i}`, amount: 5, date: TODAY}));
   useMoney.setState({state: baseState(), txs, today: TODAY, loaded: true, toast: null, accountant: "tim"});
-  await render(<TimScreen />);
+  await render(<SafeAreaProvider initialMetrics={metrics}><TimScreen /></SafeAreaProvider>);
 };
 
 test("only what's needed: him, and the box to ask him (no name, no suggestions)", async () => {
@@ -122,13 +124,28 @@ test("every time the tab opens, he says it all again from the start", async () =
   }
 });
 
-test("Send says Tim can't answer yet, and does nothing with an empty box", async () => {
-  await show();
-  await fireEvent.press(screen.getByRole("button", {name: "Send"}));
-  expect(useMoney.getState().toast).toBeNull();
-  await fireEvent.changeText(screen.getByLabelText("Ask Tim a question"), "Can I afford a holiday?");
-  await fireEvent.press(screen.getByRole("button", {name: "Send"}));
-  expect(useMoney.getState().toast?.msg).toBe("Tim can't answer yet. He's coming soon.");
+test("Send puts your question in the conversation and empties the box; he says he can't answer yet. An empty box sends nothing", async () => {
+  jest.useFakeTimers();
+  try {
+    await show();
+    await fireEvent.press(screen.getByRole("button", {name: "Send"}));
+    expect(screen.queryByLabelText(/^You asked/)).toBeNull();
+    const box = screen.getByLabelText("Ask Tim a question");
+    expect(box.props.multiline).toBe(true);
+    await fireEvent.changeText(box, "Can I afford a holiday?");
+    await fireEvent.press(screen.getByRole("button", {name: "Send"}));
+    expect(screen.getByLabelText("You asked: Can I afford a holiday?")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Ask Tim a question").props.value).toBe("");
+    // he works it out first, then answers
+    expect(screen.queryByLabelText("Tim says: I can't answer that yet. I'm coming soon.")).toBeNull();
+    await act(() => jest.advanceTimersByTime(nextBeats("thinking").reduce((sum, b) => sum + b.ms, 0) + 10));
+    expect(screen.getByLabelText("Tim says: I can't answer that yet. I'm coming soon.")).toBeOnTheScreen();
+    // it's Tim's conversation: Frank's starts empty
+    await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
+    expect(screen.queryByLabelText(/^You asked/)).toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("Frank can be your accountant instead: his name and picture, and it's remembered", async () => {

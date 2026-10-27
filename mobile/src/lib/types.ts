@@ -30,6 +30,7 @@ export interface Income {
   main?: boolean;    // sets the payday countdown
   since?: IsoDate;   // no check-ins before this
   payer?: string;    // who pays it, as Monzo names them: a synced payment from them is this payday arriving
+  rate?: number;     // hourly pay: take-home per hour, only used to say how many hours of work would close a gap
 }
 
 /** Where something came from: found in your bank's payments (and kept by you at setup), or typed in. Missing means typed. */
@@ -53,6 +54,7 @@ export interface Bill {
   source?: Source;
   payee?: string;   // who it's paid to, as the bank names them, when it was found there
   icon?: LookIcon;  // chosen by you; otherwise it's guessed from the name (billLook)
+  since?: IsoDate;  // when it was added after setup: it's held back for from that pay cycle on, not caught up all at once
 }
 
 export type Group = "bills" | "everyday" | "free";

@@ -87,6 +87,7 @@ export function buildBill(f: BillForm, id: string, old?: Bill): {bill: Bill} | {
   if (f.freq === "monthly") bill.day = f.day!; else bill.date = f.date;
   if (f.method) bill.method = f.method;
   if (old?.cat) bill.cat = old.cat;
+  if (old?.since) bill.since = old.since;
   return {bill};
 }
 

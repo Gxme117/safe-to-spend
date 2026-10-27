@@ -1,9 +1,11 @@
 import {LinearGradient} from "expo-linear-gradient";
 import {useFocusEffect} from "expo-router";
-import {useCallback, useEffect, useState} from "react";
-import {Image, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View} from "react-native";
+import {useCallback, useEffect, useRef, useState} from "react";
+import {Animated, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type HostInstance, type ScrollViewInstance} from "react-native";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useReducedMotion} from "@/components/BigMoney";
 import {Icon} from "@/components/Icon";
+import {keyboardCover, useKeyboardLift} from "@/components/Setup";
 import {BLINK, frankBeats, lidFor, nextBeats, ON_TWOS, typingPoses, type Beat, type Lift, type Look, type Mood} from "@/lib/timEyes";
 import {beatsOf, frankFrames, introFrames, linesOf, still, wordsFit, type Mouth, type SpeechFrame} from "@/lib/timSpeech";
 import {useMoney, type Accountant} from "@/store/useMoney";
@@ -16,13 +18,20 @@ import {HomeLook, useTheme} from "@/theme/useTheme";
 // DROP: how far down the page he sits; his picture fades into the page at the top as well as the bottom.
 const W = 440, PIC = 443, FADE = 40, DROP = 64;
 
-// Who he is: Tim, or Frank (switched at the bottom of the page, kept in the store). Frank's picture (from the "Accountant-Frank"
+// Who he is: Tim, or Frank (switched at the top of the page, kept in the store). Frank's picture (from the "Accountant-Frank"
 // frame, 874×880 like tim.jpg, so the layout is the same) blinks, now and then looks down at his laptop and types, and says his
 // own hello with his mouth moving under his moustache.
-const PEOPLE: Record<Accountant, {name: string; pic: number; alt: string}> = {
-  tim: {name: "Tim", pic: require("../../../assets/tim.jpg"), alt: "Tim, a clay-style accountant with grey hair and a blue scarf over a dark jumper"},
-  frank: {name: "Frank", pic: require("../../../assets/frank.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop"},
+// `soon`: what he says back for now, as there's no AI behind him yet.
+const PEOPLE: Record<Accountant, {name: string; pic: number; alt: string; soon: string}> = {
+  tim: {name: "Tim", pic: require("../../../assets/tim.jpg"), alt: "Tim, a clay-style accountant with grey hair and a blue scarf over a dark jumper",
+    soon: "I can't answer that yet. I'm coming soon."},
+  frank: {name: "Frank", pic: require("../../../assets/frank.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop",
+    soon: "Can't answer that yet. Coming soon."},
 };
+// One thing said in the conversation: yours, or his (`who` is who it was with, so switching shows only theirs).
+type Said = {id: number; who: Accountant; mine: boolean; text: string};
+// The box grows with what you type, up to this many lines, then scrolls inside itself.
+const BOX_LINE = 22, BOX_LINES = 5;
 
 // His eyes, the way stop-motion does it: replacement pieces made in advance from his own face by scripts/tim_eyes.py, swapped in.
 // Looks: his pupils moved elsewhere in the whites (lib/timEyes.ts decides where and when, from his mood). Lids: his whole upper lid
@@ -192,19 +201,50 @@ function Eyes({width, kit, mood, script}: {width: number; kit: EyeKit; mood: Moo
 function Tim() {
   const {c, dark} = useTheme();
   const {width} = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const who = useMoney(st => st.accountant);
   const {name, pic: src, alt} = PEOPLE[who];
   const isTim = who === "tim";
   const [q, setQ] = useState("");
   const [boxFocused, setBoxFocused] = useState(false);
   const [thinking, setThinking] = useState(false);
+  const [thread, setThread] = useState<Said[]>([]);
+  const replyTo = useRef<Accountant | null>(null);
+  const follow = useRef(false); // something was just said: scroll to it once it's laid out
+  const say = (s: Omit<Said, "id">) => { follow.current = true; setThread(th => [...th, {...s, id: th.length}]); };
   useEffect(() => {
     if (!thinking) return;
-    const t = setTimeout(() => setThinking(false), THINK_MS);
+    // he answers once he's worked it out
+    const t = setTimeout(() => {
+      setThinking(false);
+      const to = replyTo.current;
+      replyTo.current = null;
+      if (to) { follow.current = true; setThread(th => [...th, {id: th.length, who: to, mine: false, text: PEOPLE[to].soon}]); }
+    }, THINK_MS);
     return () => clearTimeout(t);
   }, [thinking]);
   const mood: Mood = thinking ? "thinking" : boxFocused || q.trim() ? "typing" : "idle";
   const reduced = useReducedMotion();
+
+  // The box stays at the bottom, above the tab bar, and rides up with the keyboard in step with it (on the native driver, so
+  // nothing lays out again while it moves). The conversation keeps scrolling above it: what the keyboard covers is added to its
+  // bottom inset, so the last thing said can always be scrolled into view. iOS only: Android resizes the window itself.
+  const page = useRef<HostInstance>(null), scroll = useRef<ScrollViewInstance>(null);
+  const [under, setUnder] = useState(0); // the tab bar and home indicator, under the page
+  const measure = () => page.current?.measureInWindow((_x, y, _w, h) => setUnder(Math.max(0, Math.round(Dimensions.get("window").height - y - h))));
+  const lift = useKeyboardLift(under, reduced);
+  const [covered, setCovered] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const show = Keyboard.addListener("keyboardWillShow", e => setCovered(Math.max(0, keyboardCover(e.endCoordinates) - under)));
+    const hide = Keyboard.addListener("keyboardWillHide", () => setCovered(0));
+    return () => { show.remove(); hide.remove(); };
+  }, [under]);
+  // the keyboard's up: keep the latest of the conversation in view above the box
+  const talked = thread.some(s => s.who === who);
+  useEffect(() => {
+    if (covered && talked) scroll.current?.scrollToEnd({animated: !reduced});
+  }, [covered, talked, reduced]);
   const speech = useSpeech(reduced, who);
   const pic = width * PIC / W, k = width / SRC_W;
   // where his words go: beside his head, on this line's side
@@ -218,13 +258,21 @@ function Tim() {
   const box = dark ? c.surface : "#FFFFFF", edge = dark ? c.line : "#E4E1DA";
 
   const ask = () => {
-    if (!q.trim()) return;
+    const text = q.trim();
+    if (!text) return;
+    say({who, mine: true, text});
+    setQ("");
+    replyTo.current = who;
     setThinking(true);
-    useMoney.getState().notify(`${name} can't answer yet. He's coming soon.`);
   };
 
   return (
-    <ScrollView contentContainerStyle={{alignItems: "center", paddingHorizontal: 32, paddingBottom: 32}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+    <View ref={page} onLayout={measure} style={{flex: 1}}>
+    {/* a drag on the conversation puts the keyboard away, and the box comes down with it */}
+    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{alignItems: "center", paddingHorizontal: 32, paddingBottom: 24}}
+      keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
+      contentInset={{bottom: covered}} scrollIndicatorInsets={{bottom: covered}}
+      onContentSizeChange={() => { if (follow.current) { follow.current = false; scroll.current?.scrollToEnd({animated: !reduced}); } }}>
       <View style={{width, height: pic, marginHorizontal: -32, marginTop: DROP}}>
         <Image source={src} style={{width, height: pic}} resizeMode="cover" accessibilityLabel={alt} />
         {/* tap him and he says who he is again */}
@@ -241,30 +289,51 @@ function Tim() {
         <LinearGradient colors={[bg + "00", bg]} style={{position: "absolute", left: 0, right: 0, bottom: 0, height: FADE}} pointerEvents="none" />
       </View>
 
-      <View style={{marginTop: 24, alignSelf: "stretch", flexDirection: "row", alignItems: "center", gap: 8, height: 52, paddingLeft: 20, paddingRight: 7, borderRadius: 999, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
-        <TextInput value={q} onChangeText={setQ} placeholder={`Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
-          autoComplete="off" returnKeyType="send" onSubmitEditing={ask} onFocus={() => setBoxFocused(true)} onBlur={() => setBoxFocused(false)}
-          style={{flex: 1, minWidth: 0, fontFamily: hanken.medium, fontSize: 17, color: c.ink, paddingVertical: 0}} />
-        <Pressable onPress={ask} accessibilityRole="button" accessibilityLabel="Send" hitSlop={4}
-          style={{width: 38, height: 38, borderRadius: 19, backgroundColor: c.ink, alignItems: "center", justifyContent: "center"}}>
-          <Icon name="up" color={c.bg} size={16} />
-        </Pressable>
-      </View>
+      {/* the conversation: yours on the right in a bubble, his on the left as plain words */}
+      {talked && (
+        <View style={{marginTop: 32, alignSelf: "stretch", gap: 16}}>
+          {thread.filter(s => s.who === who).map(s => s.mine ? (
+            <View key={s.id} style={{alignSelf: "flex-end", maxWidth: "80%", paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
+              <Text accessibilityLabel={`You asked: ${s.text}`} style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink}}>{s.text}</Text>
+            </View>
+          ) : (
+            <Text key={s.id} accessibilityLabel={`${name} says: ${s.text}`}
+              style={{alignSelf: "flex-start", maxWidth: "90%", fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink}}>{s.text}</Text>
+          ))}
+        </View>
+      )}
+    </ScrollView>
 
-      {/* who your accountant is: a two-way switch */}
+    {/* who your accountant is: a two-way switch, pinned just under the status bar, like a chat app's model picker. The page's
+        colour behind it, so the conversation scrolls under it; at rest it only covers his picture's empty top, above his hair. */}
+    <View style={{position: "absolute", left: 0, right: 0, top: 0, paddingTop: insets.top, paddingBottom: 4, alignItems: "center", backgroundColor: bg}}>
       <View accessibilityRole="radiogroup" accessibilityLabel="Your accountant"
-        style={{marginTop: 32, flexDirection: "row", padding: 3, borderRadius: 999, backgroundColor: dark ? c.surface : "#ECE9E3"}}>
+        style={{flexDirection: "row", padding: 2, borderRadius: 999, backgroundColor: dark ? c.surface : "#ECE9E3"}}>
         {(Object.keys(PEOPLE) as Accountant[]).map(a => {
           const on = a === who;
           return (
-            <Pressable key={a} onPress={() => useMoney.getState().setAccountant(a)} accessibilityRole="radio" accessibilityState={{selected: on}}
-              style={{height: 32, paddingHorizontal: 18, borderRadius: 999, justifyContent: "center", backgroundColor: on ? (dark ? c.line : "#FFFFFF") : "transparent"}}>
+            <Pressable key={a} onPress={() => useMoney.getState().setAccountant(a)} accessibilityRole="radio" accessibilityState={{selected: on}} hitSlop={{top: 6, bottom: 6}}
+              style={{height: 28, paddingHorizontal: 16, borderRadius: 999, justifyContent: "center", backgroundColor: on ? (dark ? c.line : "#FFFFFF") : "transparent"}}>
               <Text style={{fontFamily: hanken.medium, fontSize: 15, color: on ? c.ink : c.muted}}>{PEOPLE[a].name}</Text>
             </Pressable>
           );
         })}
       </View>
-    </ScrollView>
+    </View>
+
+    {/* the question box, at the bottom as in the OpenAI app; it grows as you write (return makes a new line), Send sends */}
+    <Animated.View style={{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12, backgroundColor: bg, transform: [{translateY: lift}]}}>
+      <View style={{alignSelf: "stretch", flexDirection: "row", alignItems: "flex-end", gap: 8, minHeight: 52, paddingLeft: 20, paddingRight: 6, paddingVertical: 6, borderRadius: 26, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
+        <TextInput value={q} onChangeText={setQ} placeholder={`Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
+          multiline autoComplete="off" onFocus={() => setBoxFocused(true)} onBlur={() => setBoxFocused(false)}
+          style={{flex: 1, minWidth: 0, maxHeight: BOX_LINE * BOX_LINES + 16, fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink, paddingTop: 8, paddingBottom: 8}} />
+        <Pressable onPress={ask} accessibilityRole="button" accessibilityLabel="Send" hitSlop={4}
+          style={{width: 38, height: 38, borderRadius: 19, backgroundColor: c.ink, alignItems: "center", justifyContent: "center"}}>
+          <Icon name="up" color={c.bg} size={16} />
+        </Pressable>
+      </View>
+    </Animated.View>
+    </View>
   );
 }
 
