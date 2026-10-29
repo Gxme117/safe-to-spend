@@ -63,19 +63,36 @@ export function pendingCheckins(ctx: Ctx, now?: string) {
   return res.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** The regular incomes that set payday: the main one(s), or every regular one when none is main. */
+function paySources(ctx: Ctx): Income[] {
+  const list = ctx.state.incomes.filter(s => s.freq !== "oneoff");
+  const mains = list.filter(s => s.main);
+  return mains.length ? mains : list;
+}
+
 /** The next payday that hasn't landed yet, from the main income (or every regular one when none is main). */
 export function nextPayday(ctx: Ctx): IsoDate | null {
-  const list = ctx.state.incomes.filter(s => s.freq !== "oneoff");
-  if (!list.length) return null;
-  const mains = list.filter(s => s.main);
-  const use = mains.length ? mains : list, t = ctx.today;
+  const t = ctx.today;
   let best: IsoDate | null = null;
-  for (const s of use) for (const d of occurrences(s, t, addDays(t, 70))) {
+  for (const s of paySources(ctx)) for (const d of occurrences(s, t, addDays(t, 70))) {
     if (isReceived(ctx, s.id, d) || ctx.state.skipped[ciKey(s.id, d)]) continue;
     if (!best || d < best) best = d;
     break;
   }
   return best;
+}
+
+/**
+ * Pay is late (PRD #4): a payday before today has come and gone with no pay and no "not coming". Snoozing doesn't end it.
+ * Only the last 40 days count, and not before the income was added (`since`).
+ */
+export function latePay(ctx: Ctx): boolean {
+  const t = ctx.today;
+  return paySources(ctx).some(s => {
+    const past = occurrences(s, addDays(t, -40), addDays(t, -1));
+    const d = past[past.length - 1];
+    return !!d && !(s.since && d < s.since) && !isReceived(ctx, s.id, d) && !ctx.state.skipped[ciKey(s.id, d)];
+  });
 }
 
 /** The last payday on or before today: where this pay cycle started. */

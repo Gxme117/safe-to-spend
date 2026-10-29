@@ -3,3 +3,7 @@ project_id = "money-tracker"
 # TrueLayer sends the browser to /callback with no headers, so the function can't ask for a Supabase key.
 [functions.bank]
 verify_jwt = false
+
+# The accountant checks who's asking itself, with Supabase Auth (that works whichever way the project signs its tokens).
+[functions.accountant]
+verify_jwt = false

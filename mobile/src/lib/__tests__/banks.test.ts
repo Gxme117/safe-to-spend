@@ -8,7 +8,7 @@ const monzo: Bank = {source: "Monzo", accountId: "acc_1", main: 840.12, asOf: "2
   {id: "p1", name: "Bills", balance: 250, role: "spend"},
   {id: "p2", name: "Holiday", balance: 1200.5, role: "save"},
 ]};
-const barclays: Bank = {source: "Barclays", accountId: "l1", main: 310, asOf: "2026-10-03T12:00:00Z", via: "enablebanking", numbers: ["20000012345678", "20000087654321"], pots: [
+const barclays: Bank = {source: "Barclays", accountId: "l1", main: 310, asOf: "2026-10-03T12:00:00Z", via: "truelayer", numbers: ["20000012345678", "20000087654321"], pots: [
   {id: "b-save", name: "Rainy day", balance: 2000, role: "save"},
   {id: "b-joint", name: "Joint", balance: 90.5, role: "spend"},
 ]};

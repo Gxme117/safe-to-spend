@@ -91,23 +91,30 @@ export function introFrames(): SpeechFrame[] {
   return [...frames, ...say(ASK, "right", "you", true), ...held(ASK, "right")];
 }
 
-// Frank's, each time his tab opens: deadpan, so no "...Hi" and no looking about, straight to it. He looks at you all through
-// it (up from his laptop, with a blink, if he was typing), and blinks as each later line starts, about every 4s as in his frame.
-const FRANK_INTRO: [string, Side][] = [
-  ["Frank here.", "left"], ["I've already looked through your transactions,", "right"],
-  ["so let's not make this harder than it needs to be.", "left"],
+// Frank's, each time his tab opens: no "...Hi" and no looking about, straight to it. He's a grumpy old accountant who's had
+// enough of the job (fees, waste), never of you, so it's a different grumble each time. He looks at you all through it (up
+// from his laptop, with a blink, if he was typing), and blinks as each later line starts, about every 4s as in his frame.
+export const FRANK_HELLOS: {lines: [string, string, string]; ask: string}[] = [
+  {lines: ["Frank here.", "Another day, another pile of direct debits.", "I've already been through your transactions."], ask: "What do you want?"},
+  {lines: ["Oh. It's you.", "I've checked every penny.", "Somebody has to."], ask: "What is it?"},
+  {lines: ["Frank. Accountant. Unfortunately.", "I've checked your numbers twice.", "They add up. Unlike most things."], ask: "Go on, then."},
+  {lines: ["Don't mind me.", "Just redoing Tim's maths. Again.", "Your transactions are all in order."], ask: "What do you need?"},
+  {lines: ["Frank here. Still.", "I've seen every payment.", "Let's get this right."], ask: "What do you want?"},
+  {lines: ["Who invented late fees?", "Sorry. Frank here.", "I've already been through your transactions."], ask: "What can I do for you?"},
 ];
-export const FRANK_ASK = "What do you want?";
+const SIDES: Side[] = ["left", "right", "left"];
 
-/** Frank's hello, a line at a time, each on the other side of his head from the last; the question stays. */
-export function frankFrames(): SpeechFrame[] {
-  const frames: SpeechFrame[] = [{ms: START, shown: "", line: FRANK_INTRO[0][0], side: "left", mouth: 0, look: "you", blink: true}];
-  FRANK_INTRO.forEach(([line, side], i) => {
-    const f = i ? say(line, side, "you", true) : say(line, side);
+/** Frank's hello (one of FRANK_HELLOS, any of them unless `i` says which), a line at a time, each on the other side of his
+ *  head from the last; the question stays. */
+export function frankFrames(i = Math.floor(Math.random() * FRANK_HELLOS.length)): SpeechFrame[] {
+  const {lines, ask: question} = FRANK_HELLOS[i];
+  const frames: SpeechFrame[] = [{ms: START, shown: "", line: lines[0], side: "left", mouth: 0, look: "you", blink: true}];
+  lines.forEach((line, n) => {
+    const f = n ? say(line, SIDES[n], "you", true) : say(line, SIDES[n]);
     f[f.length - 1].ms = readMs(line);
     frames.push(...f);
   });
-  const ask = say(FRANK_ASK, "right", "you", true);
+  const ask = say(question, "right", "you", true);
   ask[ask.length - 1].ms = HOLD;
   return [...frames, ...ask];
 }

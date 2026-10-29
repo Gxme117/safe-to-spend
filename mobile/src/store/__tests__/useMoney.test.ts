@@ -1,5 +1,7 @@
-import {insertTx, updateFiling} from "@/db/transactions";
+import {insertMany, insertTx, updateFiling} from "@/db/transactions";
 import type {Income} from "@/lib/types";
+import {fetchBank, MonzoFail} from "@/services/monzo";
+import {fetchLink, linkBank, unlink} from "@/services/truelayer";
 import {useMoney} from "../useMoney";
 
 const mockMem = new Map<string, string>();
@@ -14,9 +16,17 @@ jest.mock("expo-sqlite/kv-store", () => ({
 jest.mock("@/db/transactions", () => ({
   listSince: jest.fn(async () => []),
   insertTx: jest.fn(async () => {}),
+  insertMany: jest.fn(async (txs: unknown[]) => txs),
   deleteTx: jest.fn(async () => {}),
+  deleteAllTx: jest.fn(async () => {}),
   updateFiling: jest.fn(async () => {}),
 }));
+jest.mock("@/services/monzo", () => ({
+  ...jest.requireActual("@/services/monzo"),
+  loggedIn: jest.fn(async () => false),
+  fetchBank: jest.fn(),
+}));
+jest.mock("@/services/truelayer", () => ({linkBank: jest.fn(), fetchLink: jest.fn(), unlink: jest.fn(async () => {})}));
 
 const job = (o: Partial<Income>): Income => ({id: "a", name: "A", type: "work", freq: "monthly-lastworking", varies: false, amount: 1000, ...o});
 const store = () => useMoney.getState();
@@ -88,6 +98,78 @@ test("settings persist; payments stay in SQLite", async () => {
   const saved = JSON.parse(mockMem.get("money-tracker")!);
   expect(saved.state.state.balance).toBe(1000);
   expect(saved.state.txs).toBeUndefined();
+});
+
+test("Tim and Frank's notes: added, removed and put back where they were, kept with consent through Start over", async () => {
+  useMoney.setState({notes: [], aiConsent: false});
+  const note = (id: string, text: string) => ({id, kind: "goal" as const, text, at: "2026-10-05", who: "frank" as const});
+  store().addNote(note("n1", "TV"));
+  store().addNote(note("n2", "Holiday"));
+  store().addNote(note("n3", "Car"));
+  const gone = store().removeNote("n2")!;
+  expect(gone).toEqual({note: note("n2", "Holiday"), at: 1});
+  expect(store().removeNote("n2")).toBeNull();
+  store().restoreNote(gone.note, gone.at);
+  expect(store().notes.map(n => n.text)).toEqual(["TV", "Holiday", "Car"]);
+  store().setAiConsent(true);
+  const saved = JSON.parse(mockMem.get("money-tracker")!);
+  expect(saved.state.aiConsent).toBe(true);
+  expect(saved.state.notes).toHaveLength(3);
+  await store().reset();
+  expect([store().aiConsent, store().notes.length]).toEqual([true, 3]);
+  store().forgetAll();
+  expect(store().notes).toEqual([]);
+});
+
+const mockBank = () => ({
+  accounts: [{account_id: "cur", account_type: "TRANSACTION", display_name: "Current", provider: {display_name: "Mock Bank"}}],
+  balances: {cur: {current: 250}},
+  txs: [{transaction_id: "t1", timestamp: new Date().toISOString(), amount: -12, transaction_type: "DEBIT", merchant_name: "Tesco"}],
+});
+
+test("adding a bank reads it once: its money is the balance, its payments come in, Monzo isn't asked", async () => {
+  (linkBank as jest.Mock).mockResolvedValueOnce("tl_1");
+  (fetchLink as jest.Mock).mockResolvedValueOnce(mockBank());
+  expect(await store().addLink()).toEqual({id: "tl_1"});
+  expect(store().state!.links).toEqual([expect.objectContaining({source: "Mock Bank", accountId: "tl_1", main: 250})]);
+  expect(store().state!.balance).toBe(250);
+  expect(store().txs).toEqual([expect.objectContaining({amount: 12, note: "Tesco", monzoId: "tl:t1"})]);
+  expect(fetchBank).not.toHaveBeenCalled();
+  // the next sync doesn't bring the same payment in twice
+  (fetchLink as jest.Mock).mockResolvedValueOnce(mockBank());
+  expect(await store().syncBank()).toEqual({added: 0});
+  expect(store().txs).toHaveLength(1);
+});
+
+test("closing the login adds nothing; a bank that fails to read is forgotten, and you're told which", async () => {
+  (linkBank as jest.Mock).mockResolvedValueOnce(null);
+  expect(await store().addLink()).toBeNull();
+  (linkBank as jest.Mock).mockResolvedValueOnce("tl_2");
+  (fetchLink as jest.Mock).mockRejectedValueOnce(new MonzoFail("offline"));
+  expect(await store().addLink()).toMatchObject({error: "offline"});
+  expect(unlink).toHaveBeenCalledWith("tl_2");
+  expect(store().state!.links).toBeUndefined();
+  expect(store().state!.balance).toBe(1000);
+});
+
+test("if a bank's payments don't save, that bank stays as it was", async () => {
+  (linkBank as jest.Mock).mockResolvedValueOnce("tl_1");
+  (fetchLink as jest.Mock).mockResolvedValueOnce(mockBank());
+  await store().addLink();
+  (fetchLink as jest.Mock).mockResolvedValueOnce({...mockBank(), balances: {cur: {current: 99}}});
+  (insertMany as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
+  expect(await store().syncBank()).toEqual({error: "not-saved", bank: "Mock Bank"});
+  expect(store().state!.links![0].main).toBe(250);
+});
+
+test("removing a bank takes its money off and forgets its login", async () => {
+  (linkBank as jest.Mock).mockResolvedValueOnce("tl_1");
+  (fetchLink as jest.Mock).mockResolvedValueOnce(mockBank());
+  await store().addLink();
+  await store().removeLink("tl_1");
+  expect(unlink).toHaveBeenCalledWith("tl_1");
+  expect(store().state!.links).toBeUndefined();
+  expect(store().state!.balance).toBe(0);
 });
 
 test("your name is trimmed, and clearing it removes it", () => {

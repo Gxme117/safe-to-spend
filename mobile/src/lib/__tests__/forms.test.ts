@@ -24,7 +24,7 @@ describe("building an income from the form", () => {
     expect("src" in r && [r.src.main, r.src.since, r.src.date]).toEqual([false, "2026-10-01", "2026-10-01"]);
   });
   test("editing keeps the original `since`", () => {
-    const old = baseState().incomes[0];
+    const old = {...baseState().incomes[0], since: "2026-09-01"};
     const r = buildIncome(inc(), old, old.id, "2026-12-01");
     expect("src" in r && r.src.since).toBe("2026-09-01");
   });

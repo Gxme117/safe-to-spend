@@ -18,6 +18,8 @@ const show = (txs: Tx[], state: AppState = baseState()) => {
   useMoney.setState({state, txs, today: TODAY, loaded: true});
   return render(<HomeScreen />);
 };
+// the 30 Sep pay was never confirmed: the check card asks about it, and the number treats it as late
+const unconfirmedPay = () => baseState({incomes: [{...baseState().incomes[0], since: "2026-09-01"}]});
 
 test("today's number is the page: what's left, out of today's amount, the day, and why; a tap opens where it comes from", async () => {
   await show([groceries]);
@@ -216,7 +218,7 @@ test("a day gone, picked on the pay cycle, turns Spent today into that day's rec
 });
 
 test("when pay is due, Today asks whether it arrived, above the number, before counting it", async () => {
-  await show([groceries]);
+  await show([groceries], unconfirmedPay());
   expect(screen.getByText("Did your Pharmacy pay arrive?")).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole("button", {name: "Yes, £1,800 arrived"}));
   await waitFor(() => expect(screen.queryByText("Did your Pharmacy pay arrive?")).toBeNull());

@@ -6,7 +6,7 @@ export const TODAY = "2026-10-05";
 export function baseState(over: Partial<AppState> = {}): AppState {
   return {
     balance: 1000, balanceSetAt: 1000, balanceAsOf: "2026-10-01",
-    incomes: [{id: "job", name: "Pharmacy", type: "work", freq: "monthly-lastworking", varies: false, amount: 1800, main: true, since: "2026-09-01"}],
+    incomes: [{id: "job", name: "Pharmacy", type: "work", freq: "monthly-lastworking", varies: false, amount: 1800, main: true, since: "2026-10-01"}],
     bills: [
       {id: "rent", name: "Rent", amount: 400, freq: "monthly", day: 15, method: "dd", cat: "rent"},
       {id: "phone", name: "Phone", amount: 20, freq: "monthly", day: 1, method: "card"},

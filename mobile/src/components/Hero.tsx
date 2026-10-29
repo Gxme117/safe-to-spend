@@ -9,7 +9,7 @@ import {moneyBar, type BarPart, type Calc} from "@/lib/calc";
 import type {DayView} from "@/lib/day";
 import {isoD, niceDate, pad} from "@/lib/dates";
 import {money, moneyExact, r2} from "@/lib/money";
-import {aside} from "@/lib/banks";
+import {allBanks, aside, totalOf} from "@/lib/banks";
 import {bringOut, bringToFront, startOrder} from "@/lib/stack";
 import type {Ctx} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
@@ -207,6 +207,8 @@ const OTHERS: {bg: string; ink?: string; mark: string; label: string}[] = [
   // a fresh green of our own, not Wise's brand green (CLAUDE.md). Last, so on Today it waits above the screen till the cards are out, then tops the fan
   {bg: "#A8DF7E", mark: "WISE", label: "W"},
 ];
+// cards for banks linked through Open Banking: warm colours of our own, never a bank's brand colours
+const LINKED = ["#3B3833", "#E8DFCC"];
 
 /** The order of the wallet's cards, front first, shared by every day (like hide balance), so the card you used last stays just behind the front one. */
 const useStackOrder = create<{order: number[]; bring(i: number, n: number): void}>(set => ({
@@ -351,8 +353,8 @@ const CLOSE_AT = 0.2;
 const OPEN_SPRING = {damping: 20, stiffness: 180, mass: 1, useNativeDriver: false} as const;
 /** When the balances were last updated: the time today, or the day. */
 function updatedAt(ctx: Ctx, c: Calc) {
-  const bank = ctx.state.bank;
-  const at = bank ? new Date(bank.asOf) : ctx.state.balanceSetAt ? new Date(ctx.state.balanceSetAt) : null;
+  const synced = allBanks(ctx.state).map(b => Date.parse(b.asOf));
+  const at = synced.length ? new Date(Math.max(...synced)) : ctx.state.balanceSetAt ? new Date(ctx.state.balanceSetAt) : null;
   return !at ? niceDate(ctx.state.balanceAsOf || c.t)
     : isoD(at) === c.t ? `${pad(at.getHours())}:${pad(at.getMinutes())}` : niceDate(isoD(at));
 }
@@ -369,8 +371,16 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
   const {c: theme} = useTheme();
   const {width} = useWindowDimensions();
   const reduced = useReducedMotion();
+  // each bank linked through Open Banking shows everything in it; the Monzo card has the rest, with payments logged since the sync.
+  // Linked banks take the placeholders' spots, so there are always as many cards (their rows are kept from the first render)
+  const linked = (ctx.state.links || []).map((b, i) => {
+    const bg = LINKED[i % LINKED.length];
+    return {bg, ink: inkOn(bg), mark: b.source, label: b.source, said: `${b.source} balance`, amount: totalOf(b), eye: true};
+  });
   const cards = [
-    {bg: BANK_BG, ink: BANK_INK, mark: "monzo", label: "Monzo", said: "Monzo balance", amount: r2(c.balance + aside(ctx.state)), eye: true},
+    {bg: BANK_BG, ink: BANK_INK, mark: "monzo", label: "Monzo", said: "Monzo balance",
+      amount: r2(c.balance + aside(ctx.state) - linked.reduce((a, k) => a + k.amount, 0)), eye: true},
+    ...linked,
     ...OTHERS.map(o => ({bg: o.bg, ink: o.ink ?? inkOn(o.bg), mark: o.mark, label: o.label, said: `${o.label} card balance`, amount: 0, eye: false})),
   ].slice(0, SPREAD.length);
   const n = cards.length;
@@ -481,7 +491,7 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
       ) : null}
       {shown ? (
         <Animated.View style={{position: "absolute", top: addTop, left: s[6], opacity: fade}}>
-          <Pressable onPress={() => router.push("/connect-bank")} accessibilityRole="button"
+          <Pressable onPress={() => router.push("/link-bank")} accessibilityRole="button"
             style={[styles.addAccount, {borderColor: theme.line}]}>
             <Icon name="plus" color={theme.ink} size={16} />
             <T size="homeSmall" weight="medium">Add an account</T>

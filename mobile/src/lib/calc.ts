@@ -1,7 +1,7 @@
 import {aside} from "./banks";
 import {billDated, billDates, billMonthly, billPaid, billSource} from "./bills";
 import {addDays, dayDiff, niceDate, niceTime, parseD} from "./dates";
-import {ciKey, cycleStart, isReceived, lowAmt, mainIncome, nextPayday, occurrences, usualAmt} from "./income";
+import {ciKey, cycleStart, isReceived, latePay, lowAmt, mainIncome, nextPayday, occurrences, usualAmt} from "./income";
 import {money, r2} from "./money";
 import {perPayday} from "./pay";
 import type {Bill, Category, Ctx, Group, Income, IsoDate, Tx} from "./types";
@@ -26,6 +26,7 @@ export interface Calc {
   spent: Record<string, number>;   // this calendar month, by category
   balance: number;                 // spending money right now
   payday: IsoDate | null;
+  late: boolean;                   // the last payday passed with no pay: payday is a week away until it lands (PRD #4)
   daysLeft: number | null;
   billsLeft: number;               // bills still to go out before payday
   billsDue: {b: Bill; d: IsoDate}[];
@@ -104,7 +105,11 @@ export function calc(ctx: Ctx): Calc {
   }
   balance = r2(balance);
 
-  const payday = state.incomes.length ? nextPayday(ctx) : null;
+  // late pay (PRD #4): when the last payday passed with no pay and the next one isn't due within a week, assume pay is a week away
+  const next = state.incomes.length ? nextPayday(ctx) : null;
+  const week = addDays(t, 7);
+  const late = (!next || next > week) && latePay(ctx);
+  const payday = late ? week : next;
   const daysLeft = payday ? dayDiff(t, payday) : null;
   const cycleFrom = cycleStart(ctx);
   let billsLeft = 0, billsUndated = 0;
@@ -137,7 +142,7 @@ export function calc(ctx: Ctx): Calc {
   // and only out of what bills and everyday leave over: when a pay can't afford it, savings give way
   const savingLeft = state.skipped[saveKey(cycleFrom)] ? 0 : r2(Math.max(0, savingPerPay(ctx) - savedNet(txs, cycleFrom, t)));
   const savingHeld = r2(Math.min(savingLeft, Math.max(0, balance - need)));
-  return {t, cur, spent, balance, payday, daysLeft, billsLeft, billsDue, billsUndated, billsAhead: billsAheadList, billsAheadTotal, everyday, everydayLeft, cycleFrom, need, short, savingLeft, savingHeld};
+  return {t, cur, spent, balance, payday, late, daysLeft, billsLeft, billsDue, billsUndated, billsAhead: billsAheadList, billsAheadTotal, everyday, everydayLeft, cycleFrom, need, short, savingLeft, savingHeld};
 }
 
 /** What's left of each everyday amount at the end of day `d`, in the pay cycle `d` falls in. Payments after `d` aren't counted,
@@ -206,7 +211,7 @@ export function hero(ctx: Ctx, c: Calc): Hero {
     // how to close the gap, calmly: from savings first, then how much more is needed. Never "short"
     ? gapLine(ctx, c, -free)
     : !spentToday
-      ? `Lasts you until payday, ${niceDate(c.payday)}`
+      ? c.late ? "Pay hasn't arrived, so this lasts a week" : `Lasts you until payday, ${niceDate(c.payday)}`
       : spentToday <= perDay
         ? `${money(spentToday)} spent of today's ${money(perDay)}`
         : c.daysLeft > 1 ? `${money(spentToday)} spent today. From tomorrow, ${money(Math.floor(free / (c.daysLeft - 1)))} a day` : `${money(spentToday)} spent today. Payday is tomorrow`;
@@ -279,6 +284,8 @@ function walk(ctx: Ctx, c: Calc, d: IsoDate) {
     day = addDays(day, 1);
     free = r2(free + incoming(day));
     if (day === payday) {
+      // late pay: we can't know what happens once the assumed week is up, so no figure past it
+      if (c.late) return null;
       const next = nextPayday({...ctx, today: addDays(payday, 1)});
       if (!next) return null;
       // bills after the new payday: only this pay's share more, as what was held for them already came out of free
@@ -345,7 +352,8 @@ export function calendar(ctx: Ctx, c: Calc) {
   for (let d = start; d <= c.payday; d = addDays(d, 1)) {
     const kinds: DayKind[] = [], spent = spentAll[d] || 0, bills = dueOn[d] || [], incoming = inOn[d] || [];
     let note = "", label = niceDate(d);
-    if (d === c.payday) { kinds.push("pay"); note = "Pay"; label += ", payday"; }
+    // late pay: the assumed payday isn't a real one, so it isn't marked as pay
+    if (d === c.payday && !c.late) { kinds.push("pay"); note = "Pay"; label += ", payday"; }
     else if (d < c.t) {
       if (d < tracked) kinds.push("none");
       else if (!spent) { kinds.push("zero"); note = "★"; label += ", no-spend day"; }
@@ -414,7 +422,8 @@ export function comingUp(ctx: Ctx, c: Calc) {
   const list: ComingRow[] =
     c.billsDue.map(x => ({key: `${x.b.id}_${x.d}`, kind: "bill" as const, d: x.d, name: x.b.name, meta: `From ${billSource(x.b)}`, amt: `−${money(x.b.amount || 0)}`, good: false}));
   for (const x of expected(ctx)) list.push(expectedRow(x));
-  if (src && c.payday) list.push({
+  // late pay: the check card asks about the real one, so don't show an assumed payday here
+  if (src && c.payday && !c.late) list.push({
     key: `pay_${c.payday}`, kind: "pay", d: c.payday, name: src.name, incomeId: src.id,
     meta: src.varies ? `Usually ${money(usualAmt(src))}` : "Payday",
     amt: `+${money(lowAmt(src))}`, good: true,

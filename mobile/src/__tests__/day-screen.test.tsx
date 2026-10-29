@@ -21,6 +21,8 @@ const show = (txs: Tx[], state: AppState = baseState()) => {
   useMoney.setState({state, txs, today: TODAY, loaded: true});
   return render(<DayScreen />);
 };
+// the 30 Sep pay was never confirmed: the check card asks about it
+const unconfirmedPay = () => baseState({incomes: [{...baseState().incomes[0], since: "2026-09-01"}]});
 
 test("shows today's number, and screen readers hear why", async () => {
   await show([groceries]);
@@ -53,7 +55,7 @@ test("this week's line shows what you could spend to Sunday, only on the week wi
 });
 
 test("asks whether pay arrived before counting it", async () => {
-  await show([groceries]);
+  await show([groceries], unconfirmedPay());
   expect(screen.getByText("Did your Pharmacy pay arrive?")).toBeOnTheScreen();
   expect(screen.queryByLabelText("Amount that arrived")).toBeNull();
   await fireEvent.press(screen.getByRole("button", {name: "Yes, £1,800 arrived"}));
@@ -61,7 +63,7 @@ test("asks whether pay arrived before counting it", async () => {
 });
 
 test("a pay that didn't land as expected: say how much", async () => {
-  await show([groceries]);
+  await show([groceries], unconfirmedPay());
   await fireEvent.press(screen.getByRole("button", {name: "A different amount"}));
   expect(screen.getByLabelText("Amount that arrived")).toBeOnTheScreen();
   expect(screen.getByRole("button", {name: "It arrived"})).toBeOnTheScreen();

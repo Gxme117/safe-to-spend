@@ -2,7 +2,7 @@ import {router} from "expo-router";
 import {useState} from "react";
 import {ScrollView, View} from "react-native";
 import {Choice} from "@/components/Form";
-import {BankSettings, DataCard, YouCard} from "@/components/Profile";
+import {AccountantCard, BankSettings, DataCard, YouCard} from "@/components/Profile";
 import {Button, Card, CardHead, Field, Input, PageTitle, Row, T} from "@/components/ui";
 import {savingPerPay} from "@/lib/calc";
 import {niceDate} from "@/lib/dates";
@@ -103,6 +103,8 @@ export default function SettingsScreen() {
         ) : null}
         <AccentField />
       </Card>
+
+      <AccountantCard />
 
       <DataCard />
     </ScrollView>

@@ -182,3 +182,12 @@ test("no grid without a payday to count to, or on payday; the day before it says
   const eve = makeCtx({today: "2026-10-29"});
   expect(monthDays(eve, calc(eve), "2026-10")!.toPayday).toBe("Payday tomorrow");
 });
+
+test("late pay: the assumed payday isn't marked on the grid, and the line says it's waiting for pay", () => {
+  // the 30 Sep pay was never confirmed (tracking started in September), so it's a week away: Mon 12 Oct
+  const late = makeCtx({state: baseState({incomes: [{...baseState().incomes[0], since: "2026-09-01"}]})});
+  const g = monthDays(late, calc(late), "2026-10")!;
+  expect(g.toPayday).toBe("Waiting for pay");
+  expect(g.days.find(x => x.d === "2026-10-12")!.payday).toBe(false);
+  expect(g.days.find(x => x.d === "2026-10-30")!.payday).toBe(true);   // the real payday is still marked
+});

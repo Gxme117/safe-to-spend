@@ -3,20 +3,44 @@ import {Dimensions, StyleSheet} from "react-native";
 import {SafeAreaProvider} from "react-native-safe-area-context";
 import TimScreen from "@/app/(tabs)/tim";
 import {baseState, TODAY, tx} from "@/lib/__tests__/fixtures";
-import {nextBeats, ON_TWOS} from "@/lib/timEyes";
+import {ON_TWOS} from "@/lib/timEyes";
 import {hankenWidth} from "@/lib/textWidth";
-import {FRANK_ASK, frankFrames, introFrames, linesOf, speechMs, wordsFit} from "@/lib/timSpeech";
+import {FRANK_HELLOS, frankFrames, introFrames, linesOf, speechMs, wordsFit} from "@/lib/timSpeech";
+import {AccountantFail, send} from "@/services/accountant";
 import {useMoney} from "@/store/useMoney";
 
+// the box rides the keyboard on the UI thread; under test there's no keyboard, so it stays put
+jest.mock("react-native-keyboard-controller", () => jest.requireActual("react-native-keyboard-controller/jest"));
+jest.mock("react-native-reanimated", () => ({
+  __esModule: true, default: {View: jest.requireActual("react-native").View}, useAnimatedStyle: (f: () => object) => f(),
+  useSharedValue: <T,>(v: T) => jest.requireActual("react").useRef({value: v}).current, withTiming: <T,>(v: T) => v,
+  Easing: {out: (f: unknown) => f, cubic: (x: number) => x},
+}));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
 jest.mock("expo-router", () => ({router: {push: jest.fn()}, useFocusEffect: (f: () => void | (() => void)) => jest.requireActual("react").useEffect(f, [f])}));
 jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {}), updateFiling: jest.fn(async () => {})}));
+// his brain is on a server; here, each test says what Claude hands back
+jest.mock("@/services/accountant", () => {
+  class MockFail extends Error {
+    kind: string;
+    constructor(why: string) { super(why); this.kind = why; }
+  }
+  return {AccountantFail: MockFail, send: jest.fn()};
+});
+const sendMock = send as jest.Mock;
+const asks = (name: string, input: object) => ({content: [{type: "tool_use", id: `tu_${name}`, name, input}], stop_reason: "tool_use"});
+const says = (text: string) => ({content: [{type: "text", text}], stop_reason: "end_turn"});
+beforeEach(() => { sendMock.mockReset(); sendMock.mockImplementation(() => new Promise(() => {})); }); // by default he's still thinking
 
 const metrics = {frame: {x: 0, y: 0, width: 390, height: 844}, insets: {top: 0, left: 0, right: 0, bottom: 0}};
-const show = async (n = 3) => {
+const show = async (n = 3, aiConsent = true) => {
   const txs = Array.from({length: n}, (_, i) => tx({id: `t${i}`, amount: 5, date: TODAY}));
-  useMoney.setState({state: baseState(), txs, today: TODAY, loaded: true, toast: null, accountant: "tim"});
+  useMoney.setState({state: baseState(), txs, today: TODAY, loaded: true, toast: null, accountant: "tim", aiConsent, notes: []});
   await render(<SafeAreaProvider initialMetrics={metrics}><TimScreen /></SafeAreaProvider>);
+};
+const ask = async (text: string, name = "Tim") => {
+  await fireEvent.changeText(screen.getByLabelText(`Ask ${name} a question`), text);
+  await fireEvent.press(screen.getByRole("button", {name: "Send"}));
 };
 
 test("only what's needed: him, and the box to ask him (no name, no suggestions)", async () => {
@@ -124,28 +148,133 @@ test("every time the tab opens, he says it all again from the start", async () =
   }
 });
 
-test("Send puts your question in the conversation and empties the box; he says he can't answer yet. An empty box sends nothing", async () => {
-  jest.useFakeTimers();
-  try {
-    await show();
-    await fireEvent.press(screen.getByRole("button", {name: "Send"}));
-    expect(screen.queryByLabelText(/^You asked/)).toBeNull();
-    const box = screen.getByLabelText("Ask Tim a question");
-    expect(box.props.multiline).toBe(true);
-    await fireEvent.changeText(box, "Can I afford a holiday?");
-    await fireEvent.press(screen.getByRole("button", {name: "Send"}));
-    expect(screen.getByLabelText("You asked: Can I afford a holiday?")).toBeOnTheScreen();
-    expect(screen.getByLabelText("Ask Tim a question").props.value).toBe("");
-    // he works it out first, then answers
-    expect(screen.queryByLabelText("Tim says: I can't answer that yet. I'm coming soon.")).toBeNull();
-    await act(() => jest.advanceTimersByTime(nextBeats("thinking").reduce((sum, b) => sum + b.ms, 0) + 10));
-    expect(screen.getByLabelText("Tim says: I can't answer that yet. I'm coming soon.")).toBeOnTheScreen();
-    // it's Tim's conversation: Frank's starts empty
-    await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
-    expect(screen.queryByLabelText(/^You asked/)).toBeNull();
-  } finally {
-    jest.useRealTimers();
-  }
+describe("asking him", () => {
+// his eyes keep moving while he thinks: on the test's clock, so it can wait for his answer
+beforeEach(() => jest.useFakeTimers());
+afterEach(() => jest.useRealTimers());
+
+test("Send puts your question in the conversation and empties the box; he looks it up, then answers with what it was checked against. An empty box sends nothing", async () => {
+  sendMock.mockResolvedValueOnce(asks("overview", {})).mockImplementationOnce(() => new Promise(() => {}));
+  await show();
+  await fireEvent.press(screen.getByRole("button", {name: "Send"}));
+  expect(screen.queryByLabelText(/^You asked/)).toBeNull();
+  const box = screen.getByLabelText("Ask Tim a question");
+  expect(box.props.multiline).toBe(true);
+  await ask("Can I afford a holiday?");
+  expect(screen.getByLabelText("You asked: Can I afford a holiday?")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Ask Tim a question").props.value).toBe("");
+  // while he works it out: what he's doing, where his answer will go, and one question at a time
+  expect(await screen.findByText("Checking your numbers…")).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: "Send"})).toBeDisabled();
+  expect(sendMock.mock.calls[0][0]).toBe("tim");
+  await screen.unmount();
+
+  sendMock.mockReset();
+  sendMock.mockResolvedValueOnce(asks("overview", {})).mockResolvedValueOnce(says("Yes, if it's a cheap one. Wait till payday for anything bigger."));
+  await show();
+  await ask("Can I afford a holiday?");
+  expect(await screen.findByLabelText("Tim says: Yes, if it's a cheap one. Wait till payday for anything bigger.")).toBeOnTheScreen();
+  expect(screen.getByText("Checked against your numbers (your balance from Thu 1 Oct)")).toBeOnTheScreen();
+  expect(screen.queryByText("Checking your numbers…")).toBeNull();
+  expect(screen.getByRole("button", {name: "Send"})).toBeEnabled();
+  // it's Tim's conversation: Frank's starts empty
+  await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
+  expect(screen.queryByLabelText(/^You asked/)).toBeNull();
+});
+
+test("once you've asked, he's a bubble pinned at the top with your latest question beside it, and no hello; tap it and he's back; the other accountant is as he was", async () => {
+  sendMock.mockResolvedValueOnce(says("Not much is due.")).mockResolvedValueOnce(says("Then it's easier.")).mockResolvedValueOnce(says("About the same."));
+  await show();
+  const sticky = () => screen.getByTestId("conversation").props.stickyHeaderIndices;
+  expect(screen.getByRole("button", {name: "Hear Tim say who he is"})).toBeOnTheScreen();
+  expect(sticky()).toEqual([]);
+  await ask("What's due?");
+  expect(screen.getByLabelText("You asked: What's due?")).toBeOnTheScreen();
+  expect(screen.getByText("You asked")).toBeOnTheScreen();
+  expect(sticky()).toEqual([0]);
+  expect(screen.queryByRole("button", {name: "Hear Tim say who he is"})).toBeNull();
+  expect(screen.queryByLabelText(/^Tim says: (\.|I'm|Hi)/)).toBeNull();
+  await screen.findByLabelText("Tim says: Not much is due.");
+  // a follow-up goes beside him, the first question back in the conversation under him
+  await ask("And if I wait till payday?");
+  await screen.findByLabelText("Tim says: Then it's easier.");
+  expect(screen.getByLabelText("You asked: And if I wait till payday?")).toBeOnTheScreen();
+  expect(screen.getByLabelText("You asked: What's due?")).toBeOnTheScreen();
+  expect(screen.getAllByText("You asked")).toHaveLength(1);
+  // tap the bubble: he's back as he was, the conversation still under him
+  await fireEvent.press(screen.getByRole("button", {name: "Show Tim again"}));
+  expect(screen.getByRole("button", {name: "Hear Tim say who he is"})).toBeOnTheScreen();
+  expect(screen.queryByText("You asked")).toBeNull();
+  expect(sticky()).toEqual([]);
+  expect(screen.getByLabelText("You asked: What's due?")).toBeOnTheScreen();
+  expect(screen.getByLabelText("You asked: And if I wait till payday?")).toBeOnTheScreen();
+  // ask again and he's a bubble again
+  await ask("And next month?");
+  expect(screen.getByLabelText("You asked: And next month?")).toBeOnTheScreen();
+  expect(screen.getByText("You asked")).toBeOnTheScreen();
+  expect(sticky()).toEqual([0]);
+  await screen.findByLabelText("Tim says: About the same.");
+  await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
+  expect(screen.getByRole("button", {name: "Hear Frank say who he is"})).toBeOnTheScreen();
+  expect(screen.queryByText("You asked")).toBeNull();
+});
+
+test("a follow-up carries on the same conversation", async () => {
+  sendMock.mockResolvedValueOnce(says("Not much is due.")).mockResolvedValueOnce(says("Then it's easier."));
+  await show();
+  await ask("What's due?");
+  await screen.findByLabelText("Tim says: Not much is due.");
+  await ask("And if I wait till payday?");
+  await screen.findByLabelText("Tim says: Then it's easier.");
+  // the second request: the first question, his answer as it came, then the follow-up
+  const second = sendMock.mock.calls[1][1];
+  expect(second[0].content[1].text).toBe("What's due?");
+  expect(second[1]).toEqual({role: "assistant", content: says("Not much is due.").content});
+  expect(second[2].content[1].text).toBe("And if I wait till payday?");
+});
+
+test("a figure he can't trace back is shown, but flagged", async () => {
+  sendMock.mockResolvedValueOnce(says("About £999.")).mockResolvedValueOnce(says("About £999."));
+  await show();
+  await ask("Roughly how much?");
+  expect(await screen.findByText("I couldn't check £999 against your numbers.")).toBeOnTheScreen();
+});
+
+test("the first time, he asks before looking at your numbers: Not now puts your question back; Agree and ask sends it", async () => {
+  sendMock.mockResolvedValueOnce(says("You're fine for a holiday."));
+  await show(3, false);
+  await ask("Can I afford a holiday?");
+  expect(screen.getByText("Before Tim looks at your numbers")).toBeOnTheScreen();
+  expect(sendMock).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole("button", {name: "Not now"}));
+  expect(screen.getByLabelText("Ask Tim a question").props.value).toBe("Can I afford a holiday?");
+  expect(screen.queryByLabelText(/^You asked/)).toBeNull();
+  await fireEvent.press(screen.getByRole("button", {name: "Send"}));
+  await fireEvent.press(screen.getByRole("button", {name: "Agree and ask"}));
+  expect(useMoney.getState().aiConsent).toBe(true);
+  expect(await screen.findByLabelText("Tim says: You're fine for a holiday.")).toBeOnTheScreen();
+});
+
+test("when he can't answer, he says so calmly in his own voice, and your question stays", async () => {
+  sendMock.mockRejectedValueOnce(new AccountantFail("offline"));
+  await show();
+  await ask("Can I afford a holiday?");
+  expect(await screen.findByLabelText("Tim says: I can't reach my notes right now. Check your connection and ask me again.")).toBeOnTheScreen();
+  expect(screen.getByLabelText("You asked: Can I afford a holiday?")).toBeOnTheScreen();
+  expect(screen.getByRole("button", {name: "Send"})).toBeEnabled();
+});
+
+test("something you tell him that will matter later is noted straight away, with Undo", async () => {
+  sendMock.mockResolvedValueOnce(asks("remember", {kind: "goal", text: "Saving for a TV", amount: 600, by: "2026-12-20"})).mockResolvedValueOnce(says("Noted."));
+  await show();
+  await ask("I'm saving £600 for a TV by Christmas");
+  await screen.findByLabelText("Tim says: Noted.");
+  expect(useMoney.getState().notes).toEqual([expect.objectContaining({kind: "goal", text: "Saving for a TV", amount: 600, by: "2026-12-20", who: "tim", at: TODAY})]);
+  const toast = useMoney.getState().toast!;
+  expect(toast.msg).toBe("Tim noted: Saving for a TV");
+  toast.undo!();
+  expect(useMoney.getState().notes).toEqual([]);
+});
 });
 
 test("Frank can be your accountant instead: his name and picture, and it's remembered", async () => {
@@ -161,29 +290,31 @@ test("Frank can be your accountant instead: his name and picture, and it's remem
 
 test("Frank says his own hello, a line at a time either side of his head, and his question stays", async () => {
   jest.useFakeTimers();
+  const random = jest.spyOn(Math, "random").mockReturnValue(0); // his first hello
   try {
     await show();
     await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
-    const frames = frankFrames();
+    const frames = frankFrames(0), [first, second] = FRANK_HELLOS[0].lines;
     const at = (line: string) => frames.slice(0, frames.findIndex(f => f.shown === line && f.said)).reduce((sum, f) => sum + f.ms, 0);
     // his mouth moves under his moustache as the words come, and is still once they're said
     await act(() => jest.advanceTimersByTime(frames.slice(0, frames.findIndex(f => f.mouth > 0)).reduce((sum, f) => sum + f.ms, 0) + 1));
     expect(screen.getByTestId("frank-mouth", {includeHiddenElements: true})).toBeTruthy();
-    await act(() => jest.advanceTimersByTime(at("Frank here.") + 1 - frames.slice(0, frames.findIndex(f => f.mouth > 0)).reduce((sum, f) => sum + f.ms, 0) - 1));
-    expect(screen.getByLabelText("Frank says: Frank here.")).toBeOnTheScreen();
+    await act(() => jest.advanceTimersByTime(at(first) + 1 - frames.slice(0, frames.findIndex(f => f.mouth > 0)).reduce((sum, f) => sum + f.ms, 0) - 1));
+    expect(screen.getByLabelText(`Frank says: ${first}`)).toBeOnTheScreen();
     expect(screen.queryByTestId("frank-mouth", {includeHiddenElements: true})).toBeNull();
-    expect(StyleSheet.flatten(screen.getByText("Frank here.").props.style).textAlign).toBe("right");
-    await act(() => jest.advanceTimersByTime(at("I've already looked through your transactions,") - at("Frank here.")));
-    expect(StyleSheet.flatten(screen.getByText("I've already looked through your transactions,").props.style).textAlign).toBe("left");
+    expect(StyleSheet.flatten(screen.getByText(first).props.style).textAlign).toBe("right");
+    await act(() => jest.advanceTimersByTime(at(second) - at(first)));
+    expect(StyleSheet.flatten(screen.getByText(second).props.style).textAlign).toBe("left");
     await act(() => jest.advanceTimersByTime(speechMs(frames)));
-    expect(screen.getByLabelText(`Frank says: ${FRANK_ASK}`)).toBeOnTheScreen();
+    expect(screen.getByLabelText(`Frank says: ${FRANK_HELLOS[0].ask}`)).toBeOnTheScreen();
   } finally {
+    random.mockRestore();
     jest.useRealTimers();
   }
 });
 
-test("Frank's words stay beside his head, above his shoulders (row 511 of frank.jpg), on any phone", () => {
-  const lines = linesOf(frankFrames());
+test.each(FRANK_HELLOS.map((h, i) => [h.lines[0], i]))("Frank's words (%s) stay beside his head, above his shoulders (row 511 of frank.jpg), on any phone", (_, i) => {
+  const lines = linesOf(frankFrames(i));
   for (const width of [320, 375, 393, 430, 440]) {
     const k = width / 874, room = {left: 288 * k - 24, right: width - 16 - 579 * k - 8};
     const size = wordsFit(lines, room, 22), lineHeight = Math.round(size * 28 / 22);
@@ -202,6 +333,11 @@ test("Frank's words stay beside his head, above his shoulders (row 511 of frank.
 const frankLid = () => screen.queryByTestId("frank-lid", {includeHiddenElements: true});
 const frankDown = () => screen.queryByTestId("frank-look-down", {includeHiddenElements: true});
 const frankHands = () => screen.queryAllByTestId(/^frank-hand-/, {includeHiddenElements: true}).map(e => e.props.testID);
+/** Switches to Frank, who says his first hello (FRANK_HELLOS[0]), so a test knows how long it lasts. */
+async function toFrank() {
+  const random = jest.spyOn(Math, "random").mockReturnValue(0);
+  try { await fireEvent.press(screen.getByRole("radio", {name: "Frank"})); } finally { random.mockRestore(); }
+}
 /** Moves time on in small steps until `done`, at most `ms`; what `each` saw on the way. */
 async function until(done: () => boolean, ms: number, each: () => void = () => {}) {
   for (let t = 0; t < ms && !done(); t += 50) { await act(() => jest.advanceTimersByTime(50)); each(); }
@@ -212,12 +348,12 @@ test("Frank looks at you while he says hello, blinking, then now and then looks 
   jest.useFakeTimers();
   try {
     await show();
-    await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
+    await toFrank();
     // a blink as he starts (shut on its second pose)
     await act(() => jest.advanceTimersByTime(ON_TWOS + 10));
     expect(frankLid()).toBeTruthy();
     // all through his hello his eyes are on you, his hands still
-    for (let t = 0; t < speechMs(frankFrames()); t += 250) {
+    for (let t = 0; t < speechMs(frankFrames(0)); t += 250) {
       await act(() => jest.advanceTimersByTime(250));
       expect(frankDown()).toBeNull();
       expect(frankHands()).toEqual([]);
@@ -246,8 +382,8 @@ test("a tap on Frank while he's typing: he looks up at you and stops, to say it 
   jest.useFakeTimers();
   try {
     await show();
-    await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
-    await act(() => jest.advanceTimersByTime(speechMs(frankFrames())));
+    await toFrank();
+    await act(() => jest.advanceTimersByTime(speechMs(frankFrames(0))));
     await until(() => frankHands().length > 0, 20000);
     await fireEvent.press(screen.getByRole("button", {name: "Hear Frank say who he is"}));
     await act(() => jest.advanceTimersByTime(10));

@@ -125,7 +125,7 @@ export interface Bank {
   pots: Pot[];        // Monzo's pots; a linked bank's other accounts
   asOf: string;       // ISO timestamp of the sync
   numbers?: string[]; // each account's sort code and account number, digits only: payments between them are your own money moving
-  via?: "enablebanking";  // linked through Open Banking
+  via?: "truelayer";      // linked through Open Banking (TrueLayer)
   validUntil?: string;    // a linked bank: when you'll need to approve again
 }
 

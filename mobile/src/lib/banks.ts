@@ -10,7 +10,7 @@ export const allBanks = (s: AppState): Bank[] => [...(s.bank ? [s.bank] : []), .
 /** A bank's spending money: its main account plus the pots (or other accounts) that count. */
 export const spendOf = (b: Bank) => r2(b.main + b.pots.filter(p => p.role === "spend").reduce((a, p) => a + p.balance, 0));
 /** Everything in a bank, as its own app shows it. */
-const totalOf = (b: Bank) => r2(b.main + b.pots.reduce((a, p) => a + p.balance, 0));
+export const totalOf = (b: Bank) => r2(b.main + b.pots.reduce((a, p) => a + p.balance, 0));
 const spendAll = (s: AppState) => r2(allBanks(s).reduce((a, b) => a + spendOf(b), 0));
 
 /** Money put aside in pots that aren't spending money, in every bank. Never counted in the daily number. */

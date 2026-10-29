@@ -7,6 +7,7 @@ import * as SplashScreen from "expo-splash-screen";
 import {StatusBar} from "expo-status-bar";
 import {useEffect} from "react";
 import {AppState} from "react-native";
+import {KeyboardProvider} from "react-native-keyboard-controller";
 import {Toast} from "@/components/Toast";
 import {useMoney} from "@/store/useMoney";
 import {font, textSize} from "@/theme/tokens";
@@ -34,7 +35,8 @@ export default function RootLayout() {
 
   const modal = (title: string) => ({presentation: "modal" as const, title});
   return (
-    <>
+    // tells Tim's box where the keyboard is, frame by frame
+    <KeyboardProvider>
       <StatusBar style={dark ? "light" : "dark"} />
       <Stack screenOptions={{
         headerStyle: {backgroundColor: c.bg}, headerTintColor: c.ink, headerShadowVisible: false,
@@ -53,11 +55,12 @@ export default function RootLayout() {
           <Stack.Screen name="bill/[id]" options={modal("Bill")} />
           <Stack.Screen name="everyday" options={modal("Everyday")} />
           <Stack.Screen name="today" options={modal("Today's number")} />
+          <Stack.Screen name="link-bank" options={modal("Add an account")} />
         </Stack.Protected>
         {/* from setup too: the first question can be answered by the bank */}
         <Stack.Screen name="connect-bank" options={modal("Connect Monzo")} />
       </Stack>
       <Toast />
-    </>
+    </KeyboardProvider>
   );
 }

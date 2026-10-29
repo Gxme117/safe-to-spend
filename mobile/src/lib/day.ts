@@ -113,7 +113,7 @@ export function monthDays(ctx: Ctx, c: Calc, ym: string): {range: string; toPayd
   // to payday, only bills not yet paid; after it, every bill with an amount that goes out
   const unpaid = new Set(c.billsDue.filter(x => (x.b.amount || 0) > 0).map(x => x.d));
   const later = new Set(ctx.state.bills.filter(b => b.amount > 0).flatMap(b => billDates(b, addDays(c.payday!, 1), last)));
-  const src = mainIncome(ctx), paydays = new Set([...(src ? occurrences(src, first, last) : []), c.payday]);
+  const src = mainIncome(ctx), paydays = new Set([...(src ? occurrences(src, first, last) : []), ...(c.late ? [] : [c.payday])]);
   const days: CycleDay[] = [];
   for (let d = first; d <= last; d = addDays(d, 1)) {
     const when = d < c.t ? "past" : d === c.t ? "today" : "future";
@@ -123,7 +123,7 @@ export function monthDays(ctx: Ctx, c: Calc, ym: string): {range: string; toPayd
   while (cells.length % 7) cells.push(null);
   const weeks = Array.from({length: cells.length / 7}, (_, i) => cells.slice(i * 7, i * 7 + 7));
   const range = monthName(ym, c.t.slice(0, 4), true), now = ym === c.t.slice(0, 7);
-  const toPayday = !now ? "" : c.daysLeft === 1 ? "Payday tomorrow" : `${c.daysLeft} days to payday`;
+  const toPayday = !now ? "" : c.late ? "Waiting for pay" : c.daysLeft === 1 ? "Payday tomorrow" : `${c.daysLeft} days to payday`;
   const list = (xs: string[]) => xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0];
   const bills = days.filter(x => x.bill).map(x => niceDate(x.d)), pays = days.filter(x => x.payday).map(x => niceDate(x.d));
   return {range, toPayday, weeks, days,

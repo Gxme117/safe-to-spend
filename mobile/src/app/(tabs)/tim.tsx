@@ -1,35 +1,73 @@
 import {LinearGradient} from "expo-linear-gradient";
 import {useFocusEffect} from "expo-router";
 import {useCallback, useEffect, useRef, useState} from "react";
-import {Animated, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type HostInstance, type ScrollViewInstance} from "react-native";
+import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type HostInstance, type ScrollViewInstance} from "react-native";
+import {useReanimatedKeyboardAnimation} from "react-native-keyboard-controller";
+import Reanimated, {Easing, useAnimatedStyle, useSharedValue, withTiming} from "react-native-reanimated";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useReducedMotion} from "@/components/BigMoney";
+import {ConsentSheet} from "@/components/ConsentSheet";
 import {Icon} from "@/components/Icon";
-import {keyboardCover, useKeyboardLift} from "@/components/Setup";
+import {keyboardCover} from "@/components/Setup";
+import {converse, type Answer, type Ended, type Transcript} from "@/lib/ai/converse";
+import {receipt, type ToolEffect} from "@/lib/ai/tools";
+import {uid} from "@/lib/defaults";
 import {BLINK, frankBeats, lidFor, nextBeats, ON_TWOS, typingPoses, type Beat, type Lift, type Look, type Mood} from "@/lib/timEyes";
 import {beatsOf, frankFrames, introFrames, linesOf, still, wordsFit, type Mouth, type SpeechFrame} from "@/lib/timSpeech";
+import {AccountantFail, send, type AccountantError} from "@/services/accountant";
 import {useMoney, type Accountant} from "@/store/useMoney";
 import {hanken, timPage} from "@/theme/tokens";
 import {HomeLook, useTheme} from "@/theme/useTheme";
 
 // Tim, your accountant (the "Accountant-Tim" frame, drawn at 440pt wide): his picture across the top, fading into the page,
-// what he says beside his head, and a box to ask him anything about your money (nothing else: no name, no suggestions). He can't answer yet: there's no AI behind him so far.
-// His eyes follow what you're doing: idle, typing (the box has focus or text) or thinking (just after Send).
+// what he says beside his head, and a box to ask him anything about your money (nothing else: no name, no suggestions).
+// Claude does his thinking (lib/ai/converse.ts): it looks up what a question needs with the app's own engine, run here, and
+// every £ in the answer is checked against what it looked up. The line under an answer says what it was checked against.
+// His eyes follow what you're doing: idle, typing (the box has focus or text) or thinking (until his answer lands).
 // DROP: how far down the page he sits; his picture fades into the page at the top as well as the bottom.
 const W = 440, PIC = 443, FADE = 40, DROP = 64;
 
 // Who he is: Tim, or Frank (switched at the top of the page, kept in the store). Frank's picture (from the "Accountant-Frank"
 // frame, 874×880 like tim.jpg, so the layout is the same) blinks, now and then looks down at his laptop and types, and says his
 // own hello with his mouth moving under his moustache.
-// `soon`: what he says back for now, as there's no AI behind him yet.
-const PEOPLE: Record<Accountant, {name: string; pic: number; alt: string; soon: string}> = {
+// `fails`: what he says, in his own voice, when he can't answer (never a scold, never the error itself).
+type Fail = AccountantError | Ended;
+const PEOPLE: Record<Accountant, {name: string; pic: number; alt: string; fails: Record<Fail, string>}> = {
   tim: {name: "Tim", pic: require("../../../assets/tim.jpg"), alt: "Tim, a clay-style accountant with grey hair and a blue scarf over a dark jumper",
-    soon: "I can't answer that yet. I'm coming soon."},
+    fails: {
+      offline: "I can't reach my notes right now. Check your connection and ask me again.",
+      timeout: "That took me too long, sorry. Could you ask again?",
+      busy: "I'm a bit swamped right now. Ask me again in a minute.",
+      unavailable: "Something's gone wrong on my side. Try again in a bit.",
+      "not-set-up": "I'm not switched on yet. The app needs setting up first.",
+      refused: "I can't help with that one. Ask me something about your money?",
+      "cut-off": "I lost my thread there. Could you ask that again, a bit narrower?",
+      "went-round": "I went round in circles on that one. Could you ask it another way?",
+    }},
   frank: {name: "Frank", pic: require("../../../assets/frank.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop",
-    soon: "Can't answer that yet. Coming soon."},
+    fails: {
+      offline: "No connection, so I can't see your numbers. Try again when you've got signal.",
+      timeout: "Took too long. Ask again.",
+      busy: "Busy. Ask again in a minute.",
+      unavailable: "Something's broken on my end. Try again later.",
+      "not-set-up": "Not switched on yet. Someone has to set me up first.",
+      refused: "Not something I can help with. Money questions, please.",
+      "cut-off": "Lost my thread. Ask again, smaller.",
+      "went-round": "Went round in circles. Ask it another way.",
+    }},
 };
 // One thing said in the conversation: yours, or his (`who` is who it was with, so switching shows only theirs).
-type Said = {id: number; who: Accountant; mine: boolean; text: string};
+// His: `checked`, what the answer was checked against; `flag`, figures it couldn't check; `quiet`, he couldn't answer.
+type Said = {id: number; who: Accountant; mine: boolean; text: string; checked?: string | null; flag?: string; quiet?: boolean};
+// one answer, as said in the conversation
+function saidOf(who: Accountant, a: Answer, now: Date): Omit<Said, "id"> {
+  if (a.ended || !a.text) return {who, mine: false, text: PEOPLE[who].fails[a.ended ?? "went-round"], quiet: true};
+  const state = useMoney.getState().state;
+  return {
+    who, mine: false, text: a.text, checked: state && receipt(a.used, state, now),
+    ...a.unchecked.length ? {flag: `I couldn't check ${a.unchecked.join(", ")} against your numbers.`} : {},
+  };
+}
 // The box grows with what you type, up to this many lines, then scrolls inside itself.
 const BOX_LINE = 22, BOX_LINES = 5;
 
@@ -86,9 +124,6 @@ const EYES: Record<Accountant, EyeKit> = {
     lid: FRANK_LID_CROP, lids: FRANK_LIDS, downLid: .5, hands: FRANK_HANDS, beats: () => frankBeats(),
   },
 };
-// how long he works it out after Send: the thinking beats, end to end
-const THINK_MS = nextBeats("thinking").reduce((sum, b) => sum + b.ms, 0);
-
 // His mouth, the same way (scripts/tim_mouth.py). He always smiles (his picture's mouth is straight; the smile is measured from
 // a picture of him smiling): 0 is the smile, shut, always showing, with reduced motion too; talking, his jaw drops from it a
 // little, slightly open, open ("e") or narrower ("y"), the corners still curled up.
@@ -114,6 +149,19 @@ const WORDS: Record<Accountant, {figure: {left: number; right: number}; top: num
   frank: {figure: {left: 288, right: 579}, top: 240, said: frankFrames},
 };
 const EDGE = 16, GAP = 8, SIZE = 22, LEADING = 28 / 22;
+
+// Once you've asked him something, he shrinks into a bubble at the top left, your question beside it ("Frank · Explanatory B"),
+// so his answer starts near the top. BUBBLE: his picture's scale in the bubble (pt per px of the 874px picture) and the px at
+// the bubble's top left. Each one's head is centred in it, his hair to his chin and ear to ear measured off his picture
+// (Frank's rows 185–500, 288–579), with a little collar under it; Tim's long face is fitted so his smile's in. Both checked
+// by laying the crop onto his picture. In light mode his hair comes out over the top, fading out HAIR pt down (B's
+// 34 to 46): a copy of his picture behind the bubble, on the page's own colour, so only his hair shows. TOP_ROOM: above the
+// bubble, under the switch, for it.
+const BUBBLE_D = 88, HAIR = [34, 46] as const, TOP_ROOM = 16, SWITCH_H = 36, SHRINK_MS = 400;
+const BUBBLE: Record<Accountant, {scale: number; x: number; y: number}> = {
+  tim: {scale: .23, x: 241.5, y: 117.5},
+  frank: {scale: .23, x: 242, y: 151},
+};
 
 const hidden = {pointerEvents: "none", accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants"} as const;
 const place = (c: typeof LOOK_CROP, k: number) =>
@@ -207,32 +255,32 @@ function Tim() {
   const isTim = who === "tim";
   const [q, setQ] = useState("");
   const [boxFocused, setBoxFocused] = useState(false);
-  const [thinking, setThinking] = useState(false);
   const [thread, setThread] = useState<Said[]>([]);
-  const replyTo = useRef<Accountant | null>(null);
+  // who's a bubble: each from your Send until you tap him back
+  const [smallFor, setSmallFor] = useState<Record<Accountant, boolean>>({tim: false, frank: false});
+  // each accountant's conversation exactly as Claude saw it, for this visit to the app (not kept, like the thread)
+  const talks = useRef<Record<Accountant, Transcript>>({tim: [], frank: []});
+  // who's working out an answer, and what he's doing right now; one question at a time
+  const [working, setWorking] = useState<{who: Accountant; doing: string} | null>(null);
+  // a question waiting for you to say he can look at your numbers
+  const [waiting, setWaiting] = useState<string | null>(null);
   const follow = useRef(false); // something was just said: scroll to it once it's laid out
   const say = (s: Omit<Said, "id">) => { follow.current = true; setThread(th => [...th, {...s, id: th.length}]); };
-  useEffect(() => {
-    if (!thinking) return;
-    // he answers once he's worked it out
-    const t = setTimeout(() => {
-      setThinking(false);
-      const to = replyTo.current;
-      replyTo.current = null;
-      if (to) { follow.current = true; setThread(th => [...th, {id: th.length, who: to, mine: false, text: PEOPLE[to].soon}]); }
-    }, THINK_MS);
-    return () => clearTimeout(t);
-  }, [thinking]);
+  const thinking = working?.who === who;
   const mood: Mood = thinking ? "thinking" : boxFocused || q.trim() ? "typing" : "idle";
   const reduced = useReducedMotion();
 
-  // The box stays at the bottom, above the tab bar, and rides up with the keyboard in step with it (on the native driver, so
-  // nothing lays out again while it moves). The conversation keeps scrolling above it: what the keyboard covers is added to its
-  // bottom inset, so the last thing said can always be scrolled into view. iOS only: Android resizes the window itself.
+  // The box stays at the bottom, above the tab bar, and rides up with the keyboard frame for frame (keyboard-controller reports
+  // where the keys are on the UI thread, so it starts, eases and stops with them, and follows a drag that puts them away).
+  // The conversation keeps scrolling above it: what the keyboard covers is added to its bottom inset, so the last thing said
+  // can always be scrolled into view. iOS only: Android resizes the window itself.
   const page = useRef<HostInstance>(null), scroll = useRef<ScrollViewInstance>(null);
   const [under, setUnder] = useState(0); // the tab bar and home indicator, under the page
   const measure = () => page.current?.measureInWindow((_x, y, _w, h) => setUnder(Math.max(0, Math.round(Dimensions.get("window").height - y - h))));
-  const lift = useKeyboardLift(under, reduced);
+  const {height: keys} = useReanimatedKeyboardAnimation(); // minus the keyboard's height, this frame
+  const ios = Platform.OS === "ios";
+  // up by what the keyboard covers above the tab bar; nothing when it covers less
+  const lift = useAnimatedStyle(() => ({transform: [{translateY: ios ? Math.min(0, keys.value + under) : 0}]}));
   const [covered, setCovered] = useState(0);
   useEffect(() => {
     if (Platform.OS !== "ios") return;
@@ -257,49 +305,152 @@ function Tim() {
   const bg = dark ? c.bg : timPage; // light, the page is his picture's own background
   const box = dark ? c.surface : "#FFFFFF", edge = dark ? c.line : "#E4E1DA";
 
+  // Asked something, he's a bubble (0: his picture, 1: the bubble), pinned at the top as the conversation scrolls, your latest
+  // question beside it. He shrinks into it as you send; tap it and he's back as he was, with his hello. A switch to the other
+  // accountant shows him as he is straight away, and so does reduced motion.
+  const small = smallFor[who];
+  const asked = small ? thread.findLast(s => s.who === who && s.mine) : undefined;
+  const shrunk = useSharedValue(small ? 1 : 0), was = useRef(who);
+  useEffect(() => {
+    const to = small ? 1 : 0;
+    shrunk.value = reduced || was.current !== who ? to : withTiming(to, {duration: SHRINK_MS, easing: Easing.out(Easing.cubic)});
+    was.current = who;
+  }, [small, who, reduced, shrunk]);
+  const grow = () => {
+    setSmallFor(sm => ({...sm, [who]: false}));
+    scroll.current?.scrollTo({y: 0, animated: !reduced});
+    speech.replay();
+  };
+  const bubbleTop = insets.top + SWITCH_H + TOP_ROOM, {scale: bs, x: bx, y: by} = BUBBLE[who], fit = bs / k;
+  // the clip goes from his whole picture to the round bubble, and his picture shrinks inside it to his face
+  const clip = useAnimatedStyle(() => {
+    const p = shrunk.value, at = (a: number, b: number) => a + (b - a) * p;
+    return {left: at(0, 32), top: at(DROP, bubbleTop), width: at(width, BUBBLE_D), height: at(pic, BUBBLE_D), borderRadius: at(0, BUBBLE_D / 2)};
+  });
+  const face = useAnimatedStyle(() => {
+    const p = shrunk.value, at = (a: number, b: number) => a + (b - a) * p;
+    return {transform: [{translateX: at(0, -bx * bs)}, {translateY: at(0, -by * bs)}, {scale: at(1, fit)}]};
+  });
+  const ring = useAnimatedStyle(() => ({borderRadius: shrunk.value * BUBBLE_D / 2, opacity: shrunk.value}));
+  const space = useAnimatedStyle(() => ({minHeight: DROP + pic + (bubbleTop + BUBBLE_D - DROP - pic) * shrunk.value}));
+  const after = useAnimatedStyle(() => ({opacity: Math.max(0, shrunk.value - .8) / .2})); // the words and his hair, as he lands
+
+  // a note he saves or crosses out: done straight away, with Undo on the toast
+  const note = (effect: ToolEffect, by: Accountant) => {
+    const st = useMoney.getState(), {name: his} = PEOPLE[by];
+    if ("add" in effect) {
+      st.addNote(effect.add);
+      st.notify(`${his} noted: ${effect.add.text}`, false, () => { useMoney.getState().removeNote(effect.add.id); });
+    } else {
+      const gone = st.removeNote(effect.remove.id);
+      if (gone) st.notify(`${his} crossed out: ${gone.note.text}`, false, () => useMoney.getState().restoreNote(gone.note, gone.at));
+    }
+  };
+  const go = (text: string) => {
+    const to = who;
+    say({who: to, mine: true, text});
+    setSmallFor(sm => ({...sm, [to]: true}));
+    setWorking({who: to, doing: "Thinking…"});
+    converse(talks.current[to], text, {
+      send: m => send(to, m),
+      env: () => {
+        const st = useMoney.getState();
+        return {ctx: {state: st.state!, txs: st.txs, today: st.today}, notes: st.notes, who: to, newId: () => "n_" + uid()};
+      },
+      apply: effect => note(effect, to),
+      doing: doing => setWorking(w => w && {...w, doing}),
+    }, new Date())
+      .then(a => { talks.current[to] = a.transcript; say(saidOf(to, a, new Date())); })
+      .catch(e => {
+        // the question stays in the thread; the conversation carries on from before it
+        if (!(e instanceof AccountantFail)) console.warn("Accountant failed:", e instanceof Error ? e.message : e);
+        say({who: to, mine: false, text: PEOPLE[to].fails[e instanceof AccountantFail ? e.kind : "unavailable"], quiet: true});
+      })
+      .finally(() => setWorking(null));
+  };
   const ask = () => {
     const text = q.trim();
-    if (!text) return;
-    say({who, mine: true, text});
+    if (!text || working || !useMoney.getState().state) return;
     setQ("");
-    replyTo.current = who;
-    setThinking(true);
+    // the first time, he asks before looking at your numbers
+    if (!useMoney.getState().aiConsent) setWaiting(text);
+    else go(text);
   };
+  // read out what he's doing, and what he says when he's done
+  const last = thread[thread.length - 1];
+  useEffect(() => { if (working) AccessibilityInfo.announceForAccessibility(working.doing); }, [working]);
+  useEffect(() => { if (last && !last.mine) AccessibilityInfo.announceForAccessibility(`${PEOPLE[last.who].name} says: ${last.text}`); }, [last]);
 
   return (
     <View ref={page} onLayout={measure} style={{flex: 1}}>
     {/* a drag on the conversation puts the keyboard away, and the box comes down with it */}
-    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{alignItems: "center", paddingHorizontal: 32, paddingBottom: 24}}
-      keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
+    {/* while he's a bubble, it and your question stay at the top (the first child sticks) as the conversation scrolls under them */}
+    <ScrollView ref={scroll} testID="conversation" style={{flex: 1}} contentContainerStyle={{alignItems: "center", paddingHorizontal: 32, paddingBottom: 24}}
+      keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" stickyHeaderIndices={small ? [0] : []}
       contentInset={{bottom: covered}} scrollIndicatorInsets={{bottom: covered}}
       onContentSizeChange={() => { if (follow.current) { follow.current = false; scroll.current?.scrollToEnd({animated: !reduced}); } }}>
-      <View style={{width, height: pic, marginHorizontal: -32, marginTop: DROP}}>
-        <Image source={src} style={{width, height: pic}} resizeMode="cover" accessibilityLabel={alt} />
-        {/* tap him and he says who he is again */}
-        <Pressable onPress={speech.replay} style={{position: "absolute", left: 0, top: 0, right: 0, bottom: 0}}
-          accessibilityRole="button" accessibilityLabel={`Hear ${name} say who he is`} />
-        {/* Frank goes on with his own work, whatever you're doing, but looks at you while he talks */}
-        <Eyes key={`eyes-${who}`} width={width} kit={EYES[who]} mood={isTim ? mood : "idle"} script={isTim && mood !== "idle" ? undefined : speech.script} />
-        <MouthPieces key={`mouth-${who}`} width={width} who={who} mouth={speech.mouth} />
-        <Text accessibilityLabel={speech.said ? `${name} says: ${speech.shown.replace(/^\.+/, "")}` : undefined} accessibilityLiveRegion="polite"
-          style={{position: "absolute", ...words, top: top * k, fontFamily: hanken.medium, fontSize: size, lineHeight: Math.round(size * LEADING), color: c.ink}}>
-          {speech.shown}
-        </Text>
-        <LinearGradient colors={[bg, bg + "00"]} style={{position: "absolute", left: 0, right: 0, top: 0, height: FADE}} pointerEvents="none" />
-        <LinearGradient colors={[bg + "00", bg]} style={{position: "absolute", left: 0, right: 0, bottom: 0, height: FADE}} pointerEvents="none" />
-      </View>
+      <Reanimated.View style={[{alignSelf: "stretch", marginHorizontal: -32, backgroundColor: bg}, space]}>
+        {/* asked something: room for his bubble, and your latest question beside it */}
+        {asked && (
+          <View style={{flexDirection: "row", alignItems: "flex-start", gap: 12, paddingTop: bubbleTop, paddingHorizontal: 32}}>
+            <View style={{width: BUBBLE_D, height: BUBBLE_D}} />
+            {/* centred on the bubble; a long question runs on below it */}
+            <Reanimated.View accessible accessibilityLabel={`You asked: ${asked.text}`} style={[{flex: 1, minWidth: 0, alignSelf: "center", gap: 4}, after]}>
+              <Text style={{fontFamily: hanken.semibold, fontSize: 12, lineHeight: 15, letterSpacing: 1, textTransform: "uppercase", color: c.muted}}>You asked</Text>
+              <Text style={{fontFamily: hanken.semibold, fontSize: 18, lineHeight: 23, letterSpacing: -.18, color: c.ink}}>{asked.text}</Text>
+            </Reanimated.View>
+          </View>
+        )}
+        {/* the conversation fades in under it as it scrolls */}
+        {small && <LinearGradient colors={[bg, bg + "00"]} style={{position: "absolute", left: 0, right: 0, bottom: -16, height: 16}} pointerEvents="none" />}
+        {/* his hair out over the bubble's top (light mode: the copy's background is the page's own) */}
+        {asked && !dark && (
+          <Reanimated.View {...hidden} style={[{position: "absolute", left: 32, top: bubbleTop - TOP_ROOM, width: BUBBLE_D, height: TOP_ROOM + HAIR[1], overflow: "hidden"}, after]}>
+            <Image source={src} style={{position: "absolute", left: -bx * bs, top: TOP_ROOM - by * bs, width: SRC_W * bs, height: SRC_W * bs * PIC / W}} resizeMode="cover" />
+            <LinearGradient colors={[bg + "00", bg]} style={{position: "absolute", left: 0, right: 0, top: TOP_ROOM + HAIR[0], height: HAIR[1] - HAIR[0]}} />
+          </Reanimated.View>
+        )}
+        <Reanimated.View style={[{position: "absolute", overflow: "hidden"}, clip]}>
+          <Reanimated.View style={[{width, height: pic, transformOrigin: "left top"}, face]}>
+            <Image source={src} style={{width, height: pic}} resizeMode="cover" accessibilityLabel={alt} />
+            {/* tap him and he says who he is again (not once he's a bubble) */}
+            {!small && <Pressable onPress={speech.replay} style={{position: "absolute", left: 0, top: 0, right: 0, bottom: 0}}
+              accessibilityRole="button" accessibilityLabel={`Hear ${name} say who he is`} />}
+            {/* Frank goes on with his own work, whatever you're doing, but looks at you while he talks */}
+            <Eyes key={`eyes-${who}`} width={width} kit={EYES[who]} mood={isTim ? mood : "idle"} script={isTim && mood !== "idle" ? undefined : speech.script} />
+            <MouthPieces key={`mouth-${who}`} width={width} who={who} mouth={speech.mouth} />
+            {!small && <Text accessibilityLabel={speech.said ? `${name} says: ${speech.shown.replace(/^\.+/, "")}` : undefined} accessibilityLiveRegion="polite"
+              style={{position: "absolute", ...words, top: top * k, fontFamily: hanken.medium, fontSize: size, lineHeight: Math.round(size * LEADING), color: c.ink}}>
+              {speech.shown}
+            </Text>}
+            <LinearGradient colors={[bg, bg + "00"]} style={{position: "absolute", left: 0, right: 0, top: 0, height: FADE}} pointerEvents="none" />
+            <LinearGradient colors={[bg + "00", bg]} style={{position: "absolute", left: 0, right: 0, bottom: 0, height: FADE}} pointerEvents="none" />
+          </Reanimated.View>
+          {!dark && <Reanimated.View pointerEvents="none" style={[{position: "absolute", left: 0, top: 0, right: 0, bottom: 0, borderWidth: 1, borderColor: "rgba(0,0,0,.05)"}, ring]} />}
+          {/* tap the bubble and he's back as he was */}
+          {small && <Pressable onPress={grow} style={{position: "absolute", left: 0, top: 0, right: 0, bottom: 0}}
+            accessibilityRole="button" accessibilityLabel={`Show ${name} again`} />}
+        </Reanimated.View>
+      </Reanimated.View>
 
-      {/* the conversation: yours on the right in a bubble, his on the left as plain words */}
+      {/* the conversation (less the question beside his bubble): yours on the right in a bubble, his on the left as plain words */}
       {talked && (
-        <View style={{marginTop: 32, alignSelf: "stretch", gap: 16}}>
-          {thread.filter(s => s.who === who).map(s => s.mine ? (
+        <View style={{marginTop: 24, alignSelf: "stretch", gap: 16}}>
+          {thread.filter(s => s.who === who && s !== asked).map(s => s.mine ? (
             <View key={s.id} style={{alignSelf: "flex-end", maxWidth: "80%", paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
               <Text accessibilityLabel={`You asked: ${s.text}`} style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink}}>{s.text}</Text>
             </View>
           ) : (
-            <Text key={s.id} accessibilityLabel={`${name} says: ${s.text}`}
-              style={{alignSelf: "flex-start", maxWidth: "90%", fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink}}>{s.text}</Text>
+            <View key={s.id} style={{alignSelf: "flex-start", maxWidth: "90%", gap: 6}}>
+              <Text accessibilityLabel={`${name} says: ${s.text}`}
+                style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: s.quiet ? c.muted : c.ink}}>{s.text}</Text>
+              {/* where the figures came from, and any he couldn't check */}
+              {s.checked ? <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>{s.checked}</Text> : null}
+              {s.flag ? <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>{s.flag}</Text> : null}
+            </View>
           ))}
+          {/* what he's doing while he works it out, where his answer will go */}
+          {thinking ? <Text style={{alignSelf: "flex-start", fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.muted}}>{working?.doing}</Text> : null}
         </View>
       )}
     </ScrollView>
@@ -322,17 +473,21 @@ function Tim() {
     </View>
 
     {/* the question box, at the bottom as in the OpenAI app; it grows as you write (return makes a new line), Send sends */}
-    <Animated.View style={{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12, backgroundColor: bg, transform: [{translateY: lift}]}}>
+    <Reanimated.View style={[{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12, backgroundColor: bg}, lift]}>
       <View style={{alignSelf: "stretch", flexDirection: "row", alignItems: "flex-end", gap: 8, minHeight: 52, paddingLeft: 20, paddingRight: 6, paddingVertical: 6, borderRadius: 26, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
         <TextInput value={q} onChangeText={setQ} placeholder={`Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
           multiline autoComplete="off" onFocus={() => setBoxFocused(true)} onBlur={() => setBoxFocused(false)}
           style={{flex: 1, minWidth: 0, maxHeight: BOX_LINE * BOX_LINES + 16, fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink, paddingTop: 8, paddingBottom: 8}} />
-        <Pressable onPress={ask} accessibilityRole="button" accessibilityLabel="Send" hitSlop={4}
-          style={{width: 38, height: 38, borderRadius: 19, backgroundColor: c.ink, alignItems: "center", justifyContent: "center"}}>
+        {/* one question at a time: while he's working it out, Send waits */}
+        <Pressable onPress={ask} disabled={!!working} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{disabled: !!working}} hitSlop={4}
+          style={{width: 38, height: 38, borderRadius: 19, backgroundColor: c.ink, alignItems: "center", justifyContent: "center", opacity: working ? 0.35 : 1}}>
           <Icon name="up" color={c.bg} size={16} />
         </Pressable>
       </View>
-    </Animated.View>
+    </Reanimated.View>
+    <ConsentSheet visible={waiting !== null} name={name}
+      onYes={() => { const text = waiting ?? ""; setWaiting(null); useMoney.getState().setAiConsent(true); if (text) go(text); }}
+      onNo={() => { setQ(waiting ?? ""); setWaiting(null); }} />
     </View>
   );
 }

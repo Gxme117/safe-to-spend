@@ -1,6 +1,7 @@
 import {router} from "expo-router";
 import {useEffect, useState} from "react";
 import {AppState, Animated, Easing, Pressable, View} from "react-native";
+import {allBanks} from "@/lib/banks";
 import {money} from "@/lib/money";
 import type {Bank} from "@/lib/types";
 import {type SyncError, useMoney} from "@/store/useMoney";
@@ -10,27 +11,29 @@ import {useReducedMotion} from "./BigMoney";
 import {Icon} from "./Icon";
 import {Chip, T} from "./ui";
 
-const SAY: Record<SyncError, string> = {
-  "needs-approval": "Approve the request in your Monzo app, then sync again",
-  "needs-login": "Monzo needs you to log in again",
-  "bad-client": "Monzo didn't recognise your client ID or secret. Check them against developers.monzo.com",
-  offline: "Couldn't reach Monzo. Check your connection and try again",
-  other: "Monzo didn't answer properly. Try again in a minute",
-  "not-saved": "Your payments from Monzo didn't save. Try again",
+const SAY: Record<SyncError, (bank: string) => string> = {
+  "needs-approval": () => "Approve the request in your Monzo app, then sync again",
+  // Monzo's login is yours to repeat; a linked bank's access runs out, and it's connected again
+  "needs-login": bank => bank === "Monzo" ? "Monzo needs you to log in again" : `${bank} needs you to connect again`,
+  "bad-client": () => "Monzo didn't recognise your client ID or secret. Check them against developers.monzo.com",
+  offline: bank => `Couldn't reach ${bank}. Check your connection and try again`,
+  other: bank => `${bank} didn't answer properly. Try again in a minute`,
+  "not-saved": bank => `Your payments from ${bank} didn't save. Try again`,
 };
-export const syncMessage = (e: SyncError) => SAY[e];
-const updated = (n: number) => n ? `Updated from Monzo. ${n} new payment${n > 1 ? "s" : ""} added` : "Updated from Monzo. No new payments";
+export const syncMessage = (e: SyncError, bank = "Monzo") => SAY[e](bank);
+const updated = (n: number, from: string) => n ? `Updated from ${from}. ${n} new payment${n > 1 ? "s" : ""} added` : `Updated from ${from}. No new payments`;
 
-/** Sync every connected bank (Monzo is the only one so far) and say how it went.
- *  Quiet syncs (on opening the app) only speak up when the bank needs something from you. */
+/** Sync every connected bank and say how it went.
+ *  Quiet syncs (on opening the app) only speak up when a bank needs something from you. */
 export async function syncNow(quiet = false) {
-  const {syncBank, notify} = useMoney.getState();
+  const {syncBank, notify, state} = useMoney.getState();
   const r = await syncBank();
-  if ("added" in r) { if (!quiet) notify(updated(r.added), true); return; }
-  const e = r.error;
+  const banks = state ? allBanks(state) : [];
+  if ("added" in r) { if (!quiet) notify(updated(r.added, banks.length === 1 ? banks[0].source : "your banks"), true); return; }
+  const e = r.error, bank = r.bank || "Monzo";
   if (quiet && e !== "needs-approval" && e !== "needs-login") return;
-  notify(SAY[e] + (__DEV__ && r.detail ? ` (${r.detail})` : ""));
-  if (e === "needs-login" && !quiet) router.push("/connect-bank");
+  notify(SAY[e](bank) + (__DEV__ && r.detail ? ` (${r.detail})` : ""));
+  if (e === "needs-login" && !quiet) router.push(bank === "Monzo" ? "/connect-bank" : "/link-bank");
 }
 
 const STALE = 15 * 60 * 1000;
@@ -38,8 +41,8 @@ const STALE = 15 * 60 * 1000;
 export function useAutoSync() {
   useEffect(() => {
     const maybe = () => {
-      const b = useMoney.getState().state?.bank;
-      if (b && Date.now() - Date.parse(b.asOf) > STALE) syncNow(true);
+      const s = useMoney.getState().state;
+      if (s && allBanks(s).some(b => Date.now() - Date.parse(b.asOf) > STALE)) syncNow(true);
     };
     maybe();
     const sub = AppState.addEventListener("change", st => { if (st === "active") maybe(); });
@@ -51,7 +54,7 @@ export function useAutoSync() {
  *  Icon only; the arrows turn while it works (they stay still with Reduce Motion on). */
 export function SyncButton() {
   const {c} = useTheme();
-  const connected = useMoney(st => !!st.state?.bank);
+  const connected = useMoney(st => !!st.state && allBanks(st.state).length > 0);
   const syncing = useMoney(st => st.syncing);
   const reduced = useReducedMotion();
   const [spin] = useState(() => new Animated.Value(0));
@@ -72,9 +75,9 @@ export function SyncButton() {
   );
 }
 
-/** Which pots are spending money. Savings and business pots never count towards today's number. */
+/** Which pots (a linked bank's other accounts) are spending money. Savings and business pots never count towards today's number. */
 export function PotRoles({bank}: {bank: Bank}) {
-  if (!bank.pots.length) return <T muted>No pots in your Monzo account.</T>;
+  if (!bank.pots.length) return <T muted>{bank.via ? `No other accounts at ${bank.source}.` : "No pots in your Monzo account."}</T>;
   return (
     <View style={{gap: s[4]}}>
       {bank.pots.map(p => (

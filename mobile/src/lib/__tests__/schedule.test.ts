@@ -1,6 +1,6 @@
 import {billDates, billPaid, nextBill} from "../bills";
 import {cycleStart, nextPayday, occurrences, pendingCheckins} from "../income";
-import type {Bill, Income} from "../types";
+import type {AppState, Bill, Income} from "../types";
 import {baseState, ctx, tx} from "./fixtures";
 
 const income = (o: Partial<Income>): Income => ({id: "i", name: "Pay", type: "work", freq: "monthly-date", varies: false, amount: 100, ...o});
@@ -91,16 +91,18 @@ describe("payday", () => {
 });
 
 describe("pay check-ins", () => {
+  // the shared fixture's pay started on 1 Oct, after the 30 Sep payday, so these tests use one that started in September
+  const owed = (over: Partial<AppState> = {}) => baseState({incomes: [{...baseState().incomes[0], since: "2026-09-01"}], ...over});
   test("asks about a payday that hasn't been confirmed", () => {
-    const p = pendingCheckins(ctx());
-    expect(p.map(x => x.key)).toEqual(["job_2026-09-30"]);   // 28 Aug is before `since`
+    const p = pendingCheckins(ctx({state: owed()}));
+    expect(p.map(x => x.key)).toEqual(["job_2026-09-30"]);
   });
   test("stops asking once it arrived, was skipped, or was snoozed today", () => {
-    expect(pendingCheckins(ctx({txs: [tx({type: "income", amount: 1800, date: "2026-09-30", srcId: "job", forDate: "2026-09-30"})]}))).toEqual([]);
-    expect(pendingCheckins(ctx({state: baseState({skipped: {"job_2026-09-30": true}})}))).toEqual([]);
-    expect(pendingCheckins(ctx({state: baseState({snoozed: {"job_2026-09-30": "2026-10-05"}})}))).toEqual([]);
+    expect(pendingCheckins(ctx({state: owed(), txs: [tx({type: "income", amount: 1800, date: "2026-09-30", srcId: "job", forDate: "2026-09-30"})]}))).toEqual([]);
+    expect(pendingCheckins(ctx({state: owed({skipped: {"job_2026-09-30": true}})}))).toEqual([]);
+    expect(pendingCheckins(ctx({state: owed({snoozed: {"job_2026-09-30": "2026-10-05"}})}))).toEqual([]);
   });
   test("a snooze only lasts for the day", () => {
-    expect(pendingCheckins(ctx({state: baseState({snoozed: {"job_2026-09-30": "2026-10-04"}})}))).toHaveLength(1);
+    expect(pendingCheckins(ctx({state: owed({snoozed: {"job_2026-09-30": "2026-10-04"}})}))).toHaveLength(1);
   });
 });

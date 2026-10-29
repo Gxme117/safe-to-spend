@@ -2,15 +2,18 @@ import Storage from "expo-sqlite/kv-store";
 import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
 import {backfill, deleteAllTx, deleteTx, insertMany, insertTx, listSince, updateFiling} from "@/db/transactions";
+import type {Note, Who} from "@/lib/ai/tools";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
 import type {SetupFound} from "@/lib/found";
 import {setPotRole} from "@/lib/banks";
-import {applySync, importTxs, missingDetails, syncSince} from "@/lib/monzo";
+import {applySync, importTxs, missingDetails, type RawTx, syncSince} from "@/lib/monzo";
 import {r2} from "@/lib/money";
 import type {FilingPatch} from "@/lib/payments";
+import {toBank, toRawTx, withLink, withoutLink} from "@/lib/truelayer";
 import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
-import {disconnect, fetchBank, MonzoFail, type MonzoError} from "@/services/monzo";
+import {disconnect, fetchBank, loggedIn, MonzoFail, type MonzoError} from "@/services/monzo";
+import {fetchLink, linkBank, unlink} from "@/services/truelayer";
 
 export type ThemePref = "system" | "light" | "dark";
 /** The Safe to Spend card: the accent colour, or glass (iOS 26). */
@@ -18,12 +21,14 @@ export type CardStyle = "colour" | "glass";
 /** The Living tab: the ball pit, or the same bills and everyday amounts as a list. */
 export type LivingView = "pit" | "list";
 /** Who your accountant is on his tab: Tim, or Frank (another version from the Home S20 canvas, being tried out). */
-export type Accountant = "tim" | "frank";
+export type Accountant = Who;
 /** `undo`: the toast stays 5s with an Undo button that puts back what was just removed. */
 export interface Toast { id: number; msg: string; good: boolean; undo?: () => void }
 /** A sync either brings in some new payments, or says what went wrong ("not-saved": the phone couldn't store them). */
 export type SyncError = MonzoError | "not-saved";
-export type SyncResult = {added: number} | {error: SyncError; detail?: string};
+/** `bank`: which bank it was, when you have more than one. */
+export type SyncFail = {error: SyncError; detail?: string; bank?: string};
+export type SyncResult = {added: number} | SyncFail;
 
 interface MoneyStore {
   state: AppState | null;     // the settings doc (persisted in kv-store)
@@ -35,6 +40,8 @@ interface MoneyStore {
   cardStyle: CardStyle;
   livingView: LivingView;
   accountant: Accountant;
+  aiConsent: boolean;         // you've agreed to Tim and Frank looking at your numbers (what leaves the phone, in ConsentSheet)
+  notes: Note[];              // what you've told them that will still matter next time; kept through Start over
   toast: Toast | null;
   syncing: boolean;           // a bank sync is running
   setupBank: number | null;   // the Monzo total (main + all pots), when connected during setup (not saved)
@@ -48,6 +55,12 @@ interface MoneyStore {
   setCardStyle(v: CardStyle): void;
   setLivingView(v: LivingView): void;
   setAccountant(v: Accountant): void;
+  setAiConsent(on: boolean): void;
+  addNote(n: Note): void;
+  /** Removes a note, and says where it was, so Undo can put it back. */
+  removeNote(id: string): {note: Note; at: number} | null;
+  restoreNote(n: Note, at: number): void;
+  forgetAll(): void;
 
   setup(balance: number, income?: Income, bills?: Bill[], categories?: Category[]): void;
   setSetupBank(main: number | null, found?: SetupFound | null): void;
@@ -70,6 +83,9 @@ interface MoneyStore {
   skip(key: string): void;
 
   syncBank(): Promise<SyncResult>;
+  /** Link a bank through TrueLayer and read it once. null: you closed the login. */
+  addLink(): Promise<{id: string} | SyncFail | null>;
+  removeLink(id: string): Promise<void>;
   setPotRole(id: string, role: PotRole): void;
   disconnectBank(): Promise<void>;
 }
@@ -88,8 +104,60 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     const s = get().state;
     if (s) set({state: {...s, ...fn(s)}});
   };
+  // what went wrong, in the Expo terminal; the message on screen stays plain
+  const fail = (bank: string, e: unknown): SyncFail => {
+    console.warn(`${bank} sync failed:`, e instanceof Error ? e.message : e);
+    return {error: e instanceof MonzoFail ? e.kind : "other", detail: e instanceof Error ? e.message : String(e), bank};
+  };
+  // new payments saved first, so a failure there leaves the store as it was
+  const saveNew = async (raw: RawTx[], now: number): Promise<Tx[] | null> => {
+    const s = get().state;
+    if (!s) return null;
+    try { return await insertMany(importTxs({state: s, txs: get().txs, today: today()}, raw, now, uid)); } catch { return null; }
+  };
+
+  const syncMonzo = async (): Promise<SyncResult> => {
+    try {
+      const now = Date.now();
+      const got = await fetchBank(syncSince(get().state?.bank, now));
+      const added = await saveNew(got.txs, now);
+      if (!added) return {error: "not-saved", bank: "Monzo"};
+      // older payments get their real time, logo and who they were with back; if that fails they just stay as they were
+      const fills = missingDetails(get().txs, got.txs);
+      let txs = get().txs;
+      try {
+        await backfill(fills);
+        const by = new Map(fills.map(f => [f.monzoId, f]));
+        txs = txs.map(t => {
+          const f = t.monzoId ? by.get(t.monzoId) : undefined;
+          return f ? {...t, paidAt: t.paidAt ?? f.paidAt, logo: t.logo ?? f.logo, note: f.note ?? t.note} : t;
+        });
+      } catch {}
+      const s = get().state;
+      if (!s) return {error: "other"};
+      set({state: applySync(s, got, now), txs: [...txs, ...added]});
+      return {added: added.length};
+    } catch (e) { return fail("Monzo", e); }
+  };
+
+  // a bank linked through TrueLayer: its accounts, their balances, and its main account's payments
+  const syncLink = async (id: string): Promise<SyncResult> => {
+    const prev = get().state?.links?.find(b => b.accountId === id);
+    try {
+      const now = Date.now();
+      const got = await fetchLink(id, syncSince(prev, now));
+      const bank = toBank(id, got.accounts, got.balances, prev, now);
+      const added = await saveNew(got.txs.map(toRawTx), now);
+      if (!added) return {error: "not-saved", bank: bank.source};
+      const s = get().state;
+      if (!s) return {error: "other"};
+      set({state: withLink(s, bank, now), txs: [...get().txs, ...added]});
+      return {added: added.length};
+    } catch (e) { return fail(prev?.source || "Your bank", e); }
+  };
+
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", accountant: "tim", toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", accountant: "tim", aiConsent: false, notes: [], toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -102,6 +170,17 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     setCardStyle(cardStyle) { set({cardStyle}); },
     setLivingView(livingView) { set({livingView}); },
     setAccountant(accountant) { set({accountant}); },
+    setAiConsent(aiConsent) { set({aiConsent}); },
+    addNote(n) { set({notes: [...get().notes.filter(x => x.id !== n.id), n]}); },
+    removeNote(id) {
+      const notes = get().notes, at = notes.findIndex(x => x.id === id);
+      if (at < 0) return null;
+      set({notes: notes.filter(x => x.id !== id)});
+      return {note: notes[at], at};
+    },
+    // undo: back where it was in the list
+    restoreNote(n, at) { const notes = get().notes; if (!notes.some(x => x.id === n.id)) set({notes: [...notes.slice(0, at), n, ...notes.slice(at)]}); },
+    forgetAll() { set({notes: []}); },
 
     // one write, so the app never renders a state without the pay that sets payday (or the bills and everyday amounts that hold money back)
     setup(balance, income, bills = [], categories) {
@@ -165,38 +244,41 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     snooze(key) { patch(s => ({snoozed: {...s.snoozed, [key]: today()}})); },
     skip(key) { patch(s => ({skipped: {...s.skipped, [key]: true}})); },
 
-    // One sync: balance, pots and new payments. Payments are saved first; if that fails, nothing changes.
+    // One sync of every bank: balances, pots and new payments. Each bank's payments are saved first; if that fails, that bank
+    // stays as it was. The first bank that went wrong is the one you're told about.
     async syncBank() {
       const before = get().state;
       if (get().syncing) return {error: "other", detail: "a sync is already running"};
       if (!before) return {error: "other", detail: "the app isn't set up yet"};
       set({syncing: true});
       try {
-        const now = Date.now();
-        const got = await fetchBank(syncSince(before.bank, now));
-        const s = get().state;
-        if (!s) return {error: "other"};
-        let added: Tx[];
-        try { added = await insertMany(importTxs({state: s, txs: get().txs, today: today()}, got.txs, now, uid)); }
-        catch { return {error: "not-saved"}; }
-        // older payments get their real time, logo and who they were with back; if that fails they just stay as they were
-        const fills = missingDetails(get().txs, got.txs);
-        let txs = get().txs;
-        try {
-          await backfill(fills);
-          const by = new Map(fills.map(f => [f.monzoId, f]));
-          txs = txs.map(t => {
-            const f = t.monzoId ? by.get(t.monzoId) : undefined;
-            return f ? {...t, paidAt: t.paidAt ?? f.paidAt, logo: t.logo ?? f.logo, note: f.note ?? t.note} : t;
-          });
-        } catch {}
-        set({state: applySync(s, got, now), txs: [...txs, ...added]});
-        return {added: added.length};
-      } catch (e) {
-        // the real reason, in the Expo terminal: the message on screen stays plain
-        console.warn("Monzo sync failed:", e instanceof Error ? e.message : e);
-        return {error: e instanceof MonzoFail ? e.kind : "other", detail: e instanceof Error ? e.message : String(e)};
+        // Monzo once it's in the app, or straight after its login (before its first sync)
+        const monzo = !!before.bank || await loggedIn().catch(() => false);
+        const results = [
+          ...(monzo ? [await syncMonzo()] : []),
+          ...await Promise.all((before.links || []).map(l => syncLink(l.accountId))),
+        ];
+        const failed = results.find(r => "error" in r);
+        return failed ?? {added: results.reduce((a, r) => a + ("added" in r ? r.added : 0), 0)};
       } finally { set({syncing: false}); }
+    },
+    async addLink() {
+      if (!get().state) return {error: "other", detail: "the app isn't set up yet"};
+      let id: string | null;
+      try { id = await linkBank(); }
+      catch (e) { return fail("Bank login", e); }
+      if (!id) return null;
+      set({syncing: true});
+      try {
+        const r = await syncLink(id);
+        if ("error" in r) { await unlink(id).catch(() => {}); return r; }
+        return {id};
+      } finally { set({syncing: false}); }
+    },
+    async removeLink(id) {
+      await unlink(id);
+      const s = get().state;
+      if (s) set({state: withoutLink(s, id)});
     },
     setPotRole(id, role) { const s = get().state; if (s) set({state: setPotRole(s, id, role)}); },
     // the balance stays where it was: from here it's typed in again
@@ -206,5 +288,5 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   name: "money-tracker",
   version: 1,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView, accountant: s.accountant}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView, accountant: s.accountant, aiConsent: s.aiConsent, notes: s.notes}),
 }));

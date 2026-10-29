@@ -524,3 +524,49 @@ describe("bills bigger than one pay, held back over the pays before them (PRD #2
     expect(billsAhead(added, rd.cycleFrom, rd.payday!).map(x => x.held)).toEqual([150]);
   });
 });
+
+describe("late pay: a missed payday is assumed a week away (PRD #4)", () => {
+  // Pay on Wed 30 Sep was never confirmed (tracking started in September). The next one is Fri 30 Oct.
+  const missed = (today = TODAY, over: Partial<AppState> = {}, txs: Tx[] = []) =>
+    ctx({state: baseState({incomes: [{...baseState().incomes[0], since: "2026-09-01"}], ...over}), txs, today});
+  const paidSep30 = tx({type: "income", amount: 1800, date: "2026-09-30", srcId: "job", forDate: "2026-09-30"});
+
+  test("the last payday passed with no pay: payday is a week away, and the number is free ÷ 7", () => {
+    // £1,000 less the £400 rent (15 Oct, held in full) and £200 everyday: £400 free, over 7 days
+    const {r, h} = run(missed());
+    expect(r).toMatchObject({late: true, payday: "2026-10-12", daysLeft: 7});
+    expect(h).toMatchObject({kind: "number", free: 400, perDay: 57, reason: "Pay hasn't arrived, so this lasts a week"});
+  });
+
+  test("the next real payday within a week is used as it is, not assumed", () => {
+    expect(run(missed("2026-10-26")).r).toMatchObject({late: false, payday: "2026-10-30", daysLeft: 4});
+  });
+
+  test("pay that lands, or is marked not coming, puts payday back to the real one", () => {
+    expect(run(missed(TODAY, {}, [paidSep30])).r).toMatchObject({late: false, payday: "2026-10-30"});
+    expect(run(missed(TODAY, {skipped: {"job_2026-09-30": true}})).r).toMatchObject({late: false, payday: "2026-10-30"});
+  });
+
+  test("snoozing doesn't end it: a week away today, and a week away again tomorrow", () => {
+    expect(run(missed(TODAY, {snoozed: {"job_2026-09-30": TODAY}})).r).toMatchObject({late: true, payday: "2026-10-12", daysLeft: 7});
+    expect(run(missed("2026-10-06", {snoozed: {"job_2026-09-30": TODAY}})).r).toMatchObject({late: true, payday: "2026-10-13", daysLeft: 7});
+  });
+
+  test("payday itself is payday today, not late", () => {
+    expect(run(missed("2026-10-30")).h.kind).toBe("payday-today");
+    expect(run(missed("2026-10-30")).r.late).toBe(false);
+  });
+
+  test("the forecast stops at the assumed payday, and Coming up has no pay on it", () => {
+    const c = missed(), r = calc(c);
+    expect(forecast(c, r, "2026-10-08")).not.toBeNull();
+    expect(forecast(c, r, "2026-10-12")).toBeNull();
+    expect(comingUp(c, r).some(x => x.kind === "pay")).toBe(false);
+  });
+
+  test("the Month calendar doesn't mark the assumed payday as pay", () => {
+    const c = missed(), r = calc(c), {days} = calendar(c, r);
+    expect(days.find(x => x.d === "2026-10-12")!.kinds).not.toContain("pay");
+    expect(days.find(x => x.d === "2026-10-12")!.label).not.toContain("payday");
+  });
+});

@@ -1,6 +1,6 @@
 import {MAX_EYE_CONTACT} from "@/lib/timEyes";
 import {hankenWidth} from "@/lib/textWidth";
-import {ASK, beatsOf, frankFrames, HELLO, HELLO_MS, helloBeats, helloFrames, introFrames, linesOf, speechMs, still, syllables, wordsFit, type SpeechFrame} from "@/lib/timSpeech";
+import {ASK, beatsOf, FRANK_HELLOS, frankFrames, HELLO, HELLO_MS, helloBeats, helloFrames, introFrames, linesOf, speechMs, still, syllables, wordsFit, type SpeechFrame} from "@/lib/timSpeech";
 
 test("his hello builds up dot by dot to \"...Hi\", and stays", () => {
   const shown = helloFrames().map(f => f.shown);
@@ -86,12 +86,25 @@ test("his eyes: at you as he says who he is, down at your payments, back at you 
   expect(beats.reduce((sum, b) => sum + b.ms, 0)).toBeCloseTo(speechMs(introFrames()));
 });
 
-test("Frank looks at you all through his hello (up from his laptop with a blink), blinking as each line starts", () => {
-  const frames = frankFrames(), beats = beatsOf(frames);
+test.each(FRANK_HELLOS.map((h, i) => [h.lines[0], i]))("Frank looks at you all through his hello (%s), blinking as each line starts", (_, i) => {
+  const frames = frankFrames(i), beats = beatsOf(frames);
   expect(beats.every(b => b.look === "you" && b.blink && !b.typing)).toBe(true);
   expect(beats).toHaveLength(4); // as he starts, and at each line after the first
   expect(beats.reduce((sum, b) => sum + b.ms, 0)).toBeCloseTo(speechMs(frames));
   beats.slice(0, -1).forEach(b => { expect(b.ms).toBeGreaterThan(1500); expect(b.ms).toBeLessThan(6000); });
+});
+
+test("Frank's hello is any of his, not always the same one", () => {
+  const random = jest.spyOn(Math, "random");
+  try {
+    const said = FRANK_HELLOS.map((h, i) => {
+      random.mockReturnValue((i + 0.5) / FRANK_HELLOS.length);
+      return linesOf(frankFrames())[0].line;
+    });
+    expect(said).toEqual(FRANK_HELLOS.map(h => h.lines[0]));
+  } finally {
+    random.mockRestore();
+  }
 });
 
 test("syllables, about right, for his mouth", () => {
