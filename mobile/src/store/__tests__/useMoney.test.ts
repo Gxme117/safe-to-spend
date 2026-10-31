@@ -2,7 +2,9 @@ import {insertMany, insertTx, updateFiling} from "@/db/transactions";
 import type {Income} from "@/lib/types";
 import {fetchBank, MonzoFail} from "@/services/monzo";
 import {fetchLink, linkBank, unlink} from "@/services/truelayer";
-import {useMoney} from "../useMoney";
+import {CATALOG} from "@/lib/categories";
+import {baseState} from "@/lib/__tests__/fixtures";
+import {migrateSaved, useMoney} from "../useMoney";
 
 const mockMem = new Map<string, string>();
 jest.mock("expo-sqlite/kv-store", () => ({
@@ -37,9 +39,25 @@ beforeEach(() => {
   store().setup(1000);
 });
 
-test("setup starts with the balance and the default categories", () => {
+test("setup starts with the balance, the default categories and the rest of the list", () => {
   expect(store().state).toMatchObject({balance: 1000, incomes: [], bills: []});
-  expect(store().state!.categories.map(c => c.id)).toEqual(["rent", "groceries", "eating", "transport", "bills", "other"]);
+  expect(store().state!.categories.map(c => c.id)).toEqual(["rent", "groceries", "eating", "transport", "bills", "other", ...CATALOG.map(e => e.id).filter(id => !["groceries", "eating", "transport", "other"].includes(id))]);
+});
+
+test("settings saved before the category list get it once, and payments' categories stay where they were", () => {
+  const old = {...baseState(), categories: [
+    {id: "rent", name: "Rent", budget: 0, fixed: true},
+    {id: "groceries", name: "Groceries", budget: 200, fixed: false, group: "everyday" as const},
+    {id: "entertainment", name: "Entertainment", budget: 50, fixed: false, group: "everyday" as const},
+    {id: "other", name: "Other", budget: 0, fixed: false},
+  ]};
+  const got = migrateSaved({state: old, theme: "dark"}, 1);
+  expect(got).toMatchObject({theme: "dark"});
+  expect(got.state!.categories.slice(0, 4)).toEqual([old.categories[0], old.categories[1], {...old.categories[2], name: "Fun"}, {...old.categories[3], name: "General"}]);
+  expect(got.state!.categories.map(c => c.id)).toEqual(expect.arrayContaining(CATALOG.map(e => e.id)));
+  // already on version 2: left alone; nothing saved yet: nothing to do
+  expect(migrateSaved({state: old}, 2).state).toBe(old);
+  expect(migrateSaved({state: null}, 1).state).toBeNull();
 });
 
 test("only one income is main, and editing keeps its place in the list", () => {

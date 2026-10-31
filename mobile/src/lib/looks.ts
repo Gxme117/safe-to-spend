@@ -1,4 +1,5 @@
 import type {ComingRow} from "./calc";
+import {NAME_HINTS} from "./categories";
 import type {Ctx, Tx} from "./types";
 
 /** A badge's colour family; the theme turns it into a colour for light and dark (`badgeTint` in theme/tokens.ts). */
@@ -6,32 +7,20 @@ export type Tint = "green" | "blue" | "peach" | "latte" | "amber" | "pink" | "la
 /** A line icon for what a payment probably was (drawn in components/LookIcon.tsx). */
 export type LookIcon = "cart" | "train" | "eating" | "takeaway" | "coffee" | "fuel" | "bag" | "film" | "bottle" | "pill" | "family" | "coin"
   | "house" | "phone" | "globe" | "bulb" | "drop" | "landmark" | "shield" | "dumbbell" | "music" | "tv" | "repeat" | "card" | "receipt"
-  | "banknote" | "coins";
+  | "banknote" | "coins" | "sofa" | "paw" | "gift" | "heart" | "plane";
 /** What a payment's badge shows when there's no shop logo: an icon for what it probably was, on its colour. */
 export interface Look { icon: LookIcon; tint: Tint }
 
-// each everyday category's look (the app's ids, lib/everyday.ts)
+// each category's look (the app's ids, lib/categories.ts)
 const CATS: Record<string, Look> = {
   groceries: {icon: "cart", tint: "green"}, transport: {icon: "train", tint: "blue"}, eating: {icon: "eating", tint: "peach"},
   takeaways: {icon: "takeaway", tint: "peach"}, coffee: {icon: "coffee", tint: "latte"}, fuel: {icon: "fuel", tint: "amber"},
   shopping: {icon: "bag", tint: "pink"}, entertainment: {icon: "film", tint: "lavender"}, personal: {icon: "bottle", tint: "mint"},
   health: {icon: "pill", tint: "rose"}, family: {icon: "family", tint: "sand"},
+  home: {icon: "sofa", tint: "sand"}, pets: {icon: "paw", tint: "amber"}, gifts: {icon: "gift", tint: "pink"},
+  charity: {icon: "heart", tint: "rose"}, holidays: {icon: "plane", tint: "blue"}, cash: {icon: "banknote", tint: "green"},
 };
 const UNKNOWN: Look = {icon: "coin", tint: "grey"};
-
-// Guesses from a name, first match wins. Whole words where a short one could be part of another ("bar" in "barber").
-const NAMES: [RegExp, string][] = [
-  [/coffee|costa|starbucks|\bpret\b|nero|caff[eè]|\bcafe\b|greggs/i, "coffee"],
-  [/deliveroo|just ?eat|uber ?eats|domino|pizza|\bkfc\b|mcdonald|nando|burger|takeaway/i, "takeaways"],
-  [/\btfl\b|\buber\b|\bbolt\b|train|rail|\bbus\b|\btube\b|\blime\b|taxi|oyster/i, "transport"],
-  [/tesco|sainsbury|\baldi\b|\blidl\b|\basda\b|morrisons|waitrose|co-?op|\bm&s\b|ocado|iceland|grocer/i, "groceries"],
-  [/\bshell\b|\bbp\b|\besso\b|texaco|petrol|\bfuel\b/i, "fuel"],
-  [/boots|superdrug|barber|salon|\bhair\b|beauty/i, "personal"],
-  [/pharmacy|chemist|\bnhs\b|dentist|doctor|optician/i, "health"],
-  [/restaurant|\bbar\b|\bpub\b|grill|kitchen|wagamama|dishoom|brunch/i, "eating"],
-  [/cinema|odeon|\bvue\b|steam|playstation|xbox|ticket|theatre|museum/i, "entertainment"],
-  [/amazon|\basos\b|zara|primark|\bh&m\b|argos|ikea|john lewis|uniqlo|\bshop\b/i, "shopping"],
-];
 
 // bills, by name
 const BILLS: [RegExp, Look][] = [
@@ -55,7 +44,7 @@ const SAVINGS: Look = {icon: "coins", tint: "mint"};
 
 /** What a name probably was, as an everyday category's look; null when nothing fits. */
 function guess(name: string): Look | null {
-  const hit = NAMES.find(([re]) => re.test(name));
+  const hit = NAME_HINTS.find(([re]) => re.test(name));
   return hit ? CATS[hit[1]] : null;
 }
 

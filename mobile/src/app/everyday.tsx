@@ -4,6 +4,7 @@ import {View} from "react-native";
 import {Choice, Form} from "@/components/Form";
 import {Button, Card, Input, T} from "@/components/ui";
 import {catGroup} from "@/lib/calc";
+import {catOrder} from "@/lib/categories";
 import {uid} from "@/lib/defaults";
 import {money, parseAmount, r2} from "@/lib/money";
 import type {Category} from "@/lib/types";
@@ -15,7 +16,7 @@ interface Draft { cat: Category; everyday: boolean; amount: string }
 /** Everyday is money you spend every month (groceries, coffee). It's kept aside, so the daily number is what's truly free. */
 export default function EverydayScreen() {
   const cats = useMoney.getState().state?.categories ?? [];
-  const [rows, setRows] = useState<Draft[]>(() => cats.filter(x => !x.fixed).map(x => ({cat: x, everyday: catGroup(x) === "everyday", amount: x.budget ? String(x.budget) : ""})));
+  const [rows, setRows] = useState<Draft[]>(() => catOrder(cats.filter(x => !x.fixed)).map(x => ({cat: x, everyday: catGroup(x) === "everyday", amount: x.budget ? String(x.budget) : ""})));
   const [adding, setAdding] = useState("");
   const [error, setError] = useState("");
   const set = (i: number, p: Partial<Draft>) => { setRows(rs => rs.map((r, j) => j === i ? {...r, ...p} : r)); setError(""); };

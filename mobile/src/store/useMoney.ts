@@ -1,13 +1,14 @@
 import Storage from "expo-sqlite/kv-store";
 import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
-import {backfill, deleteAllTx, deleteTx, insertMany, insertTx, listSince, updateFiling} from "@/db/transactions";
+import {backfill, deleteAllTx, deleteTx, fileBills, insertMany, insertTx, listSince, updateFiling} from "@/db/transactions";
 import type {Note, Who} from "@/lib/ai/tools";
+import {withCatalog} from "@/lib/categories";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
 import type {SetupFound} from "@/lib/found";
 import {setPotRole} from "@/lib/banks";
-import {applySync, importTxs, missingDetails, type RawTx, syncSince} from "@/lib/monzo";
+import {applySync, importTxs, missingDetails, type RawTx, standIns, syncSince, unfiledBills} from "@/lib/monzo";
 import {r2} from "@/lib/money";
 import type {FilingPatch} from "@/lib/payments";
 import {toBank, toRawTx, withLink, withoutLink} from "@/lib/truelayer";
@@ -41,7 +42,8 @@ interface MoneyStore {
   livingView: LivingView;
   accountant: Accountant;
   aiConsent: boolean;         // you've agreed to Tim and Frank looking at your numbers (what leaves the phone, in ConsentSheet)
-  notes: Note[];              // what you've told them that will still matter next time; kept through Start over
+  speaks: boolean;            // Tim and Frank say a line of each answer out loud (off: their voices are never asked for)
+  notes: Note[];             // what you've told them that will still matter next time; kept through Start over
   toast: Toast | null;
   syncing: boolean;           // a bank sync is running
   setupBank: number | null;   // the Monzo total (main + all pots), when connected during setup (not saved)
@@ -56,6 +58,7 @@ interface MoneyStore {
   setLivingView(v: LivingView): void;
   setAccountant(v: Accountant): void;
   setAiConsent(on: boolean): void;
+  setSpeaks(on: boolean): void;
   addNote(n: Note): void;
   /** Removes a note, and says where it was, so Undo can put it back. */
   removeNote(id: string): {note: Note; at: number} | null;
@@ -99,6 +102,19 @@ const kv = createJSONStorage(() => ({
 
 const SAVE_FAILED = "That didn't save. Try again.";
 
+/**
+ * Settings saved by an older version, brought up to date once when the app loads them.
+ * 2: the category list (lib/categories.ts): the new ones added (free), Other, Entertainment and Personal care renamed where they
+ * still had those names. Payments keep the ids they were filed under, so nothing moves.
+ * 3: Tim speaks too, so "Frank reads his answers out" (frankSpeaks) is "They read their answers out" (speaks), as it was.
+ */
+export function migrateSaved(saved: unknown, version: number) {
+  const p = (saved ?? {}) as {state?: AppState | null; frankSpeaks?: boolean; speaks?: boolean};
+  if (version < 2 && p.state?.categories) p.state = {...p.state, categories: withCatalog(p.state.categories)};
+  if (version < 3 && typeof p.frankSpeaks === "boolean") { p.speaks = p.frankSpeaks; delete p.frankSpeaks; }
+  return p;
+}
+
 export const useMoney = create<MoneyStore>()(persist((set, get) => {
   const patch = (fn: (s: AppState) => Partial<AppState>) => {
     const s = get().state;
@@ -114,6 +130,19 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     const s = get().state;
     if (!s) return null;
     try { return await insertMany(importTxs({state: s, txs: get().txs, today: today()}, raw, now, uid)); } catch { return null; }
+  };
+  // payments from the bank saved before they were recognised get filed against the bills they paid, and ones you logged for those
+  // bills are replaced by the bank's. Saved first: if that fails everything stays as it was, and the next sync tries again
+  const tidyBills = async () => {
+    const s = get().state;
+    if (!s) return;
+    const c = {state: s, txs: get().txs, today: today()};
+    const filings = unfiledBills(c), by = new Map(filings.map(f => [f.id, f.patch]));
+    const filed = (t: Tx): Tx => { const f = by.get(t.id); if (!f) return t; const n: Tx = {...t, ...f}; delete n.needsCat; return n; };
+    const remove = new Set(standIns({...c, txs: c.txs.map(filed)}));
+    if (!filings.length && !remove.size) return;
+    try { await fileBills(filings, [...remove]); } catch { return; }
+    set({txs: get().txs.filter(t => !remove.has(t.id)).map(filed)});
   };
 
   const syncMonzo = async (): Promise<SyncResult> => {
@@ -157,7 +186,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", accountant: "tim", aiConsent: false, notes: [], toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", accountant: "tim", aiConsent: false, speaks: true, notes: [], toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -171,6 +200,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     setLivingView(livingView) { set({livingView}); },
     setAccountant(accountant) { set({accountant}); },
     setAiConsent(aiConsent) { set({aiConsent}); },
+    setSpeaks(speaks) { set({speaks}); },
     addNote(n) { set({notes: [...get().notes.filter(x => x.id !== n.id), n]}); },
     removeNote(id) {
       const notes = get().notes, at = notes.findIndex(x => x.id === id);
@@ -185,7 +215,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     // one write, so the app never renders a state without the pay that sets payday (or the bills and everyday amounts that hold money back)
     setup(balance, income, bills = [], categories) {
       const st = newState(r2(balance), today(), Date.now());
-      set({setupBank: null, setupFound: null, state: {...st, incomes: income ? [income] : [], bills, categories: categories ?? st.categories}});
+      set({setupBank: null, setupFound: null, state: {...st, incomes: income ? [income] : [], bills, categories: categories ? withCatalog(categories) : st.categories}});
     },
     setSetupBank(main, found = null) { set({setupBank: main === null ? null : r2(main), setupFound: main === null ? null : found}); },
     // payments go first, so a failure leaves everything as it was
@@ -236,6 +266,8 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         delete n.needsCat;
         return n;
       })});
+      // a bank payment filed under a bill you'd marked paid by hand replaces that one
+      if (f.billId && get().txs.some(t => t.id === id && t.monzoId)) await tidyBills();
       return true;
     },
     confirmPay(src, date, amount) {
@@ -258,6 +290,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
           ...(monzo ? [await syncMonzo()] : []),
           ...await Promise.all((before.links || []).map(l => syncLink(l.accountId))),
         ];
+        await tidyBills();
         const failed = results.find(r => "error" in r);
         return failed ?? {added: results.reduce((a, r) => a + ("added" in r ? r.added : 0), 0)};
       } finally { set({syncing: false}); }
@@ -286,7 +319,8 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 }, {
   name: "money-tracker",
-  version: 1,
+  version: 3,
+  migrate: (saved, version) => migrateSaved(saved, version) as MoneyStore,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView, accountant: s.accountant, aiConsent: s.aiConsent, notes: s.notes}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView, accountant: s.accountant, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes}),
 }));

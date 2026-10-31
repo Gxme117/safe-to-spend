@@ -28,10 +28,11 @@ export default function PaymentScreen() {
   const choose = async (pick: Filing) => {
     if (busy.current) return;
     busy.current = true;
-    const {patch, msg} = fileUnder(ctx, it, pick);
+    const {patch, msg, bill} = fileUnder(ctx, it, pick);
     const ok = await useMoney.getState().refileTx(it.id, patch);
     busy.current = false;
     if (!ok) return;
+    if (bill) useMoney.getState().saveBill(bill);
     router.back();
     useMoney.getState().notify(msg, true);
   };
@@ -60,7 +61,7 @@ type Props = {ctx: Ctx; it: Tx; choose: (p: Filing) => void};
 
 function MoneyOut({ctx, it, choose}: Props) {
   const {bills} = ctx.state;
-  // an unsorted payment has nothing picked yet: "Other" was only a placeholder
+  // an unsorted payment has nothing picked yet: General was only a placeholder
   const on = (k: "bill" | "cat", x: string) => !unsorted(it) && (k === "bill" ? it.billId === x : !it.billId && it.cat === x);
   return (
     <>

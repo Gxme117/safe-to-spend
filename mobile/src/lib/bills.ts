@@ -1,4 +1,5 @@
 import {addDays, isoD, niceDate, ord, parseD, workingAfter, workingBefore} from "./dates";
+import {cycleStart} from "./income";
 import {parseAmount, r2} from "./money";
 import type {Bill, BillFreq, BillMethod, Ctx, IsoDate} from "./types";
 
@@ -49,11 +50,14 @@ export function billDates(b: Bill, from: IsoDate, to: IsoDate): IsoDate[] {
 
 export const nextBill = (b: Bill, t: IsoDate) => billDates(b, t, addDays(t, 400))[0] || null;
 
-/** Paid when a payment was filed against it, or a payment in its category went out from a week before to 3 days after. */
+/** A payment on `date` can be for a bill due on `d`: it went out from a week before to 3 days after. */
+export const nearDue = (date: IsoDate, d: IsoDate) => date >= addDays(d, -7) && date <= addDays(d, 3);
+
+/** Paid when a payment was filed against it, or a payment in its category went out near the date (`nearDue`). */
 export function billPaid(ctx: Ctx, b: Bill, d: IsoDate) {
   return ctx.txs.some(it =>
     (it.billId === b.id && it.forDate === d) ||
-    (!!b.cat && it.type === "expense" && it.cat === b.cat && it.date >= addDays(d, -7) && it.date <= addDays(d, 3)));
+    (!!b.cat && it.type === "expense" && it.cat === b.cat && nearDue(it.date, d)));
 }
 
 export const billMonthly = (b: Bill) => (b.amount || 0) * (PER_MONTH[b.freq] || 1);
@@ -73,6 +77,22 @@ export function billMeta(b: Bill, next: string | null) {
 export function billFor(ctx: Ctx, b: Bill, date: IsoDate) {
   const ds = billDates(b, date, addDays(date, 45));
   return ds.find(d => !billPaid(ctx, b, d)) || ds[0] || null;
+}
+
+/**
+ * What a payment from the bank on `date` pays: the earliest due date it's near (`nearDue`) that no payment from the bank has paid.
+ * One you logged yourself doesn't count: the bank's payment is the real one, and replaces it (`standIns` in lib/monzo.ts).
+ * A bill with no payment date: its pay cycle, until a payment from the bank is filed against it there (`d` null).
+ * Nothing open: null, so the same payment is never counted twice.
+ */
+export function billSlot(ctx: Ctx, b: Bill, date: IsoDate): {d: IsoDate | null} | null {
+  const bank = {...ctx, txs: ctx.txs.filter(it => !(it.billId && !it.monzoId))};
+  if (!billDated(b)) {
+    const cycle = cycleStart({...ctx, today: date});
+    return bank.txs.some(it => it.billId === b.id && cycleStart({...ctx, today: it.date}) === cycle) ? null : {d: null};
+  }
+  const d = billDates(b, addDays(date, -3), addDays(date, 7)).find(x => nearDue(date, x) && !billPaid(bank, b, x));
+  return d ? {d} : null;
 }
 
 export interface BillForm { name: string; amount: number; varies: boolean; freq: BillFreq; day: number | "last" | null; date: IsoDate; method: BillMethod | null }

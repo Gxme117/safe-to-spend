@@ -1,10 +1,14 @@
-import {billFor} from "./bills";
+import {billFor, billSlot} from "./bills";
+import {catOrder} from "./categories";
 import {addDays, dayDiff, niceDate} from "./dates";
 import {isReceived, occurrences} from "./income";
-import type {AppState, Ctx, IsoDate, Tx} from "./types";
+import type {AppState, Bill, Ctx, IsoDate, Tx} from "./types";
 
-/** What a payment can be filed under: once there are bills, fixed costs go through the bill (that's what marks it paid), not a category. */
-export const spendCats = (s: AppState) => s.bills.length ? s.categories.filter(x => !x.fixed) : s.categories;
+/**
+ * What a payment can be filed under: once there are bills, fixed costs go through the bill (that's what marks it paid), not a category.
+ * The ones you budget first, General last (`catOrder`).
+ */
+export const spendCats = (s: AppState) => catOrder(s.bills.length ? s.categories.filter(x => !x.fixed) : s.categories);
 
 /** Money in that isn't your pay. Only "other-income" is real income; the rest is your own money or money coming back. */
 export type InKind = "transfer" | "refund" | "payback" | "other-income";
@@ -25,17 +29,23 @@ export type Filing =
   | {kind: "in"; id: InKind; refundOf?: string};
 export interface FilingPatch { cat: string; billId?: string; forDate?: IsoDate; srcId?: string; refundOf?: string }
 
-const catName = (ctx: Ctx, id?: string) => ctx.state.categories.find(x => x.id === id)?.name || "Other";
+const catName = (ctx: Ctx, id?: string) => ctx.state.categories.find(x => x.id === id)?.name || "General";
 
-/** Re-files a payment. Its old filing never counts against the new one (a bill or payday it already marked). */
-export function fileUnder(ctx: Ctx, it: Tx, pick: Filing): {patch: FilingPatch; msg: string} {
+/**
+ * Re-files a payment. Its old filing never counts against the new one (a bill or payday it already marked).
+ * `bill`: a payment from the bank filed under a bill that doesn't know who it's paid to yet, now knowing, so the next one is recognised.
+ */
+export function fileUnder(ctx: Ctx, it: Tx, pick: Filing): {patch: FilingPatch; msg: string; bill?: Bill} {
   const others = {...ctx, txs: ctx.txs.filter(x => x.id !== it.id)};
   if (pick.kind === "bill") {
     const b = ctx.state.bills.find(x => x.id === pick.id)!;
-    const d = billFor(others, b, it.date);
+    // from the bank: the due date it's near that the bank hasn't paid (one you marked paid by hand is replaced by it), else the next unpaid
+    const d = (it.monzoId ? billSlot(others, b, it.date)?.d : null) ?? billFor(others, b, it.date);
+    const payee = it.monzoId && !b.payee ? it.note.trim() : "";
     return {
       patch: {cat: b.cat || "bills", billId: b.id, ...(d ? {forDate: d} : {})},
       msg: d ? `${b.name} marked paid for ${niceDate(d)}. It's no longer held back` : `Filed under ${b.name}`,
+      ...(payee ? {bill: {...b, payee}} : {}),
     };
   }
   if (pick.kind === "pay") {

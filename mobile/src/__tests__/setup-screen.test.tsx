@@ -5,6 +5,7 @@ import {SafeAreaProvider} from "react-native-safe-area-context";
 import SetupScreen from "@/app/setup";
 import {keyboardCover} from "@/components/Setup";
 import {TODAY} from "@/lib/__tests__/fixtures";
+import {withCatalog} from "@/lib/categories";
 import {DEFAULT_CATEGORIES} from "@/lib/defaults";
 import {syncNow} from "@/components/Bank";
 import type {FoundPayee, SetupFound} from "@/lib/found";
@@ -629,7 +630,7 @@ test("everyday: Skip for now ends setup with the starting categories, nothing se
   await toEveryday();
   await tap("Groceries");
   await skipEveryday();
-  expect(useMoney.getState().state!.categories).toEqual(DEFAULT_CATEGORIES);
+  expect(useMoney.getState().state!.categories).toEqual(withCatalog(DEFAULT_CATEGORIES));
 });
 
 test("everyday: add one of your own, and typing a usual one picks it rather than adding it twice", async () => {

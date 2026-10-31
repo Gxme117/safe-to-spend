@@ -33,7 +33,12 @@ export function LookIcon({name, color, size = 18, line = 1.8}: {name: Name; colo
       {name === "card" && <><Rect x={2.5} y={5} width={19} height={14} rx={2.5} {...p} /><Path d="M2.5 10h19M6 15h4" {...p} /></>}
       {name === "receipt" && <Path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5L6 21V3zM9 8h6M9 12h6M9 16h3" {...p} />}
       {name === "banknote" && <><Rect x={2.5} y={6} width={19} height={12} rx={2} {...p} /><Circle cx={12} cy={12} r={2.5} {...p} /><Path d="M6 9.5h.01M18 14.5h.01" {...p} /></>}
-      {name === "coins" && <><Circle cx={9} cy={9} r={5.5} {...p} /><Path d="M16.6 10.4a5.5 5.5 0 1 1-6.2 6.2" {...p} /></>}
+      {name === "sofa" && <Path d="M5 11V8a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3M3 13a2 2 0 0 1 4 0v2h10v-2a2 2 0 0 1 4 0v5H3v-5zM5 18v2M19 18v2" {...p} />}
+      {name === "paw" && <><Circle cx={7} cy={10} r={1.8} {...p} /><Circle cx={10.5} cy={6} r={1.8} {...p} /><Circle cx={15} cy={6.5} r={1.8} {...p} /><Circle cx={18} cy={11} r={1.8} {...p} /><Path d="M12 12c-2.6 0-5 3-5 5.2 0 1.6 1.4 2.3 2.8 1.9.8-.2 1.5-.4 2.2-.4s1.4.2 2.2.4c1.4.4 2.8-.3 2.8-1.9 0-2.2-2.4-5.2-5-5.2z" {...p} /></>}
+      {name === "gift" && <><Rect x={3.5} y={8} width={17} height={4} rx={1} {...p} /><Path d="M5 12v8h14v-8M12 8v12M12 8c-1-3-5-4.5-5.5-2S10 8 12 8zM12 8c1-3 5-4.5 5.5-2S14 8 12 8z" {...p} /></>}
+      {name === "heart" && <Path d="M12 20s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 7.5 4.2 4.2 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z" {...p} />}
+      {name === "plane" && <Path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z" {...p} />}
+      {name === "coins" &&<><Circle cx={9} cy={9} r={5.5} {...p} /><Path d="M16.6 10.4a5.5 5.5 0 1 1-6.2 6.2" {...p} /></>}
     </Svg>
   );
 }

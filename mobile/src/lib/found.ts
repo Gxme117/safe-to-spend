@@ -233,7 +233,7 @@ export interface FoundSpend { name: string; monthly: number; n: number }
 // Monzo's categories as setup's everyday ones. Bills, transfers, savings, finances, expenses and holidays aren't everyday spending.
 const SPEND_CAT: Record<string, string> = {
   groceries: "Groceries", eating_out: "Eating out", transport: "Transport", shopping: "Shopping",
-  entertainment: "Entertainment", personal_care: "Personal care", general: "Other", cash: "Other",
+  entertainment: "Fun", personal_care: "Self-care", general: "General", cash: "General",
 };
 
 /**

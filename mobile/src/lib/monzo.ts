@@ -1,10 +1,13 @@
 // Monzo, without the network: building the login link, reading the link Safari lands on, and turning
 // what the API returned into app state. The calls themselves live in services/monzo.ts.
 import {accountKey, allBanks, anchor, ownAccounts} from "./banks";
+import {billSlot} from "./bills";
+import {bankCat, GENERAL} from "./categories";
 import {addDays, isoD} from "./dates";
-import {isReceived, occurrences} from "./income";
+import {cycleStart, isReceived, occurrences} from "./income";
 import {r2} from "./money";
-import type {AppState, Bank, Ctx, IsoDate, Pot, Tx} from "./types";
+import type {FilingPatch} from "./payments";
+import type {AppState, Bank, Bill, Ctx, IsoDate, Pot, Tx} from "./types";
 
 // Monzo's sign-in finishes with a redirect. Expo Go can't catch a fixed one, so the client is registered
 // with this dead address: Safari shows an error page, and you copy the link (which holds the code) from its address bar.
@@ -50,9 +53,6 @@ export function syncSince(bank: Bank | undefined, now: number): string {
   return from.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-// Monzo's categories that match the app's own. Anything else is asked about, not guessed.
-const MONZO_CAT: Record<string, string> = {eating_out: "eating", groceries: "groceries", transport: "transport", personal_care: "personal", family: "family"};
-
 /** The shop's logo link, as Monzo sends it. Only https links: anything else is left out. */
 const txLogo = (t: RawTx) => {
   const l = typeof t.merchant === "object" ? t.merchant?.logo?.trim() : undefined;
@@ -72,6 +72,34 @@ const MONTH = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(u
 export const plain = (s: string) => s.toLowerCase().replace(/\d+/g, " ").replace(MONTH, " ").replace(/\s+/g, " ").trim();
 const letters = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "");
 
+// words that don't say who it is: "Octopus Energy Ltd" is Octopus Energy, "NETFLIX.COM" is Netflix
+const NOISE = new Set(["ltd", "limited", "plc", "uk", "co", "com", "www", "the", "dd"]);
+/** A name as the words that say who it is: numbers and months out (`plain`), apostrophes joined, any other mark splits words. */
+const nameWords = (s: string) => plain(s.replace(/['’]/g, "")).split(/[^a-z]+/).filter(w => w && !NOISE.has(w));
+/** Every word of the bill's name is in the payment's, so a reference added on the end doesn't matter: "Netflix" finds
+ *  "NETFLIX.COM", "Council tax" finds "LB HACKNEY COUNCIL TAX". Only that way round: "Amazon Prime" doesn't find "AMAZON". */
+const named = (name: string, paid: string[]) => { const w = nameWords(name); return w.length > 0 && w.every(x => paid.includes(x)); };
+// about what the bill is: within 10% (how setup found it), or from half to double for one that varies
+const aboutRight = (b: Bill, amount: number) =>
+  b.varies ? amount >= b.amount / 2 && amount <= b.amount * 2 : Math.abs(amount - b.amount) <= b.amount * 0.1 + 0.005;
+
+/**
+ * The bill a payment from the bank paid, and the due date it's for. Only when it's paid to them (the payee setup saw, or the bill's
+ * name), about the amount, and near a due date the bank hasn't paid yet (`billSlot`): the amount alone is never enough.
+ * More than one bill fits: null, and it's asked about, as now. A bill with no amount yet is never matched.
+ */
+export function billMatch(ctx: Ctx, it: Pick<Tx, "amount" | "date" | "note">): {b: Bill; d: IsoDate | null} | null {
+  const paid = nameWords(it.note);
+  const fits = ctx.state.bills.flatMap(b => {
+    if (!(b.amount > 0) || !aboutRight(b, it.amount) || !(named(b.payee ?? "", paid) || named(b.name, paid))) return [];
+    const slot = billSlot(ctx, b, it.date);
+    return slot ? [{b, d: slot.d}] : [];
+  });
+  return fits.length === 1 ? fits[0] : null;
+}
+/** A payment filed against the bill it paid, as "Mark as paid" files one: off what's held back, and not counted as spending. */
+const paidBill = (m: {b: Bill; d: IsoDate | null}): FilingPatch => ({cat: m.b.cat || "bills", billId: m.b.id, ...(m.d ? {forDate: m.d} : {})});
+
 /**
  * New card payments and money in, as payments. Skips ones already saved, declines, moves between pots and moves
  * between your own connected accounts (the balance already shows both sides).
@@ -80,7 +108,6 @@ const letters = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "");
  */
 export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => string): Tx[] {
   const known = new Set(ctx.txs.map(t => t.monzoId).filter(Boolean));
-  const cats = new Set(ctx.state.categories.map(c => c.id));
   const own = ownAccounts(ctx.state);
   const savings = new Map(allBanks(ctx.state).flatMap(b => b.pots).filter(p => p.role === "save").map(p => [p.id, p.name]));
   const out: Tx[] = [];
@@ -102,8 +129,12 @@ export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => st
     const logo = txLogo(t);
     if (logo) row.logo = logo;
     if (t.amount < 0) {
-      const cat = MONZO_CAT[t.category || ""];
-      if (cat && cats.has(cat)) row.cat = cat; else { row.cat = "other"; row.needsCat = true; }
+      // a bill it paid is filed against it (each due date once: it sees the ones before it); otherwise the category Monzo's
+      // points to (lib/categories.ts), or General and asked
+      const bill = billMatch({...ctx, txs: [...ctx.txs, ...out]}, row);
+      const cat = bankCat(ctx.state.categories, t.category, note);
+      if (bill) Object.assign(row, paidBill(bill));
+      else if (cat) row.cat = cat; else { row.cat = GENERAL; row.needsCat = true; }
     } else {
       // pay that matches an income source counts as that payday arriving
       // who pays it, when setup saw that in Monzo; otherwise the income's name. Either can be in the reference or the payer's name
@@ -158,6 +189,35 @@ export function missingDetails(txs: Tx[], raw: RawTx[]): Backfill[] {
     if (t.note && t.note === oldName(r) && t.note !== name) fill.note = name;
     return fill.paidAt !== undefined || fill.logo || fill.note ? [fill] : [];
   });
+}
+
+/**
+ * Payments from the bank saved before they could be matched to the bill they paid (synced before this, or before the bill was added),
+ * filed against it now. Only ones still asked about, so never one you've said what it was. Oldest first, each taking its due date.
+ */
+export function unfiledBills(ctx: Ctx): {id: string; patch: FilingPatch}[] {
+  const out: {id: string; patch: FilingPatch}[] = [];
+  let txs = ctx.txs;
+  const open = ctx.txs.filter(it => it.type === "expense" && it.monzoId && it.needsCat && !it.billId)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.created - b.created);
+  for (const it of open) {
+    const m = billMatch({...ctx, txs: txs.filter(x => x.id !== it.id)}, it);
+    if (!m) continue;
+    const patch = paidBill(m);
+    out.push({id: it.id, patch});
+    txs = txs.map(x => x.id === it.id ? {...x, ...patch} : x);
+  }
+  return out;
+}
+
+/**
+ * Payments you logged for a bill ("Mark as paid", Add payment) that a payment from the bank now covers: the same due date, or for a
+ * bill with no payment date, the same pay cycle. The bank's is the real one, so these go, and the bill is paid (and spent) once.
+ */
+export function standIns(ctx: Ctx): string[] {
+  const slot = (it: Tx) => `${it.billId}|${it.forDate ? `due ${it.forDate}` : `pay ${cycleStart({...ctx, today: it.date})}`}`;
+  const bank = new Set(ctx.txs.filter(it => it.billId && it.monzoId).map(slot));
+  return ctx.txs.filter(it => it.billId && !it.monzoId && bank.has(slot(it))).map(it => it.id);
 }
 
 /**

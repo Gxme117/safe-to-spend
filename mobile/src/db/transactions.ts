@@ -57,10 +57,22 @@ export async function backfill(fills: {monzoId: string; paidAt?: number; logo?: 
   });
 }
 
+const FILE = "UPDATE tx SET cat = ?, bill_id = ?, for_date = ?, src_id = ?, refund_of = ?, needs_cat = 0 WHERE id = ?";
+const filing = (id: string, f: FilingPatch) => [f.cat, f.billId ?? null, f.forDate ?? null, f.srcId ?? null, f.refundOf ?? null, id];
+
 /** Files a payment under a different bill, category, pay or kind of money in. Once you've said what it was, it's no longer asked about. */
 export async function updateFiling(id: string, f: FilingPatch) {
-  await (await db()).runAsync("UPDATE tx SET cat = ?, bill_id = ?, for_date = ?, src_id = ?, refund_of = ?, needs_cat = 0 WHERE id = ?",
-    f.cat, f.billId ?? null, f.forDate ?? null, f.srcId ?? null, f.refundOf ?? null, id);
+  await (await db()).runAsync(FILE, ...filing(id, f));
+}
+
+/** Payments from the bank filed against the bills they paid, and the payments you logged for them that those replace: all or nothing. */
+export async function fileBills(filings: {id: string; patch: FilingPatch}[], remove: string[]) {
+  if (!filings.length && !remove.length) return;
+  const d = await db();
+  await d.withTransactionAsync(async () => {
+    for (const f of filings) await d.runAsync(FILE, ...filing(f.id, f.patch));
+    for (const id of remove) await d.runAsync("DELETE FROM tx WHERE id = ?", id);
+  });
 }
 
 export async function deleteTx(id: string) {

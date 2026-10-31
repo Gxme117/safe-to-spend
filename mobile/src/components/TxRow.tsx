@@ -17,7 +17,7 @@ export function txWhat(ctx: Ctx, it: Tx) {
   if (it.billId) return ctx.state.bills.find(b => b.id === it.billId)?.name || "Bill";
   if (it.type === "save") return "Moved to savings";
   if (it.type === "income") return moneyInWhat(ctx, it);
-  return ctx.state.categories.find(x => x.id === it.cat)?.name || "Other";
+  return ctx.state.categories.find(x => x.id === it.cat)?.name || "General";
 }
 
 /** Ask before deleting a payment. */

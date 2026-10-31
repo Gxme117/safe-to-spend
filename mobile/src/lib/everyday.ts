@@ -17,15 +17,15 @@ const PER_MONTH_SPEND: Record<SpendFreq, number> = {
 
 /**
  * To jog your memory, each starting at how often it usually happens. The ids are the app's own where there is one
- * (Groceries is `groceries`, Personal care is `personal`), so Monzo's payments land in them.
+ * (Groceries is `groceries`, Self-care is `personal`), so Monzo's payments land in them. Names as in lib/categories.ts.
  */
 export const EVERYDAY: {name: string; id: string; freq: SpendFreq}[] = [
   {name: "Groceries", id: "groceries", freq: "weekly"}, {name: "Transport", id: "transport", freq: "weekly"},
   {name: "Eating out", id: "eating", freq: "weekly"}, {name: "Takeaways", id: "takeaways", freq: "weekly"},
   {name: "Coffee & drinks", id: "coffee", freq: "few-times"}, {name: "Fuel", id: "fuel", freq: "fortnightly"},
-  {name: "Shopping", id: "shopping", freq: "monthly"}, {name: "Entertainment", id: "entertainment", freq: "monthly"},
-  {name: "Personal care", id: "personal", freq: "monthly"}, {name: "Health", id: "health", freq: "monthly"},
-  {name: "Other", id: "other", freq: "monthly"},
+  {name: "Shopping", id: "shopping", freq: "monthly"}, {name: "Fun", id: "entertainment", freq: "monthly"},
+  {name: "Self-care", id: "personal", freq: "monthly"}, {name: "Health", id: "health", freq: "monthly"},
+  {name: "General", id: "other", freq: "monthly"},
 ];
 
 /**

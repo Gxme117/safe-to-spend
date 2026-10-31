@@ -50,7 +50,7 @@ describe("setup's picks as categories", () => {
   const cats = everydayCats(DEFAULT_CATEGORIES, [
     {name: "Eating out", draft: draft({amount: "15", freq: "few-times", budget: "120"})},
     {name: "Groceries", draft: draft({amount: "60"})},
-    {name: "Personal care", draft: draft({amount: "20", freq: "monthly"})},
+    {name: "Self-care", draft: draft({amount: "20", freq: "monthly"})},
     {name: "Pets", draft: draft({amount: "40", freq: "monthly"})},
     {name: "Health", draft: draft()},
   ], newId);
@@ -58,7 +58,7 @@ describe("setup's picks as categories", () => {
   test("a usual one keeps the app's id, your own gets a new one, and an estimate is kept beside the budget", () => {
     expect(cats.find(x => x.name === "Groceries")).toEqual({id: "groceries", name: "Groceries", budget: 260, fixed: false, group: "everyday", usual: {amount: 60, freq: "weekly"}});
     expect(cats.find(x => x.name === "Eating out")).toEqual({id: "eating", name: "Eating out", budget: 120, fixed: false, group: "everyday", usual: {amount: 15, freq: "few-times"}});
-    expect(cats.find(x => x.name === "Personal care")?.id).toBe("personal");   // what Monzo's personal_care files into
+    expect(cats.find(x => x.name === "Self-care")?.id).toBe("personal");   // what Monzo's personal_care files into
     expect(cats.find(x => x.name === "Pets")?.id).toMatch(/^cx\d+$/);
   });
   test("no budget is free: there to file payments against, holding nothing back", () => {
@@ -66,13 +66,13 @@ describe("setup's picks as categories", () => {
   });
   test("the fixed ones, then your picks in order, then the starting ones you didn't pick, as they were", () => {
     expect(cats.map(x => x.id).slice(0, 2)).toEqual(["rent", "bills"]);
-    expect(cats.map(x => x.name).slice(2, 7)).toEqual(["Eating out", "Groceries", "Personal care", "Pets", "Health"]);
+    expect(cats.map(x => x.name).slice(2, 7)).toEqual(["Eating out", "Groceries", "Self-care", "Pets", "Health"]);
     expect(cats.slice(7)).toEqual(DEFAULT_CATEGORIES.filter(x => ["transport", "other"].includes(x.id)));
     expect(new Set(cats.map(x => x.id)).size).toBe(cats.length);
   });
   test("the daily number keeps the budgets aside", () => {
     const c = calc(ctx({state: baseState({bills: [], categories: cats})}));
-    expect(c.everyday.map(e => e.x.name)).toEqual(["Eating out", "Groceries", "Personal care", "Pets"]);
+    expect(c.everyday.map(e => e.x.name)).toEqual(["Eating out", "Groceries", "Self-care", "Pets"]);
     expect(c.everydayLeft).toBe(440);   // 120 + 260 + 20 + 40; Health has no budget
   });
 });

@@ -52,7 +52,7 @@ export interface Bill {
   from?: {kind: "main" | "other"; name?: string};
   cat?: string;
   source?: Source;
-  payee?: string;   // who it's paid to, as the bank names them, when it was found there
+  payee?: string;   // who it's paid to, as the bank names them: found there at setup, or from a bank payment you filed under it. Payments to them are recognised as paying it (billMatch)
   icon?: LookIcon;  // chosen by you; otherwise it's guessed from the name (billLook)
   since?: IsoDate;  // when it was added after setup: it's held back for from that pay cycle on, not caught up all at once
 }
