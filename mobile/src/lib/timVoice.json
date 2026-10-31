@@ -1,0 +1,113 @@
+{
+ "h0": {
+  "text": "[softly, a little shy] ...Hi. [quietly] I'm Tim. I can see your recent transactions, so I can help you make sense of your money. What would you like to ask me?",
+  "ms": 8516,
+  "words": [
+   {
+    "start": 240,
+    "end": 640
+   },
+   {
+    "start": 1280,
+    "end": 1440
+   },
+   {
+    "start": 1520,
+    "end": 1760
+   },
+   {
+    "start": 2560,
+    "end": 2613
+   },
+   {
+    "start": 2667,
+    "end": 2720
+   },
+   {
+    "start": 2800,
+    "end": 2880
+   },
+   {
+    "start": 2960,
+    "end": 3120
+   },
+   {
+    "start": 3280,
+    "end": 3440
+   },
+   {
+    "start": 3880,
+    "end": 4320
+   },
+   {
+    "start": 4840,
+    "end": 5040
+   },
+   {
+    "start": 5200,
+    "end": 5253
+   },
+   {
+    "start": 5307,
+    "end": 5360
+   },
+   {
+    "start": 5440,
+    "end": 5520
+   },
+   {
+    "start": 5600,
+    "end": 5680
+   },
+   {
+    "start": 5760,
+    "end": 5840
+   },
+   {
+    "start": 5920,
+    "end": 6080
+   },
+   {
+    "start": 6160,
+    "end": 6240
+   },
+   {
+    "start": 6320,
+    "end": 6400
+   },
+   {
+    "start": 6520,
+    "end": 6640
+   },
+   {
+    "start": 7200,
+    "end": 7280
+   },
+   {
+    "start": 7360,
+    "end": 7440
+   },
+   {
+    "start": 7480,
+    "end": 7520
+   },
+   {
+    "start": 7600,
+    "end": 7680
+   },
+   {
+    "start": 7760,
+    "end": 7840
+   },
+   {
+    "start": 7920,
+    "end": 8080
+   },
+   {
+    "start": 8160,
+    "end": 8320
+   }
+  ],
+  "mouth": "0001221000000001221211000000012222223212211111211111110011211122221232122222312100000032323212322110000"
+ }
+}

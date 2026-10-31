@@ -1,0 +1,452 @@
+{
+ "h0": {
+  "text": "[strong New York accent, low and tired] [sighs] Frank here. Another day... another pile of direct debits. [dryly] I've already been through your transactions. [quietly] So. What do you want?",
+  "ms": 9482,
+  "words": [
+   {
+    "start": 800,
+    "end": 1040
+   },
+   {
+    "start": 1120,
+    "end": 1440
+   },
+   {
+    "start": 1920,
+    "end": 2240
+   },
+   {
+    "start": 2320,
+    "end": 2720
+   },
+   {
+    "start": 3200,
+    "end": 3600
+   },
+   {
+    "start": 3680,
+    "end": 3920
+   },
+   {
+    "start": 3960,
+    "end": 4000
+   },
+   {
+    "start": 4080,
+    "end": 4400
+   },
+   {
+    "start": 4480,
+    "end": 4880
+   },
+   {
+    "start": 5520,
+    "end": 5600
+   },
+   {
+    "start": 5680,
+    "end": 5920
+   },
+   {
+    "start": 6000,
+    "end": 6160
+   },
+   {
+    "start": 6240,
+    "end": 6320
+   },
+   {
+    "start": 6400,
+    "end": 6480
+   },
+   {
+    "start": 6880,
+    "end": 7280
+   },
+   {
+    "start": 7920,
+    "end": 8160
+   },
+   {
+    "start": 8720,
+    "end": 8800
+   },
+   {
+    "start": 8840,
+    "end": 8880
+   },
+   {
+    "start": 8920,
+    "end": 8960
+   },
+   {
+    "start": 9040,
+    "end": 9280
+   }
+  ],
+  "mouth": "001111100022112111000000122222222100000122201222012201100221000000122222222321111121101100000012310000000233310000"
+ },
+ "h1": {
+  "text": "[strong New York accent, low and tired] [flatly] Oh. It's you. I've checked every penny. [under his breath] Somebody has to... [quietly] What is it?",
+  "ms": 6269,
+  "words": [
+   {
+    "start": 162,
+    "end": 402
+   },
+   {
+    "start": 882,
+    "end": 1122
+   },
+   {
+    "start": 1242,
+    "end": 1362
+   },
+   {
+    "start": 2002,
+    "end": 2162
+   },
+   {
+    "start": 2322,
+    "end": 2482
+   },
+   {
+    "start": 2562,
+    "end": 2882
+   },
+   {
+    "start": 2922,
+    "end": 3202
+   },
+   {
+    "start": 3922,
+    "end": 4402
+   },
+   {
+    "start": 4482,
+    "end": 4642
+   },
+   {
+    "start": 4722,
+    "end": 4882
+   },
+   {
+    "start": 5722,
+    "end": 5762
+   },
+   {
+    "start": 5842,
+    "end": 5922
+   },
+   {
+    "start": 6002,
+    "end": 6082
+   }
+  ],
+  "mouth": "0332110000012223100000001012201222122210000000121211111220000000000032221000"
+ },
+ "h2": {
+  "text": "[strong New York accent, low and tired] Frank. Accountant. [sighs] Unfortunately. I've checked your numbers twice. They add up... [dryly] unlike most things. [quietly] Go on, then.",
+  "ms": 9718,
+  "words": [
+   {
+    "start": 160,
+    "end": 560
+   },
+   {
+    "start": 1040,
+    "end": 1680
+   },
+   {
+    "start": 3173,
+    "end": 3440
+   },
+   {
+    "start": 4080,
+    "end": 4240
+   },
+   {
+    "start": 4360,
+    "end": 4480
+   },
+   {
+    "start": 4520,
+    "end": 4560
+   },
+   {
+    "start": 4640,
+    "end": 4960
+   },
+   {
+    "start": 5040,
+    "end": 5520
+   },
+   {
+    "start": 6000,
+    "end": 6080
+   },
+   {
+    "start": 6160,
+    "end": 6320
+   },
+   {
+    "start": 6400,
+    "end": 6560
+   },
+   {
+    "start": 7253,
+    "end": 7440
+   },
+   {
+    "start": 7520,
+    "end": 7760
+   },
+   {
+    "start": 7840,
+    "end": 8160
+   },
+   {
+    "start": 8928,
+    "end": 8960
+   },
+   {
+    "start": 9040,
+    "end": 9120
+   },
+   {
+    "start": 9200,
+    "end": 9440
+   }
+  ],
+  "mouth": "002220110000011311011000000110001101111111000000011121323222122122100000222223000000001220232111121000000013322220000"
+ },
+ "h3": {
+  "text": "[strong New York accent, low and tired] [distracted] Don't mind me. Just redoing Tim's maths. [sighs] Again. Your transactions are all in order. [quietly] What do you need?",
+  "ms": 8202,
+  "words": [
+   {
+    "start": 215,
+    "end": 282
+   },
+   {
+    "start": 322,
+    "end": 482
+   },
+   {
+    "start": 562,
+    "end": 802
+   },
+   {
+    "start": 1362,
+    "end": 1522
+   },
+   {
+    "start": 1682,
+    "end": 2002
+   },
+   {
+    "start": 2082,
+    "end": 2322
+   },
+   {
+    "start": 2402,
+    "end": 2882
+   },
+   {
+    "start": 4215,
+    "end": 4402
+   },
+   {
+    "start": 5282,
+    "end": 5442
+   },
+   {
+    "start": 5762,
+    "end": 6082
+   },
+   {
+    "start": 6122,
+    "end": 6162
+   },
+   {
+    "start": 6242,
+    "end": 6322
+   },
+   {
+    "start": 6402,
+    "end": 6482
+   },
+   {
+    "start": 6642,
+    "end": 6802
+   },
+   {
+    "start": 7495,
+    "end": 7522
+   },
+   {
+    "start": 7562,
+    "end": 7602
+   },
+   {
+    "start": 7642,
+    "end": 7682
+   },
+   {
+    "start": 7762,
+    "end": 8002
+   }
+  ],
+  "mouth": "002222222110000011112222122112112210000001000000011100000000000031111222222222111000000000133110000"
+ },
+ "h4": {
+  "text": "[strong New York accent, low and tired] [weary] Frank here. Still. I've seen every payment... let's get this right. [quietly] What do you want?",
+  "ms": 7001,
+  "words": [
+   {
+    "start": 162,
+    "end": 482
+   },
+   {
+    "start": 642,
+    "end": 802
+   },
+   {
+    "start": 1442,
+    "end": 1842
+   },
+   {
+    "start": 2722,
+    "end": 2882
+   },
+   {
+    "start": 3042,
+    "end": 3202
+   },
+   {
+    "start": 3282,
+    "end": 3522
+   },
+   {
+    "start": 3602,
+    "end": 4002
+   },
+   {
+    "start": 4642,
+    "end": 4802
+   },
+   {
+    "start": 4882,
+    "end": 4962
+   },
+   {
+    "start": 5042,
+    "end": 5122
+   },
+   {
+    "start": 5202,
+    "end": 5442
+   },
+   {
+    "start": 6162,
+    "end": 6202
+   },
+   {
+    "start": 6242,
+    "end": 6282
+   },
+   {
+    "start": 6322,
+    "end": 6402
+   },
+   {
+    "start": 6482,
+    "end": 6722
+   }
+  ],
+  "mouth": "0012221222100000121221000000000001212202222122111100000012222212100000000023333100000"
+ },
+ "h5": {
+  "text": "[strong New York accent, low and tired] [dryly] Who invented late fees? [clears throat] Sorry. Frank here. I've already been through your transactions. [quietly] What can I do for you?",
+  "ms": 7967,
+  "words": [
+   {
+    "start": 215,
+    "end": 242
+   },
+   {
+    "start": 362,
+    "end": 802
+   },
+   {
+    "start": 962,
+    "end": 1202
+   },
+   {
+    "start": 1282,
+    "end": 1682
+   },
+   {
+    "start": 2802,
+    "end": 3042
+   },
+   {
+    "start": 3602,
+    "end": 3842
+   },
+   {
+    "start": 3962,
+    "end": 4082
+   },
+   {
+    "start": 4562,
+    "end": 4722
+   },
+   {
+    "start": 4882,
+    "end": 5042
+   },
+   {
+    "start": 5122,
+    "end": 5202
+   },
+   {
+    "start": 5282,
+    "end": 5362
+   },
+   {
+    "start": 5442,
+    "end": 5522
+   },
+   {
+    "start": 5922,
+    "end": 6322
+   },
+   {
+    "start": 7015,
+    "end": 7042
+   },
+   {
+    "start": 7082,
+    "end": 7122
+   },
+   {
+    "start": 7282,
+    "end": 7335
+   },
+   {
+    "start": 7389,
+    "end": 7442
+   },
+   {
+    "start": 7522,
+    "end": 7602
+   },
+   {
+    "start": 7682,
+    "end": 7762
+   }
+  ],
+  "mouth": "003121222211221111122000000111100132000000012222110000012122222222111111101100000001121121110000"
+ }
+}

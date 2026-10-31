@@ -82,10 +82,10 @@ const KIND: Record<Note["kind"], string> = {goal: "Goal", plan: "Plan", preferen
 const noteMeta = (n: Note) => [KIND[n.kind], n.amount != null ? money(n.amount) : "", n.by ? `by ${shortDate(n.by)}` : "",
   `noted by ${n.who === "tim" ? "Tim" : "Frank"}, ${shortDate(n.at)}`].filter(Boolean).join(" · ");
 
-/** Tim and Frank: whether they can look at your numbers, and everything they've noted about you, each one deletable. */
+/** Tim and Frank: whether they can look at your numbers, whether Frank reads his answers out, and everything they've noted about you, each one deletable. */
 export function AccountantCard() {
   const {c} = useTheme();
-  const consent = useMoney(st => st.aiConsent), notes = useMoney(st => st.notes);
+  const consent = useMoney(st => st.aiConsent), notes = useMoney(st => st.notes), speaks = useMoney(st => st.speaks);
   const forget = (n: Note) => {
     const gone = useMoney.getState().removeNote(n.id);
     if (gone) useMoney.getState().notify("Forgotten", false, () => useMoney.getState().restoreNote(gone.note, gone.at));
@@ -104,6 +104,13 @@ export function AccountantCard() {
       <T muted>{consent
         ? "When you ask them something, the figures it needs go to Anthropic, whose AI they run on, through Pinch's server, which keeps none of it. Never your account numbers or logins."
         : "They'll ask first, the next time you ask them something."}</T>
+      <View style={{flexDirection: "row", alignItems: "center", gap: s[3]}}>
+        <T style={{flex: 1}}>They read their answers out</T>
+        <Switch value={speaks} onValueChange={v => useMoney.getState().setSpeaks(v)} trackColor={{true: c.ink, false: c.line}} accessibilityLabel="Tim and Frank read their answers out" />
+      </View>
+      <T muted>{speaks
+        ? "One short line of each answer, in their own voices. That line goes to ElevenLabs, who make their voices, and nothing else does."
+        : "Their answers are only written down."}</T>
       <T weight="semibold">What they remember</T>
       {notes.length ? notes.map(n => (
         <View key={n.id} style={{flexDirection: "row", alignItems: "center", gap: s[2]}}>

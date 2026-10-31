@@ -1,0 +1,11 @@
+[
+  {
+    "script": "[softly, a little shy] ...Hi. [quietly] I'm Tim. I can see your recent transactions, so I can help you make sense of your money. What would you like to ask me?",
+    "looks": [
+      {"at": "Hi", "look": "you", "blink": true},
+      {"at": "see", "look": "downRight", "blink": true},
+      {"at": "so", "look": "nearLeft"},
+      {"at": "What", "look": "you", "blink": true}
+    ]
+  }
+]

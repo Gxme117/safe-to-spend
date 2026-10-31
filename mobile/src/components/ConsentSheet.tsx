@@ -19,6 +19,7 @@ export function ConsentSheet({visible, name, onYes, onNo}: {visible: boolean; na
           <T weight="bold" size="lg">Before {name} looks at your numbers</T>
           <T>To answer, he looks up what your question needs: your balance, bills, budgets and payments, and who they were with.</T>
           <T>Those figures, your question and what he&apos;s noted about you go to Anthropic, the company whose AI he runs on, through Pinch&apos;s own server. Pinch&apos;s server keeps none of it.</T>
+          <T>He also says one short line of each answer out loud: that line goes to ElevenLabs, the company that makes his voice, through the same server, which keeps none of it.</T>
           <T>Never sent: your account numbers, sort codes or bank logins.</T>
           <T muted>You can switch this off in Settings at any time, and delete anything he&apos;s noted.</T>
         </ScrollView>

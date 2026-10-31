@@ -36,6 +36,8 @@ export interface Answer {
   used: ToolName[];        // the tools that answered, in order
   unchecked: string[];     // £ figures still not traced back after the second look
   ended?: Ended;
+  /** His line to say out loud (his <say>, audio tags and all), only when every figure in it and the answer checked out. */
+  spoken?: string;
 }
 
 /** Rounds of lookups for one question. The last one tells him to answer with what he has. */
@@ -45,6 +47,16 @@ const LAST_ROUND = "<app_context>That was the last lookup for this question: ans
 // his words, for a phone screen: he's asked for plain text, but a stray **bold** or # heading shouldn't show its marks
 const plain = (blocks: Block[]) => blocks.flatMap(b => b.type === "text" ? [b.text] : []).join("\n\n")
   .replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "").trim();
+
+// Tim and Frank end their answers with the line they say out loud, as <say>…</say>: it's taken out of what's shown, and so is any
+// [audio tag] that strayed into the written answer (they're for his voice, never to read)
+const SAY = /<say>([\s\S]*?)<\/say>/g;
+const TAG = /[ \t]*\[[^\]\n]{1,40}\]/g;
+export function spokenOf(text: string): {text: string; spoken?: string} {
+  const said = [...text.matchAll(SAY)].pop()?.[1].replace(/\s+/g, " ").trim();
+  const shown = text.replace(SAY, "").replace(TAG, "").replace(/^[ \t]+/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+  return said ? {text: shown, spoken: said} : {text: shown};
+}
 
 const result = (call: ToolUse, content: unknown, error?: boolean): ToolResult =>
   ({type: "tool_result", tool_use_id: call.id, content: JSON.stringify(content), ...error ? {is_error: true} : {}});
@@ -66,7 +78,7 @@ export async function converse(transcript: Transcript, question: string, deps: D
     const stop = turn.stop_reason === "refusal" ? "refused" : turn.stop_reason === "max_tokens" ? "cut-off" : rounds >= MAX_ROUNDS && calls.length ? "went-round" : null;
     if (stop) {
       if (calls.length) msgs.push({role: "user", content: calls.map(call => result(call, {error: "Stopped before this ran."}, true))});
-      return done(plain(turn.content), stop);
+      return done(spokenOf(plain(turn.content)).text, stop);
     }
     if (calls.length) {
       rounds++;
@@ -82,12 +94,15 @@ export async function converse(transcript: Transcript, question: string, deps: D
       msgs.push({role: "user", content: rounds === MAX_ROUNDS ? [...results, {type: "text", text: LAST_ROUND}] : results});
       continue;
     }
-    const text = plain(turn.content), bad = unchecked(text, knownIn(msgs));
+    // only the written answer gets a second look; a figure in what he'd say out loud that doesn't trace back and he just
+    // doesn't say it, so his voice never costs a round
+    const {text, spoken} = spokenOf(plain(turn.content)), known = knownIn(msgs), bad = unchecked(text, known);
     if (bad.length && !looked) {
       looked = true;
       msgs.push({role: "user", content: [{type: "text", text: checkNote(bad)}]});
       continue;
     }
-    return done(text, undefined, bad);
+    const sayIt = spoken && !bad.length && !unchecked(spoken, known).length;
+    return {...done(text, undefined, bad), ...sayIt ? {spoken} : {}};
   }
 }

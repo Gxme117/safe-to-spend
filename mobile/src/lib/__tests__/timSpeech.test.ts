@@ -1,6 +1,6 @@
-import {MAX_EYE_CONTACT} from "@/lib/timEyes";
+import {MAX_EYE_CONTACT, ON_TWOS} from "@/lib/timEyes";
 import {hankenWidth} from "@/lib/textWidth";
-import {ASK, beatsOf, FRANK_HELLOS, frankFrames, HELLO, HELLO_MS, helloBeats, helloFrames, introFrames, linesOf, speechMs, still, syllables, wordsFit, type SpeechFrame} from "@/lib/timSpeech";
+import {answerFrames, ASK, beatsFrom, bubbleFits, beatsOf, captionsOf, FRANK_BOX, FRANK_OPENINGS, FRANK_VOICE, frankFrames, HELLO, HELLO_MS, helloBeats, helloFrames, introFrames, linesOf, roomOf, speechMs, still, syllables, syllableTrack, TIM_BOX, TIM_OPENING, TIM_VOICE, timFrames, untagged, voiced, voiceKey, wordsFit, type Clip, type SpeechFrame} from "@/lib/timSpeech";
 
 test("his hello builds up dot by dot to \"...Hi\", and stays", () => {
   const shown = helloFrames().map(f => f.shown);
@@ -86,22 +86,23 @@ test("his eyes: at you as he says who he is, down at your payments, back at you 
   expect(beats.reduce((sum, b) => sum + b.ms, 0)).toBeCloseTo(speechMs(introFrames()));
 });
 
-test.each(FRANK_HELLOS.map((h, i) => [h.lines[0], i]))("Frank looks at you all through his hello (%s), blinking as each line starts", (_, i) => {
-  const frames = frankFrames(i), beats = beatsOf(frames);
-  expect(beats.every(b => b.look === "you" && b.blink && !b.typing)).toBe(true);
-  expect(beats).toHaveLength(4); // as he starts, and at each line after the first
-  expect(beats.reduce((sum, b) => sum + b.ms, 0)).toBeCloseTo(speechMs(frames));
-  beats.slice(0, -1).forEach(b => { expect(b.ms).toBeGreaterThan(1500); expect(b.ms).toBeLessThan(6000); });
+test.each(FRANK_OPENINGS.map((s, i) => [untagged(s), i]))("Frank looks at you all through his opening (%s), blinking as captions start", (_, i) => {
+  for (const frames of [frankFrames(i), frankFrames(i, {})]) { // in his voice, and at his own pace
+    const beats = beatsOf(frames);
+    expect(beats.every(b => b.look === "you" && b.blink && !b.typing)).toBe(true);
+    expect(beats.length).toBeGreaterThanOrEqual(2); // as he starts, and as some captions after the first start
+    expect(beats.reduce((sum, b) => sum + b.ms, 0)).toBeCloseTo(speechMs(frames));
+    beats.slice(0, -1).forEach(b => { expect(b.ms).toBeGreaterThanOrEqual(2000); expect(b.ms).toBeLessThan(8000); });
+  }
 });
 
-test("Frank's hello is any of his, not always the same one", () => {
+test("Frank's opening is any of his, not always the same one", () => {
   const random = jest.spyOn(Math, "random");
   try {
-    const said = FRANK_HELLOS.map((h, i) => {
-      random.mockReturnValue((i + 0.5) / FRANK_HELLOS.length);
-      return linesOf(frankFrames())[0].line;
+    FRANK_OPENINGS.forEach((script, i) => {
+      random.mockReturnValue((i + 0.5) / FRANK_OPENINGS.length);
+      expect(untagged(script).startsWith(linesOf(frankFrames())[0].line)).toBe(true);
     });
-    expect(said).toEqual(FRANK_HELLOS.map(h => h.lines[0]));
   } finally {
     random.mockRestore();
   }
@@ -117,4 +118,248 @@ test("with reduced motion, each line is there at once, his mouth still, for as l
   expect(quiet.every(f => f.mouth === 0)).toBe(true);
   expect(speechMs(quiet)).toBeCloseTo(speechMs(frames));
   expect(still(helloFrames()).map(f => f.shown)).toEqual([HELLO]);
+});
+
+// Frank's voice: words said at these times (ms)
+const spans = (times: [number, number][]) => times.map(([start, end]) => ({start, end}));
+const startOf = (frames: SpeechFrame[], i: number) => frames.slice(0, i).reduce((sum, f) => sum + f.ms, 0);
+/** His mouth `t` ms into a speech. */
+const mouthAt = (frames: SpeechFrame[], t: number) => {
+  let at = 0;
+  for (const f of frames) { if (t < at + f.ms) return f.mouth; at += f.ms; }
+  return frames[frames.length - 1].mouth;
+};
+
+test("a caption as he says it: each word appears as he starts it, his mouth as the recording has it, all there until the next", () => {
+  const words = ["Frank", "here."], times = spans([[80, 420], [700, 1000]]); // a pause after "Frank"
+  const track = syllableTrack(words, times, 1000);
+  const frames = voiced("Frank here.", times, 0, 1750, "left", track);
+  expect(frames[0]).toMatchObject({shown: "Frank"}); // a breath, not a sigh: his first word's there from the start
+  const at = (shown: string) => startOf(frames, frames.findIndex(f => f.shown === shown));
+  expect(at("Frank here.")).toBe(700);
+  for (let k = 0; k < 21; k++) expect(mouthAt(frames, (k + .5) * ON_TWOS)).toBe(Number(track[k] ?? 0));
+  expect(mouthAt(frames, 550)).toBe(0); // shut in the pause
+  expect(frames.at(-1)).toMatchObject({shown: "Frank here.", mouth: 0, said: true});
+  expect(frames.filter(f => f.said).every(f => f.shown === "Frank here.")).toBe(true);
+  expect(speechMs(frames)).toBe(1750);
+});
+
+test("his mouth from the words alone: open then half-closed each syllable, fewer if said too fast, never none", () => {
+  const twos = (track: string) => track.split("").filter(p => p === "2").length;
+  expect(twos(syllableTrack(["Unfortunately."], spans([[0, 180]]), 200))).toBe(1);
+  expect(twos(syllableTrack(["Unfortunately."], spans([[0, 1000]]), 1000))).toBe(syllables("Unfortunately."));
+  expect(syllableTrack(["Hi", "there."], spans([[0, 166], [500, 666]]), 700)).toBe("210000210");
+});
+
+test("a sigh before his first word: nothing shown until he says it", () => {
+  const frames = voiced("Frank here.", spans([[550, 880], [930, 1120]]), 0, 2000, "left", "0111110222110222100000000");
+  expect(frames[0]).toMatchObject({shown: "", mouth: 0});
+  expect(startOf(frames, frames.findIndex(f => f.shown === "Frank"))).toBe(550);
+  expect(frames.filter(f => f.shown === "").every(f => f.mouth <= 1)).toBe(true);
+});
+
+// captions measured simply: so many characters at most
+const upTo = (n: number) => (text: string) => text.length <= n;
+const evenly = (words: string[], gaps: Record<number, number> = {}) => {
+  let t = 0;
+  return words.map((_, j) => { t += gaps[j] ?? 0; const s = {start: t, end: t + 250}; t += 300; return s; });
+};
+const cut = (line: string, fits = upTo(40), gaps: Record<number, number> = {}) => {
+  const words = line.split(" ");
+  return captionsOf(words, evenly(words, gaps), fits).map(c => c.text);
+};
+
+test("captions break where he ends a sentence, and a brief one joins the next", () => {
+  expect(cut("Oh. It's you. I've checked every penny.")).toEqual(["Oh. It's you.", "I've checked every penny."]);
+  expect(cut("Frank. Accountant. Unfortunately.", upTo(40), {1: 200, 2: 900})).toEqual(["Frank. Accountant.", "Unfortunately."]);
+  expect(cut("Frank. Accountant. Unfortunately.", upTo(40), {1: 600, 2: 900})).toEqual(["Frank.", "Accountant.", "Unfortunately."]);
+});
+
+test("captions break where he stops for breath after a comma, never in the middle of a phrase", () => {
+  expect(cut("Well, I suppose so.", upTo(40), {1: 700})).toEqual(["Well,", "I suppose so."]);
+  expect(cut("I've been through your transactions.", upTo(40), {4: 700})).toEqual(["I've been through your transactions."]);
+});
+
+test("a caption that wouldn't fit beside him breaks, just after a comma if there's one, never leaving a sentence's last word alone", () => {
+  expect(cut("One, two three four five.", upTo(16))).toEqual(["One, two three", "four five."]);
+  const all = cut("I've already been through every one of your transactions this month.", upTo(20));
+  all.forEach(c => expect(c.length).toBeLessThanOrEqual(20));
+  expect(all.join(" ")).toBe("I've already been through every one of your transactions this month.");
+});
+
+// an opening in one take: each word 250ms, 50ms between, `pause` more after each sentence, his mouth as the words have it
+function take(i: number, pause = 300): Clip {
+  const words = untagged(FRANK_OPENINGS[i]).split(" "), spans: {start: number; end: number}[] = [];
+  let t = 400; // he takes a breath first
+  words.forEach(w => { spans.push({start: t, end: t + 250}); t += 300 + (/[.?!…]$/.test(w) ? pause : 0); });
+  return {text: FRANK_OPENINGS[i], ms: t, words: spans};
+}
+/** When each word of a speech first shows (ms), counting on from the captions before. */
+function shownAt(frames: SpeechFrame[]): number[] {
+  const at: number[] = [];
+  let t = 0, done = 0;
+  frames.forEach((f, j) => {
+    if (j && f.line !== frames[j - 1].line) done += frames[j - 1].line.split(" ").length;
+    const n = f.shown ? f.shown.split(" ").length : 0;
+    while (at.length < done + n) at.push(t);
+    t += f.ms;
+  });
+  return at;
+}
+
+test("Frank says his opening in one go, as recorded: each caption goes up as he starts it, each word as he says it", () => {
+  const voice = {[voiceKey(0)]: take(0)}, frames = frankFrames(0, voice), START = frames[0].ms;
+  // the recording plays once, from as he starts
+  expect(frames.filter(f => f.voice)).toEqual([expect.objectContaining({voice: "h0"})]);
+  expect(startOf(frames, frames.findIndex(f => f.voice))).toBe(START);
+  expect(shownAt(frames)).toEqual(voice.h0.words.map(w => START + w.start));
+  // all of it, in captions either side of his head in turn, his question last, staying
+  const caps = linesOf(frames);
+  expect(caps.map(c => c.line).join(" ")).toBe(untagged(FRANK_OPENINGS[0]));
+  caps.forEach((c, n) => expect(c.side).toBe(n % 2 ? "right" : "left"));
+  expect(caps.at(-1)!.line).toMatch(/\?$/);
+  expect(frames.at(-1)).toMatchObject({shown: caps.at(-1)!.line, said: true, mouth: 0});
+  expect(speechMs(frames)).toBeGreaterThan(START + voice.h0.ms + 1000);
+});
+
+test("his mouth is the recording's own, when it has one that fits it", () => {
+  const plain = take(1), ticks = Math.ceil(plain.ms * 12 / 1000), START = frankFrames(1, {})[0].ms;
+  const mouth = "3".repeat(ticks), frames = frankFrames(1, {[voiceKey(1)]: {...plain, mouth}});
+  expect(mouthAt(frames, START + 1000)).toBe(3);
+  // one that doesn't fit the recording (made from another take) isn't used
+  const off = frankFrames(1, {[voiceKey(1)]: {...plain, mouth: mouth.slice(1)}});
+  expect(off.some(f => f.mouth === 3)).toBe(false);
+});
+
+test("in one go, he blinks as a caption starts, but never twice close together", () => {
+  for (const pause of [50, 300, 1500]) {
+    const frames = frankFrames(0, {[voiceKey(0)]: take(0, pause)}), beats = beatsOf(frames);
+    expect(beats[0]).toMatchObject({look: "you", blink: true});
+    beats.slice(0, -1).forEach(b => expect(b.ms).toBeGreaterThanOrEqual(2000));
+    frames.filter(f => f.blink).slice(1).forEach(f => expect(frames[frames.indexOf(f) - 1].line).not.toBe(f.line));
+  }
+});
+
+test("his eyes from part way through: as they were until his next look, then each look in turn", () => {
+  const frames = frankFrames(0, {[voiceKey(0)]: take(0)}), v = frames.findIndex(f => f.voice);
+  const beats = beatsFrom(frames, v), next = frames.findIndex((f, j) => j > v && f.look);
+  expect(beats[0]).toEqual({look: "you", ms: startOf(frames, next) - startOf(frames, v)});
+  expect(beats.slice(1)).toEqual(beatsOf(frames.slice(next)));
+  expect(beatsFrom(frames, next)).toEqual(beatsOf(frames.slice(next)));
+});
+
+test("a recording of words that aren't his opening any more isn't used: he says it at his own pace", () => {
+  const stale = {...take(0), text: "[sighs] Frank's here. And so on."};
+  expect(frankFrames(0, {[voiceKey(0)]: stale}).some(f => f.voice)).toBe(false);
+  expect(frankFrames(0, {}).some(f => f.voice)).toBe(false);
+  expect(linesOf(frankFrames(0, {})).map(c => c.line).join(" ")).toBe(untagged(FRANK_OPENINGS[0]));
+});
+
+test("with reduced motion, his voice still plays, from when it would have, each caption there at once", () => {
+  const frames = frankFrames(0, {[voiceKey(0)]: take(0)}), quiet = still(frames);
+  expect(quiet.filter(f => f.voice)).toHaveLength(1);
+  expect(startOf(quiet, quiet.findIndex(f => f.voice))).toBe(startOf(frames, frames.findIndex(f => f.voice)));
+  expect(speechMs(quiet)).toBe(speechMs(frames));
+  expect(quiet.filter(f => f.shown).map(f => f.shown)).toEqual(linesOf(frames).map(c => c.line));
+});
+
+test("how he says it ([sighs], an ellipsis) is for his voice: the tags never show", () => {
+  expect(untagged("[sighs] Frank here.")).toBe("Frank here.");
+  expect(untagged("They add up... [dryly] unlike most things.")).toBe("They add up… unlike most things.");
+  for (const script of FRANK_OPENINGS) {
+    expect(script).toMatch(/\[[a-z ,]+\]/); // he says each with some feeling
+    untagged(script).split(" ").forEach(w => expect(w).toMatch(/[A-Za-z0-9]/)); // every word shown is one (no lone dashes)
+  }
+});
+
+test.each(FRANK_OPENINGS.map((s, i) => [untagged(s), i]))("Frank's captions (%s) stay beside his head, above his shoulders (row 511 of frank.jpg), on any phone", (_, i) => {
+  for (const frames of [frankFrames(i), frankFrames(i, {})]) {
+    const lines = linesOf(frames);
+    for (const width of [320, 375, 393, 430, 440]) {
+      const k = width / 874, room = roomOf(width, FRANK_BOX.figure);
+      const size = wordsFit(lines, room, 22), lineHeight = Math.round(size * 28 / 22);
+      for (const {line, side} of lines) {
+        let rows = 1, run = 0;
+        for (const word of line.split(" ")) {
+          const w = hankenWidth(word, size) * 1.05, gap = run ? hankenWidth(" ", size) : 0;
+          if (run && run + gap + w > room[side]) { rows++; run = w; } else run += gap + w;
+        }
+        expect(240 * k + rows * lineHeight).toBeLessThanOrEqual(511 * k);
+      }
+    }
+  }
+});
+
+test("Tim's recording is of his hello as it is now (change it and run scripts/voice.py --who tim again)", () => {
+  const {text, words, ms, mouth} = TIM_VOICE[voiceKey(0)];
+  expect(text).toBe(TIM_OPENING);
+  expect(words).toHaveLength(untagged(text).split(" ").length);
+  expect(mouth).toHaveLength(Math.ceil(ms * 12 / 1000));
+  expect(timFrames().filter(f => f.voice)).toEqual([expect.objectContaining({voice: voiceKey(0)})]);
+  // not recorded as written, it's his hello without a voice
+  expect(timFrames({})).toEqual(introFrames());
+});
+
+test("Tim says it shy: looking down before his \"Hi\", up at you with a blink as he says it, down at your transactions, and away at the end", () => {
+  const frames = timFrames(), looks = frames.filter(f => f.look).map(f => [f.look, !!f.blink]);
+  expect(frames[0]).toMatchObject({shown: "", look: "down"});
+  expect(looks).toEqual([["down", false], ["you", true], ["downRight", true], ["nearLeft", false], ["you", true], ["downRight", true]]);
+  // each look comes before its word is said
+  const at = (look: string) => speechMs(frames.slice(0, frames.findIndex(f => f.look === look && f !== frames[0])));
+  expect(at("you")).toBeLessThan(speechMs(frames.slice(0, frames.findIndex(f => f.shown.includes("Hi")))) + 1);
+  // and it ends on his question, said
+  expect(frames.at(-1)).toMatchObject({shown: expect.stringContaining("What would you like to ask me?"), mouth: 0, said: true});
+  expect(linesOf(frames).map(l => l.line).join(" ")).toBe(untagged(TIM_OPENING));
+  expect(linesOf(frames).map(l => l.side)).toEqual(linesOf(frames).map((_, n) => n % 2 ? "left" : "right"));
+});
+
+test("Tim's captions stay beside his head, above his shoulders (row 575 of tim.jpg), on any phone", () => {
+  const lines = linesOf(timFrames());
+  for (const width of [320, 375, 393, 430, 440]) {
+    const k = width / 874, room = roomOf(width, TIM_BOX.figure);
+    const size = wordsFit(lines, room, 22), lineHeight = Math.round(size * 28 / 22);
+    for (const {line, side} of lines) {
+      let rows = 1, run = 0;
+      for (const word of line.split(" ")) {
+        const w = hankenWidth(word, size) * 1.05, gap = run ? hankenWidth(" ", size) : 0;
+        if (run && run + gap + w > room[side]) { rows++; run = w; } else run += gap + w;
+      }
+      expect(318 * k + rows * lineHeight).toBeLessThanOrEqual(575 * k);
+    }
+  }
+});
+
+test("Frank's recordings are of his openings as they are now (change one and run scripts/voice.py again)", () => {
+  for (const [key, {text, words, ms, mouth}] of Object.entries(FRANK_VOICE)) {
+    const i = Number(key.match(/^h(\d+)$/)![1]);
+    expect(text).toBe(FRANK_OPENINGS[i]);
+    expect(words).toHaveLength(untagged(text).split(" ").length);
+    expect(mouth).toHaveLength(Math.ceil(ms * 12 / 1000));
+    // and the app uses each of them
+    expect(frankFrames(i).some(f => f.voice === key)).toBe(true);
+  }
+});
+
+test("Frank says the line of his answer as he says his openings: after a blink, each word as he says it, the take played once", () => {
+  const line = "[sighs] Yes... you can have them. [dryly] Rent's out Friday, mind.";
+  const words = untagged(line).split(" "), spans = words.map((_, j) => ({start: 200 + j * 400, end: 500 + j * 400}));
+  const ms = spans.at(-1)!.end + 100, frames = answerFrames(line, {ms, words: spans}, () => true);
+  expect(frames[0]).toMatchObject({shown: "", look: "you", blink: true});
+  expect(frames.filter(f => f.voice)).toEqual([expect.objectContaining({voice: "answer"})]);
+  const START = frames[0].ms;
+  expect(shownAt(frames)).toEqual(spans.map(w => START + w.start));
+  // cut where he ends a sentence; the tags never show
+  expect(linesOf(frames).map(c => c.line)).toEqual(["Yes… you can have them.", "Rent's out Friday, mind."]);
+  expect(frames.at(-1)).toMatchObject({shown: "Rent's out Friday, mind.", said: true, mouth: 0});
+  // a take whose words don't line up still gets said, spread over it
+  const odd = answerFrames(line, {ms: 3000, words: spans.slice(1)}, () => true);
+  expect(linesOf(odd).map(c => c.line).join(" ")).toBe(untagged(line));
+});
+
+test("beside his bubble, a caption is cut where it wouldn't fit", () => {
+  const line = "[sighs] There's two hundred and forty pounds left before payday and the gas bill comes out on Tuesday so keep some back";
+  const words = untagged(line).split(" "), spans = words.map((_, j) => ({start: j * 300, end: j * 300 + 250}));
+  const fits = bubbleFits(160, 18, 3), caps = linesOf(answerFrames(line, {ms: spans.at(-1)!.end, words: spans}, fits));
+  expect(caps.length).toBeGreaterThan(1);
+  caps.forEach(c => expect(fits(c.line)).toBe(true));
 });

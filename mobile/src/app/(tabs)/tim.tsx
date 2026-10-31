@@ -1,8 +1,10 @@
+import {setAudioModeAsync, useAudioPlayer, type AudioSource} from "expo-audio";
 import {LinearGradient} from "expo-linear-gradient";
 import {useFocusEffect} from "expo-router";
 import {useCallback, useEffect, useRef, useState} from "react";
 import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type HostInstance, type ScrollViewInstance} from "react-native";
-import {useReanimatedKeyboardAnimation} from "react-native-keyboard-controller";
+import {canDictate, mic, micLang, useMicEvent} from "@/services/dictation";
+import {useKeyboardHeight} from "@/services/keyboard";
 import Reanimated, {Easing, useAnimatedStyle, useSharedValue, withTiming} from "react-native-reanimated";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useReducedMotion} from "@/components/BigMoney";
@@ -10,11 +12,15 @@ import {ConsentSheet} from "@/components/ConsentSheet";
 import {Icon} from "@/components/Icon";
 import {keyboardCover} from "@/components/Setup";
 import {converse, type Answer, type Ended, type Transcript} from "@/lib/ai/converse";
+import {roundOf, stopwatch, type Stopwatch} from "@/lib/ai/timings";
 import {receipt, type ToolEffect} from "@/lib/ai/tools";
 import {uid} from "@/lib/defaults";
+import {calmly, micRefused, micState, MIC_BUTTON, transcriptOf, withHeard} from "@/lib/dictation";
 import {BLINK, frankBeats, lidFor, nextBeats, ON_TWOS, typingPoses, type Beat, type Lift, type Look, type Mood} from "@/lib/timEyes";
-import {beatsOf, frankFrames, introFrames, linesOf, still, wordsFit, type Mouth, type SpeechFrame} from "@/lib/timSpeech";
-import {AccountantFail, send, type AccountantError} from "@/services/accountant";
+import {answerFrames, beatsFrom, beatsOf, bubbleFits, CAPTION, FRANK_BOX, frankFrames, linesOf, roomOf, still, TIM_BOX, timFrames, wordsFit, type Mouth, type SpeechFrame, type Take} from "@/lib/timSpeech";
+import {AccountantFail, say as sayAloud, send, type AccountantError} from "@/services/accountant";
+import {FRANK_CLIPS} from "../../../assets/frank-voice";
+import {TIM_CLIPS} from "../../../assets/tim-voice";
 import {useMoney, type Accountant} from "@/store/useMoney";
 import {hanken, timPage} from "@/theme/tokens";
 import {HomeLook, useTheme} from "@/theme/useTheme";
@@ -57,8 +63,15 @@ const PEOPLE: Record<Accountant, {name: string; pic: number; alt: string; fails:
     }},
 };
 // One thing said in the conversation: yours, or his (`who` is who it was with, so switching shows only theirs).
-// His: `checked`, what the answer was checked against; `flag`, figures it couldn't check; `quiet`, he couldn't answer.
-type Said = {id: number; who: Accountant; mine: boolean; text: string; checked?: string | null; flag?: string; quiet?: boolean};
+// His: `checked`, what the answer was checked against; `flag`, figures it couldn't check; `quiet`, he couldn't answer;
+// `voiced`, the line of it he said out loud, and his take of it (kept on the phone, so a tap replays it for nothing).
+type Said = {id: number; who: Accountant; mine: boolean; text: string; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}};
+
+// the conversation in cards: each of your questions starts one, and what he says to it goes in with it
+const exchanges = (said: Said[]) => said.reduce<Said[][]>((cards, s) => {
+  if (s.mine || !cards.length) cards.push([s]); else cards[cards.length - 1].push(s);
+  return cards;
+}, []);
 // one answer, as said in the conversation
 function saidOf(who: Accountant, a: Answer, now: Date): Omit<Said, "id"> {
   if (a.ended || !a.text) return {who, mine: false, text: PEOPLE[who].fails[a.ended ?? "went-round"], quiet: true};
@@ -140,17 +153,17 @@ const MOUTHS: Record<Accountant, {crop: Crop; pieces: (number | null)[]}> = {
   ]},
 };
 // What he says each time the tab opens (lib/timSpeech.ts): who he is. The words go beside his head, on one side or the other:
-// a box from the page's 16pt edge to GAP from him (figure: the leftmost and rightmost of him in his picture's px, measured off
+// a box from the page's 16pt edge to 8pt from him (CAPTION; figure: the leftmost and rightmost of him in his picture's px, measured off
 // its pixels in the rows the words can reach, his hair at its widest), starting at row top. Frank's start higher, beside his
-// glasses: his shoulders spread out below row 511. The font's sized so every line's longest word fits its box (wordsFit), so
-// nothing breaks mid-word or runs off.
-const WORDS: Record<Accountant, {figure: {left: number; right: number}; top: number; said: () => SpeechFrame[]}> = {
-  tim: {figure: {left: 271, right: 573}, top: 318, said: introFrames},
-  frank: {figure: {left: 288, right: 579}, top: 240, said: frankFrames},
+// glasses: his shoulders spread out below row 511 (FRANK_BOX; his captions are cut to fit above them, as Tim's are above
+// his, TIM_BOX). The font's sized so every line's longest word fits its box (wordsFit), so nothing breaks mid-word or runs
+// off. clips: their recorded openings (scripts/voice.py), by voiceKey.
+const WORDS: Record<Accountant, {figure: {left: number; right: number}; top: number; said: () => SpeechFrame[]; clips: Record<string, number>}> = {
+  tim: {figure: TIM_BOX.figure, top: TIM_BOX.top, said: () => timFrames(), clips: TIM_CLIPS},
+  frank: {figure: FRANK_BOX.figure, top: FRANK_BOX.top, said: () => frankFrames(), clips: FRANK_CLIPS},
 };
-const EDGE = 16, GAP = 8, SIZE = 22, LEADING = 28 / 22;
 
-// Once you've asked him something, he shrinks into a bubble at the top left, your question beside it ("Frank · Explanatory B"),
+// Once you've asked him something, he shrinks into a bubble at the top left, his name beside it,
 // so his answer starts near the top. BUBBLE: his picture's scale in the bubble (pt per px of the 874px picture) and the px at
 // the bubble's top left. Each one's head is centred in it, his hair to his chin and ear to ear measured off his picture
 // (Frank's rows 185–500, 288–579), with a little collar under it; Tim's long face is fitted so his smile's in. Both checked
@@ -158,6 +171,9 @@ const EDGE = 16, GAP = 8, SIZE = 22, LEADING = 28 / 22;
 // 34 to 46): a copy of his picture behind the bubble, on the page's own colour, so only his hair shows. TOP_ROOM: above the
 // bubble, under the switch, for it.
 const BUBBLE_D = 88, HAIR = [34, 46] as const, TOP_ROOM = 16, SWITCH_H = 36, SHRINK_MS = 400;
+// While he says the line of his answer out loud, it takes the question's place beside his bubble, a caption at a time
+// of up to SAID.rows rows; his name comes back when he's done.
+const SAID = {size: 18, line: 23, rows: 3};
 const BUBBLE: Record<Accountant, {scale: number; x: number; y: number}> = {
   tim: {scale: .23, x: 241.5, y: 117.5},
   frank: {scale: .23, x: 242, y: 151},
@@ -167,27 +183,142 @@ const hidden = {pointerEvents: "none", accessibilityElementsHidden: true, import
 const place = (c: typeof LOOK_CROP, k: number) =>
   ({position: "absolute" as const, left: c.x * k, top: c.y * k, width: c.w * k, height: c.h * k});
 
-/** Plays what he says whenever the tab shows: the words so far, his mouth, and his eyes' beats while he's saying it.
- *  Each time, it's who he is, from the start. replay(): he says it again, from the start (a tap on him). */
+// His voice is the clock: his words and mouth wait for the recording to really start (LISTEN: how often to look, ms),
+// then go from where it's got to. STALL: loaded, not playing and not buffering for this long, and it isn't going to (the
+// ringer's off, on Android): it's stopped and his words go on without it. Still on its way (slow over the dev tunnel), they
+// wait for it, LOADING at most, then go on without it, his voice left to catch up if it comes.
+const LISTEN = 20, STALL = 1000, LOADING = 8000;
+
+// the silent switch mutes him; whatever you're listening to carries on under him. Set on mount, and again after a
+// dictation, which hands the audio session to the recogniser while it listens.
+const AUDIO = {playsInSilentMode: false, interruptionMode: "mixWithOthers"} as const;
+
+/** Plays what he says whenever the tab shows: the words so far, his mouth, and his eyes' beats while he's saying it. His
+ *  opening in his voice: the recording loads while he looks up, and everything from its first pose on starts when the sound
+ *  really does (late, it waits; silent, it goes on without), so his words, mouth and blinks keep to what you hear.
+ *  Each time, it's who he is, from the start. replay(): he says it again, from the start (a tap on him). hush(): he stops,
+ *  his words as they end (he's shrunk into his bubble). Leaving the tab, or switching to the other, stops him too.
+ *  speak(by, line, take, fits): he says the line of his answer, from his bubble, the same way (`speaking` while he does);
+ *  only while the tab's showing and he's the one on it. */
 function useSpeech(reduced: boolean, who: Accountant) {
   const [again, setAgain] = useState(0);
   const [frame, setFrame] = useState<SpeechFrame>(() => WORDS[who].said()[0]);
   const [script, setScript] = useState<{who: Accountant; beats: Beat[]}>(); // whose, so a switch never plays the other's
   const [lines, setLines] = useState<ReturnType<typeof linesOf>>([]);
-  useFocusEffect(useCallback(() => {
-    const said = WORDS[who].said();
-    const frames = reduced ? still(said) : said; // reduced: each line all at once, his mouth still
-    setLines(linesOf(said));
+  const [speaking, setSpeaking] = useState(false);
+  const player = useAudioPlayer();
+  const stop = useRef(() => {});
+  const live = useRef({who, focused: false}); // as they are now: a take arrives long after the render that asked for it
+  useEffect(() => { live.current.who = who; }, [who]);
+  useEffect(() => { setAudioModeAsync(AUDIO).catch(() => {}); }, []);
+  /** Plays poses in order from now: those before the one with his voice (`voice`) straight away, then the sound, and
+   *  everything from that pose on starts when the sound really does. done: once it's over, or stopped. onSound: once,
+   *  when the sound is first heard (true), or when he goes on without it (false). */
+  const perform = (frames: SpeechFrame[], source: AudioSource | undefined, beats: Beat[] | undefined, done?: () => void, onSound?: (heard: boolean) => void) => {
     const timers: ReturnType<typeof setTimeout>[] = [];
-    let at = 0;
+    const later = (ms: number, f: () => void) => timers.push(setTimeout(f, Math.max(0, Math.ceil(ms))));
+    const v = frames.findIndex(f => f.voice), clip = v < 0 ? undefined : source;
+    if (clip) player.replace(clip); // it loads while he looks up
+    // pose i; in his voice, his eyes start again from it as the sound starts and at each new look, so his blinks keep to it
+    const show = (i: number) => {
+      setFrame(frames[i]);
+      if (clip && !reduced && (i === v || (i > v && frames[i].look))) setScript({who, beats: beatsFrom(frames, i)});
+    };
+    // poses i on, the first `lead` ms from now (already under way if it's less than 0)
+    const run = (i: number, lead: number) => {
+      let at = lead;
+      for (let j = i; j < frames.length; j++) { later(at, () => show(j)); at += frames[j].ms; }
+      later(at, () => { setScript(undefined); done?.(); });
+    };
     setFrame(frames[0]);
-    if (!reduced) setScript({who, beats: beatsOf(said)});
-    for (const f of frames) { timers.push(setTimeout(() => setFrame(f), at)); at += f.ms; }
-    timers.push(setTimeout(() => setScript(undefined), at));
-    return () => { timers.forEach(clearTimeout); setFrame(frames[frames.length - 1]); setScript(undefined); };
+    if (beats) setScript({who, beats});
+    if (!clip) run(0, 0);
+    else {
+      let at = 0;
+      for (let j = 0; j < v; j++) { later(at, () => show(j)); at += frames[j].ms; }
+      later(at, () => {
+        player.play();
+        const began = Date.now();
+        let idle: number | undefined; // since when it's been loaded but neither playing nor buffering
+        const listen = () => {
+          const heard = player.currentTime * 1000, now = Date.now();
+          if (heard > 0) { onSound?.(true); return run(v, -heard); }
+          idle = player.isLoaded && !player.playing && !player.isBuffering ? idle ?? now : undefined;
+          if (idle !== undefined && now - idle > STALL) { player.pause(); onSound?.(false); return run(v, 0); }
+          if (now - began > LOADING) { onSound?.(false); return run(v, 0); }
+          later(LISTEN, listen);
+        };
+        later(LISTEN, listen);
+      });
+    }
+    stop.current = () => { timers.forEach(clearTimeout); timers.length = 0; player.pause(); setFrame(frames[frames.length - 1]); setScript(undefined); done?.(); };
+  };
+  useFocusEffect(useCallback(() => {
+    live.current.focused = true;
+    const said = WORDS[who].said();
+    setLines(linesOf(said));
+    // reduced: each line all at once, his mouth still (his voice as it was)
+    const frames = reduced ? still(said) : said, v = frames.findIndex(f => f.voice);
+    perform(frames, v < 0 ? undefined : WORDS[who].clips[frames[v].voice!], reduced ? undefined : beatsOf(said));
+    return () => { live.current.focused = false; stop.current(); };
   }, [reduced, who, again])); // eslint-disable-line react-hooks/exhaustive-deps -- again: a tap on him starts him over
   const replay = useCallback(() => setAgain(n => n + 1), []);
-  return {...frame, script: script?.who === who ? script.beats : undefined, lines, replay};
+  const hush = useCallback(() => stop.current(), []);
+  const speak = (by: Accountant, line: string, take: Take, fits: (text: string) => boolean, onSound?: (heard: boolean) => void) => {
+    if (live.current.who !== by || !live.current.focused) return;
+    stop.current();
+    const said = answerFrames(line, take, fits);
+    setSpeaking(true);
+    perform(reduced ? still(said) : said, {uri: take.uri}, reduced ? undefined : beatsOf(said), () => setSpeaking(false), onSound);
+  };
+  return {...frame, script: script?.who === who ? script.beats : undefined, lines, speaking, replay, hush, speak};
+}
+
+/** The microphone in the box. Tapping it hushes him first (or it would be him being heard), asks for the microphone
+ *  the first time, then listens: the words fill the box as you speak, after anything you'd already typed. Tapping stop
+ *  finishes the sentence and leaves it there to read before you send it. Leaving the tab, switching accountant or
+ *  closing the screen closes the microphone, saying nothing.
+ *  It all happens on the phone (`requiresOnDeviceRecognition`), and where the phone can't do that the microphone isn't
+ *  offered at all — see services/dictation.ts, which is what holds that promise. */
+function useDictation(o: {q: string; setQ: (s: string) => void; hush: () => void; trouble: (text: string) => void}) {
+  const [able, setAble] = useState(canDictate);
+  const [listening, setListening] = useState(false);
+  const typed = useRef(""); // what was in the box when the microphone opened
+  const live = useRef(false); // listening, as the recogniser's own events report it (a second tap is a stop, not a start)
+  // the box and the screen's own doings as they are now: the recogniser's events arrive long after a render
+  const now = useRef(o);
+  useEffect(() => { now.current = o; });
+
+  useMicEvent("start", () => { live.current = true; setListening(true); AccessibilityInfo.announceForAccessibility("Listening"); });
+  useMicEvent("result", e => now.current.setQ(withHeard(typed.current, transcriptOf(e))));
+  useMicEvent("end", () => {
+    live.current = false;
+    setListening(false);
+    setAudioModeAsync(AUDIO).catch(() => {}); // the recogniser had the audio session; his voice plays as before again
+    AccessibilityInfo.announceForAccessibility("Stopped listening");
+  });
+  useMicEvent("error", e => {
+    const line = calmly(e.error);
+    if (micRefused(e.error)) setAble(false);
+    if (line) now.current.trouble(line);
+  });
+
+  // nothing is said about a microphone we closed ourselves: abort's error code is one of the quiet ones
+  const close = useCallback(() => { if (live.current) { live.current = false; mic?.abort(); } }, []);
+  useFocusEffect(useCallback(() => close, [close])); // leaving the tab (the cleanup) closes it
+  useEffect(() => close, [close]); // and so does leaving the screen
+
+  const toggle = useCallback(async () => {
+    if (!mic) return;
+    if (live.current) return mic.stop(); // finishes the sentence and keeps it
+    now.current.hush(); // he stops talking before the microphone opens
+    const got = await mic.requestMicrophonePermissionsAsync().catch(() => null);
+    if (!got?.granted) { setAble(false); now.current.trouble(calmly("not-allowed")!); return; }
+    typed.current = now.current.q;
+    mic.start({lang: micLang(), interimResults: true, continuous: true, requiresOnDeviceRecognition: true, addsPunctuation: true});
+  }, []);
+
+  return {able, listening, toggle, close};
 }
 
 function MouthPieces({width, who, mouth}: {width: number; who: Accountant; mouth: Mouth}) {
@@ -260,14 +391,16 @@ function Tim() {
   const [smallFor, setSmallFor] = useState<Record<Accountant, boolean>>({tim: false, frank: false});
   // each accountant's conversation exactly as Claude saw it, for this visit to the app (not kept, like the thread)
   const talks = useRef<Record<Accountant, Transcript>>({tim: [], frank: []});
+  // each accountant's chat, counted up when you start a new one, so an answer still on its way to the old one is dropped
+  const chats = useRef<Record<Accountant, number>>({tim: 0, frank: 0});
+  const said = useRef(0); // ids for what's said, never reused when a chat is cleared
   // who's working out an answer, and what he's doing right now; one question at a time
   const [working, setWorking] = useState<{who: Accountant; doing: string} | null>(null);
   // a question waiting for you to say he can look at your numbers
   const [waiting, setWaiting] = useState<string | null>(null);
   const follow = useRef(false); // something was just said: scroll to it once it's laid out
-  const say = (s: Omit<Said, "id">) => { follow.current = true; setThread(th => [...th, {...s, id: th.length}]); };
+  const say = (s: Omit<Said, "id">) => { const id = said.current++; follow.current = true; setThread(th => [...th, {...s, id}]); return id; };
   const thinking = working?.who === who;
-  const mood: Mood = thinking ? "thinking" : boxFocused || q.trim() ? "typing" : "idle";
   const reduced = useReducedMotion();
 
   // The box stays at the bottom, above the tab bar, and rides up with the keyboard frame for frame (keyboard-controller reports
@@ -277,7 +410,7 @@ function Tim() {
   const page = useRef<HostInstance>(null), scroll = useRef<ScrollViewInstance>(null);
   const [under, setUnder] = useState(0); // the tab bar and home indicator, under the page
   const measure = () => page.current?.measureInWindow((_x, y, _w, h) => setUnder(Math.max(0, Math.round(Dimensions.get("window").height - y - h))));
-  const {height: keys} = useReanimatedKeyboardAnimation(); // minus the keyboard's height, this frame
+  const {height: keys} = useKeyboardHeight(); // minus the keyboard's height, this frame
   const ios = Platform.OS === "ios";
   // up by what the keyboard covers above the tab bar; nothing when it covers less
   const lift = useAnimatedStyle(() => ({transform: [{translateY: ios ? Math.min(0, keys.value + under) : 0}]}));
@@ -297,26 +430,39 @@ function Tim() {
   const pic = width * PIC / W, k = width / SRC_W;
   // where his words go: beside his head, on this line's side
   const {figure, top} = WORDS[who];
-  const room = {left: figure.left * k - GAP - EDGE, right: width - EDGE - figure.right * k - GAP};
+  const room = roomOf(width, figure, SRC_W);
   const words = speech.side === "left"
-    ? {left: EDGE, width: room.left, textAlign: "right" as const}
-    : {left: figure.right * k + GAP, width: room.right, textAlign: "left" as const};
-  const size = wordsFit(speech.lines, room, SIZE);
+    ? {left: CAPTION.edge, width: room.left, textAlign: "right" as const}
+    : {left: figure.right * k + CAPTION.gap, width: room.right, textAlign: "left" as const};
+  const size = wordsFit(speech.lines, room, CAPTION.size);
   const bg = dark ? c.bg : timPage; // light, the page is his picture's own background
   const box = dark ? c.surface : "#FFFFFF", edge = dark ? c.line : "#E4E1DA";
 
-  // Asked something, he's a bubble (0: his picture, 1: the bubble), pinned at the top as the conversation scrolls, your latest
-  // question beside it. He shrinks into it as you send; tap it and he's back as he was, with his hello. A switch to the other
-  // accountant shows him as he is straight away, and so does reduced motion.
+  // Asked something, he's a bubble (0: his picture, 1: the bubble), pinned at the top as the conversation scrolls, his name
+  // beside it. He shrinks into it as you send; tap it and he's back as he was, with his hello, for a new chat (his
+  // conversation cleared, the other's kept). A switch to the other accountant shows him as he is straight away, and so does
+  // reduced motion.
   const small = smallFor[who];
-  const asked = small ? thread.findLast(s => s.who === who && s.mine) : undefined;
+  const asked = small && thread.some(s => s.who === who && s.mine);
   const shrunk = useSharedValue(small ? 1 : 0), was = useRef(who);
   useEffect(() => {
     const to = small ? 1 : 0;
     shrunk.value = reduced || was.current !== who ? to : withTiming(to, {duration: SHRINK_MS, easing: Easing.out(Easing.cubic)});
     was.current = who;
   }, [small, who, reduced, shrunk]);
+  const {hush} = speech;
+  useEffect(() => { if (small) hush(); }, [small, hush]); // in his bubble, he stops talking out loud
+  // the microphone in the box. Trouble goes in the conversation in his own voice, where it's read out like his answers
+  const dict = useDictation({q, setQ, hush, trouble: text => say({who, mine: false, text, quiet: true})});
+  const {close: closeMic} = dict;
+  useEffect(() => { closeMic(); }, [who, closeMic]); // switching accountant closes it; the box keeps its words
+  // his eyes: down at the box while you type or dictate (he's watching it fill), up and away while he works it out
+  const mood: Mood = thinking ? "thinking" : dict.listening || boxFocused || q.trim() ? "typing" : "idle";
   const grow = () => {
+    chats.current[who]++;
+    talks.current[who] = [];
+    setThread(th => th.filter(s => s.who !== who));
+    setWorking(w => w?.who === who ? null : w);
     setSmallFor(sm => ({...sm, [who]: false}));
     scroll.current?.scrollTo({y: 0, animated: !reduced});
     speech.replay();
@@ -346,36 +492,63 @@ function Tim() {
       if (gone) st.notify(`${his} crossed out: ${gone.note.text}`, false, () => useMoney.getState().restoreNote(gone.note, gone.at));
     }
   };
+  // He says the line of his answer out loud from his bubble, his words beside it as he says them. ElevenLabs records it
+  // once (the accountant function's /say); the take stays with his answer, so a tap on the answer plays it again for nothing.
+  const fits = bubbleFits(width - 64 - BUBBLE_D - 12, SAID.size, SAID.rows);
+  // in development, one line per question in the log: how long each stage took from Send (lib/ai/timings.ts)
+  const logTimes = (by: Accountant, clock: Stopwatch | null) => { if (clock) console.log(`${PEOPLE[by].name} timings: ${clock.line()}`); };
+  const voice = (by: Accountant, id: number, line: string, current: () => boolean, clock: Stopwatch | null) => {
+    clock?.mark("take asked");
+    sayAloud(by, line).then(take => {
+      clock?.mark(take ? "take ready" : "no take");
+      if (!take || !current()) return logTimes(by, clock);
+      setThread(th => th.map(s => s.id === id ? {...s, voiced: {line, take}} : s));
+      speech.speak(by, line, take, fits, heard => { clock?.mark(heard ? "voice heard" : "voice never started"); logTimes(by, clock); });
+    });
+  };
   const go = (text: string) => {
-    const to = who;
+    const to = who, chat = chats.current[to], still = () => chats.current[to] === chat;
+    const clock = __DEV__ ? stopwatch() : null;
+    let round = 0;
     say({who: to, mine: true, text});
     setSmallFor(sm => ({...sm, [to]: true}));
     setWorking({who: to, doing: "Thinking…"});
     converse(talks.current[to], text, {
-      send: m => send(to, m),
+      send: async m => { const turn = await send(to, m); clock?.mark(roundOf(++round, turn)); return turn; },
       env: () => {
         const st = useMoney.getState();
         return {ctx: {state: st.state!, txs: st.txs, today: st.today}, notes: st.notes, who: to, newId: () => "n_" + uid()};
       },
       apply: effect => note(effect, to),
-      doing: doing => setWorking(w => w && {...w, doing}),
+      doing: doing => { if (still()) setWorking(w => w && {...w, doing}); },
     }, new Date())
-      .then(a => { talks.current[to] = a.transcript; say(saidOf(to, a, new Date())); })
+      .then(a => {
+        if (!still()) return;
+        talks.current[to] = a.transcript;
+        const id = say(saidOf(to, a, new Date()));
+        clock?.mark("answer on screen");
+        if (a.spoken && useMoney.getState().speaks) voice(to, id, a.spoken, still, clock);
+        else logTimes(to, clock);
+      })
       .catch(e => {
         // the question stays in the thread; the conversation carries on from before it
         if (!(e instanceof AccountantFail)) console.warn("Accountant failed:", e instanceof Error ? e.message : e);
-        say({who: to, mine: false, text: PEOPLE[to].fails[e instanceof AccountantFail ? e.kind : "unavailable"], quiet: true});
+        clock?.mark(`couldn't answer (${e instanceof AccountantFail ? e.kind : "error"})`);
+        logTimes(to, clock);
+        if (still()) say({who: to, mine: false, text: PEOPLE[to].fails[e instanceof AccountantFail ? e.kind : "unavailable"], quiet: true});
       })
-      .finally(() => setWorking(null));
+      .finally(() => { if (still()) setWorking(null); });
   };
   const ask = () => {
     const text = q.trim();
-    if (!text || working || !useMoney.getState().state) return;
+    if (!text || working || dict.listening || !useMoney.getState().state) return;
     setQ("");
     // the first time, he asks before looking at your numbers
     if (!useMoney.getState().aiConsent) setWaiting(text);
     else go(text);
   };
+  const button = micState({listening: dict.listening, text: q, working: !!working, canDictate: dict.able});
+  const off = button === "send" && !!working; // only Send ever waits; stop and the microphone are always yours to tap
   // read out what he's doing, and what he says when he's done
   const last = thread[thread.length - 1];
   useEffect(() => { if (working) AccessibilityInfo.announceForAccessibility(working.doing); }, [working]);
@@ -384,21 +557,29 @@ function Tim() {
   return (
     <View ref={page} onLayout={measure} style={{flex: 1}}>
     {/* a drag on the conversation puts the keyboard away, and the box comes down with it */}
-    {/* while he's a bubble, it and your question stay at the top (the first child sticks) as the conversation scrolls under them */}
+    {/* while he's a bubble, it and his name stay at the top (the first child sticks) as the conversation scrolls under them */}
     <ScrollView ref={scroll} testID="conversation" style={{flex: 1}} contentContainerStyle={{alignItems: "center", paddingHorizontal: 32, paddingBottom: 24}}
       keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" stickyHeaderIndices={small ? [0] : []}
       contentInset={{bottom: covered}} scrollIndicatorInsets={{bottom: covered}}
       onContentSizeChange={() => { if (follow.current) { follow.current = false; scroll.current?.scrollToEnd({animated: !reduced}); } }}>
       <Reanimated.View style={[{alignSelf: "stretch", marginHorizontal: -32, backgroundColor: bg}, space]}>
-        {/* asked something: room for his bubble, and your latest question beside it */}
+        {/* asked something: room for his bubble, and his name beside it */}
         {asked && (
           <View style={{flexDirection: "row", alignItems: "flex-start", gap: 12, paddingTop: bubbleTop, paddingHorizontal: 32}}>
             <View style={{width: BUBBLE_D, height: BUBBLE_D}} />
-            {/* centred on the bubble; a long question runs on below it */}
-            <Reanimated.View accessible accessibilityLabel={`You asked: ${asked.text}`} style={[{flex: 1, minWidth: 0, alignSelf: "center", gap: 4}, after]}>
-              <Text style={{fontFamily: hanken.semibold, fontSize: 12, lineHeight: 15, letterSpacing: 1, textTransform: "uppercase", color: c.muted}}>You asked</Text>
-              <Text style={{fontFamily: hanken.semibold, fontSize: 18, lineHeight: 23, letterSpacing: -.18, color: c.ink}}>{asked.text}</Text>
-            </Reanimated.View>
+            {/* centred on the bubble; a long question runs on below it. While Frank says his answer out loud, his words */}
+            {/* take its place as he says them (the screen reader has his whole answer already) */}
+            {speech.speaking ? (
+              <Reanimated.View accessible accessibilityLabel={`${name} says: ${speech.line}`} style={[{flex: 1, minWidth: 0, alignSelf: "center", gap: 4}, after]}>
+                <Text style={{fontFamily: hanken.semibold, fontSize: 12, lineHeight: 15, letterSpacing: 1, textTransform: "uppercase", color: c.muted}}>{name}</Text>
+                <Text testID="said-aloud" style={{fontFamily: hanken.medium, fontSize: SAID.size, lineHeight: SAID.line, color: c.ink, minHeight: SAID.line}}>{speech.shown}</Text>
+              </Reanimated.View>
+            ) : (
+              <Reanimated.View style={[{flex: 1, minWidth: 0, alignSelf: "center", gap: 2}, after]}>
+                <Text style={{fontFamily: hanken.semibold, fontSize: 18, lineHeight: 23, letterSpacing: -.18, color: c.ink}}>{name}</Text>
+                <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>Tap him for a new chat</Text>
+              </Reanimated.View>
+            )}
           </View>
         )}
         {/* the conversation fades in under it as it scrolls */}
@@ -420,34 +601,51 @@ function Tim() {
             <Eyes key={`eyes-${who}`} width={width} kit={EYES[who]} mood={isTim ? mood : "idle"} script={isTim && mood !== "idle" ? undefined : speech.script} />
             <MouthPieces key={`mouth-${who}`} width={width} who={who} mouth={speech.mouth} />
             {!small && <Text accessibilityLabel={speech.said ? `${name} says: ${speech.shown.replace(/^\.+/, "")}` : undefined} accessibilityLiveRegion="polite"
-              style={{position: "absolute", ...words, top: top * k, fontFamily: hanken.medium, fontSize: size, lineHeight: Math.round(size * LEADING), color: c.ink}}>
+              style={{position: "absolute", ...words, top: top * k, fontFamily: hanken.medium, fontSize: size, lineHeight: Math.round(size * CAPTION.leading), color: c.ink}}>
               {speech.shown}
             </Text>}
             <LinearGradient colors={[bg, bg + "00"]} style={{position: "absolute", left: 0, right: 0, top: 0, height: FADE}} pointerEvents="none" />
             <LinearGradient colors={[bg + "00", bg]} style={{position: "absolute", left: 0, right: 0, bottom: 0, height: FADE}} pointerEvents="none" />
           </Reanimated.View>
           {!dark && <Reanimated.View pointerEvents="none" style={[{position: "absolute", left: 0, top: 0, right: 0, bottom: 0, borderWidth: 1, borderColor: "rgba(0,0,0,.05)"}, ring]} />}
-          {/* tap the bubble and he's back as he was */}
+          {/* tap the bubble and he's back as he was, for a new chat */}
           {small && <Pressable onPress={grow} style={{position: "absolute", left: 0, top: 0, right: 0, bottom: 0}}
-            accessibilityRole="button" accessibilityLabel={`Show ${name} again`} />}
+            accessibilityRole="button" accessibilityLabel={`New chat with ${name}`} />}
         </Reanimated.View>
       </Reanimated.View>
 
-      {/* the conversation (less the question beside his bubble): yours on the right in a bubble, his on the left as plain words */}
+      {/* the conversation, one message after another: yours on the right in a filled grey bubble, his on the left as plain
+          words with a row of small icons under it that ends it, and more room before your next question than inside an
+          exchange */}
       {talked && (
-        <View style={{marginTop: 24, alignSelf: "stretch", gap: 16}}>
-          {thread.filter(s => s.who === who && s !== asked).map(s => s.mine ? (
-            <View key={s.id} style={{alignSelf: "flex-end", maxWidth: "80%", paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
+        <View style={{marginTop: 32, alignSelf: "stretch", gap: 40}}>
+          {exchanges(thread.filter(s => s.who === who)).map(group => (
+          <View key={group[0].id} style={{gap: 20}}>
+          {group.map(s => s.mine ? (
+            <View key={s.id} style={{alignSelf: "flex-end", maxWidth: "80%", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, backgroundColor: dark ? c.surface : "#E9E9E9"}}>
               <Text accessibilityLabel={`You asked: ${s.text}`} style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink}}>{s.text}</Text>
             </View>
           ) : (
-            <View key={s.id} style={{alignSelf: "flex-start", maxWidth: "90%", gap: 6}}>
-              <Text accessibilityLabel={`${name} says: ${s.text}`}
-                style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: s.quiet ? c.muted : c.ink}}>{s.text}</Text>
+            <View key={s.id} style={{alignSelf: "flex-start", maxWidth: "90%", gap: 8}}>
+              {/* what he said out loud: tap it to hear it again (the take's on the phone, so it costs nothing) */}
+              <Pressable disabled={!s.voiced} onPress={() => s.voiced && speech.speak(s.who, s.voiced.line, s.voiced.take, fits)}
+                accessibilityRole={s.voiced ? "button" : undefined} accessibilityHint={s.voiced ? `Hear ${name} say it again` : undefined}>
+                <Text accessibilityLabel={`${name} says: ${s.text}`}
+                  style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: 25, color: s.quiet ? c.muted : c.ink}}>{s.text}</Text>
+              </Pressable>
               {/* where the figures came from, and any he couldn't check */}
               {s.checked ? <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>{s.checked}</Text> : null}
               {s.flag ? <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>{s.flag}</Text> : null}
+              {/* the icon row under an answer, as ChatGPT's: here, hear it again */}
+              {s.voiced ? (
+                <Pressable onPress={() => s.voiced && speech.speak(s.who, s.voiced.line, s.voiced.take, fits)} hitSlop={10}
+                  accessibilityRole="button" accessibilityLabel={`Hear ${name} say it again`} style={{alignSelf: "flex-start", marginLeft: -2}}>
+                  <Icon name="speaker" color={c.muted} size={18} />
+                </Pressable>
+              ) : null}
             </View>
+          ))}
+          </View>
           ))}
           {/* what he's doing while he works it out, where his answer will go */}
           {thinking ? <Text style={{alignSelf: "flex-start", fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.muted}}>{working?.doing}</Text> : null}
@@ -475,13 +673,14 @@ function Tim() {
     {/* the question box, at the bottom as in the OpenAI app; it grows as you write (return makes a new line), Send sends */}
     <Reanimated.View style={[{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12, backgroundColor: bg}, lift]}>
       <View style={{alignSelf: "stretch", flexDirection: "row", alignItems: "flex-end", gap: 8, minHeight: 52, paddingLeft: 20, paddingRight: 6, paddingVertical: 6, borderRadius: 26, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
-        <TextInput value={q} onChangeText={setQ} placeholder={`Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
+        <TextInput value={q} onChangeText={setQ} placeholder={dict.listening ? "Listening…" : `Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
           multiline autoComplete="off" onFocus={() => setBoxFocused(true)} onBlur={() => setBoxFocused(false)}
           style={{flex: 1, minWidth: 0, maxHeight: BOX_LINE * BOX_LINES + 16, fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink, paddingTop: 8, paddingBottom: 8}} />
-        {/* one question at a time: while he's working it out, Send waits */}
-        <Pressable onPress={ask} disabled={!!working} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{disabled: !!working}} hitSlop={4}
-          style={{width: 38, height: 38, borderRadius: 19, backgroundColor: c.ink, alignItems: "center", justifyContent: "center", opacity: working ? 0.35 : 1}}>
-          <Icon name="up" color={c.bg} size={16} />
+        {/* one button, three jobs: the microphone when there's nothing to send, stop while it's listening, Send once
+            there are words. One question at a time, as before: while he's working it out it stays Send, and waits. */}
+        <Pressable onPress={button === "send" ? ask : dict.toggle} disabled={off} accessibilityRole="button" accessibilityLabel={MIC_BUTTON[button].label} accessibilityState={{disabled: off}} hitSlop={4}
+          style={{width: 38, height: 38, borderRadius: 19, backgroundColor: c.ink, alignItems: "center", justifyContent: "center", opacity: off ? 0.35 : 1}}>
+          <Icon name={MIC_BUTTON[button].icon} color={c.bg} size={button === "stop" ? 14 : 16} />
         </Pressable>
       </View>
     </Reanimated.View>

@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
 import Svg, {Circle, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "glasses" | "up";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "glasses" | "up" | "mic" | "stop" | "speaker";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -23,6 +23,12 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
       {/* Tim's tab, as drawn: a pair of round glasses */}
       {name === "glasses" && <><Circle cx={7} cy={13} r={4} {...p} /><Circle cx={17} cy={13} r={4} {...p} /><Path d="M11 12.5c.6-.5 1.4-.5 2 0M3 13l-1-3M21 13l1-3" {...p} /></>}
       {name === "up" && <Path d="M12 19V5M6 11l6-6 6 6" {...p} />}
+      {/* a capsule mic in its cradle, on a short stand */}
+      {name === "mic" && <><Rect x={9} y={2.5} width={6} height={11.5} rx={3} {...p} /><Path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" {...p} /></>}
+      {/* a speaker with two waves: hear it again */}
+      {name === "speaker" && <><Path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" {...p} /><Path d="M15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" {...p} /></>}
+      {/* stop: a filled rounded square (stroked, it reads too thin inside the button's circle) */}
+      {name === "stop" && <Rect x={7} y={7} width={10} height={10} rx={2.5} {...p} strokeWidth={1.5} fill={color} />}
       {name === "list" &&<Path d="M4 6h16M4 12h16M4 18h16" {...p} />}
       {name === "plus" && <Path d="M12 5v14M5 12h14" {...p} />}
       {name === "close" && <Path d="M6 6l12 12M18 6L6 18" {...p} />}

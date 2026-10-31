@@ -7,7 +7,7 @@ import * as SplashScreen from "expo-splash-screen";
 import {StatusBar} from "expo-status-bar";
 import {useEffect} from "react";
 import {AppState} from "react-native";
-import {KeyboardProvider} from "react-native-keyboard-controller";
+import {KeyboardProvider} from "@/services/keyboard";
 import {Toast} from "@/components/Toast";
 import {useMoney} from "@/store/useMoney";
 import {font, textSize} from "@/theme/tokens";

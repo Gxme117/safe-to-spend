@@ -114,6 +114,35 @@ test("declined or cut off: said so, and the conversation stays one Claude can ca
   expect(cut.transcript[cut.transcript.length - 1].role).toBe("user");
 });
 
+test("Frank's line to say out loud comes out of what's shown, and only when its figures check out", async () => {
+  const line = `[sighs] Fine... £${perDay} a day. [dryly] Don't spend it on fees.`;
+  let s = server(asks(["overview", {}]), said(`You can spend £${perDay} today.\n\n<say>${line}</say>`));
+  let a = await converse([], "What can I spend?", s.deps, NOW);
+  expect(a).toMatchObject({text: `You can spend £${perDay} today.`, spoken: line, unchecked: []});
+  // none, and nothing's said
+  s = server(said("What's it for?"));
+  expect((await converse([], "Can I buy something?", s.deps, NOW)).spoken).toBeUndefined();
+  // a figure only in what he'd say that doesn't trace back: he doesn't say it, and it never costs another round
+  s = server(asks(["overview", {}]), said(`£${perDay} today.\n<say>[sighs] £777, roughly.</say>`));
+  a = await converse([], "What can I spend?", s.deps, NOW);
+  expect(s.sent).toHaveLength(2);
+  expect(a).toMatchObject({text: `£${perDay} today.`, unchecked: []});
+  expect(a.spoken).toBeUndefined();
+});
+
+test("audio tags that stray into the written answer never show", async () => {
+  const s = server(asks(["overview", {}]), said(`[sighs] Right. £${perDay} today. [dryly] Rent's out Friday.\n[grumbles] That's it.\n\n<say>[sighs] Fine.</say>`));
+  const a = await converse([], "What can I spend?", s.deps, NOW);
+  expect(a).toMatchObject({text: `Right. £${perDay} today. Rent's out Friday.\nThat's it.`, spoken: "[sighs] Fine."});
+});
+
+test("cut off or declined, nothing's said out loud and the tag never shows", async () => {
+  const s = server(said("Not that one. <say>[flatly] No.</say>", "refusal"));
+  const a = await converse([], "Help me with crypto", s.deps, NOW);
+  expect(a).toMatchObject({text: "Not that one.", ended: "refused"});
+  expect(a.spoken).toBeUndefined();
+});
+
 test("he's asked for plain text: a stray **bold** or heading loses its marks", async () => {
   const a = await converse([], "Hi", server(said("## Today\n**Yes**, go for it.")).deps, NOW);
   expect(a.text).toBe("Today\nYes, go for it.");

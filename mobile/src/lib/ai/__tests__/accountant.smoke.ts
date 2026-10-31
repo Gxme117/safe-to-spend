@@ -7,6 +7,7 @@
 import {send} from "@/services/accountant";
 import {ctx, tx} from "../../__tests__/fixtures";
 import {converse, type Transcript} from "../converse";
+import {roundOf, stopwatch} from "../timings";
 import type {Note, ToolEffect, Who} from "../tools";
 
 const mockKeychain = new Map<string, string>();
@@ -39,11 +40,14 @@ test("real answers: each one ends in an answer, every figure checked", async () 
   let notes: Note[] = [], transcript: Transcript = [];
   const apply = (e: ToolEffect) => { notes = "add" in e ? [...notes, e.add] : notes.filter(n => n.id !== e.remove.id); };
   for (const [who, q, more] of QUESTIONS) {
+    const clock = stopwatch();
+    let round = 0;
     const a = await converse(more ? transcript : [], q, {
-      send: m => send(who, m), env: () => ({ctx: money, notes, who, newId: () => `n_${notes.length + 1}`}), apply,
+      send: async m => { const turn = await send(who, m); clock.mark(roundOf(++round, turn)); return turn; },
+      env: () => ({ctx: money, notes, who, newId: () => `n_${notes.length + 1}`}), apply,
     }, new Date(2026, 9, 5, 12, 0));
     transcript = a.transcript;
-    console.log([`${who.toUpperCase()}: ${q}`, a.text, `tools: ${a.used.join(", ") || "none"}`,
+    console.log([`${who.toUpperCase()}: ${q}`, a.text, `tools: ${a.used.join(", ") || "none"}`, `times: ${clock.line()}`,
       ...a.unchecked.length ? [`UNCHECKED: ${a.unchecked.join(", ")}`] : [], ...a.ended ? [`ENDED: ${a.ended}`] : []].join("\n"));
     expect(a.ended).toBeUndefined();
     expect(a.text).not.toContain("5,000");
