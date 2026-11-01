@@ -36,8 +36,14 @@ export const home = {
   dark: {page: {} as Partial<Palette>, past: dark.ink, ring: dark.line, dayInk: dark.muted, card: dark.surface, rule: dark.line, badge: dark.soft},
 };
 
-// The Tim tab's page in light mode: his picture's own flat background (as the "Accountant-Tim" frame), so he blends into it.
-export const timPage = "#F5F5F5";
+// The Tim tab's colours. `page`: his picture's own flat background, so he blends into it: light, as the "Accountant-Tim" frame;
+// dark, the wall of Frank's dark-mode picture, as the "Frank · your accountant (dark mode)" frame. Each role is chosen for each
+// mode, not inverted (the design's "Pinch colour roles"): `box` the question box and suggestions, `edge` their outline (and,
+// dark, the tab bar's rule), `track` the accountant switch, `thumb` the one picked in it. Ink and muted are the palette's.
+export const timPage = {
+  light: {page: "#F5F5F5", box: "#FFFFFF", edge: "#E4E1DA", track: "#ECE9E3", thumb: "#FFFFFF"},
+  dark: {page: "#141418", box: "#1C1C1E", edge: "#2C2C2E", track: "#1C1C1E", thumb: "#3A3A3C"},
+};
 
 // The Living tab's bubbles (design/LIVING_SPEC.md): a bubble and its icon, a paid one with its grey outline, and the dashed "+" outline.
 // The paid fill is almost the page's colour, so the outline keeps a paid bubble's edge (the spec dropped it; on the phone it was wanted back).

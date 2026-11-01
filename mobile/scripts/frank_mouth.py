@@ -12,9 +12,11 @@ The gap between them is the inside of his mouth: the shadow under the moustache 
 
 Poses: frank-mouth-1 (slightly open), -2 (open, "e"), -3 (narrower, "y"), as Tim's. Saved as transparent PNGs cropped to one box.
 Prints MOUTH_CROP (where they go in frank.jpg) for src/app/(tabs)/tim.tsx. Run it again whenever frank.jpg changes.
+With --dark, the same from his dark-mode picture (assets/frank-dark.jpg, by frank_dark.py), saved as frank-dark-mouth-1..3.png.
 
-Run from mobile/: python3 scripts/frank_mouth.py   (needs Pillow)
+Run from mobile/: python3 scripts/frank_mouth.py [--dark]   (needs Pillow)
 """
+import sys
 from pathlib import Path
 
 from PIL import Image
@@ -34,6 +36,12 @@ NOSE = 0.4              # his nose covers the moustache's middle this far out (a
 # (how far the jaw drops in the middle, in px; how wide the opening is, as a share of HALF; how much more the moustache's middle
 # lifts; how far the whole moustache lifts, its tips most)
 POSES = [(2.5, 0.8, 1.0, 2.5), (6.0, 0.9, 1.5, 4.5), (4.0, 0.6, 1.0, 3.0)]
+
+# His dark-mode picture is put where his face is in frank.jpg, so the same columns and rows find his moustache.
+DARK = "--dark" in sys.argv
+if DARK:
+    SRC = ROOT / "assets" / "frank-dark.jpg"
+NAME = "frank-dark" if DARK else "frank"
 
 
 def red(p):
@@ -114,9 +122,9 @@ def main():
     mid = sorted(x for x, (_, b) in tash.items() if b <= low + 2)
     cx = (mid[0] + mid[-1]) / 2
     pieces = [pose(im, tash, cx, *p) for p in POSES]
-    crop = save(pieces, "frank-mouth-", [str(i + 1) for i in range(len(pieces))])
+    crop = save(pieces, f"{NAME}-mouth-", [str(i + 1) for i in range(len(pieces))])
     print(f"MOUTH_CROP = {{x: {crop['x']}, y: {crop['y']}, w: {crop['w']}, h: {crop['h']}}}")
-    print(f"(in the {im.width}x{im.height} frank.jpg; the opening's middle at x {cx:.1f}, moustache's lowest middle row {low})")
+    print(f"(in the {im.width}x{im.height} {SRC.name}; the opening's middle at x {cx:.1f}, moustache's lowest middle row {low})")
 
 
 if __name__ == "__main__":

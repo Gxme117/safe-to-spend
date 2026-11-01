@@ -65,12 +65,18 @@ export async function updateFiling(id: string, f: FilingPatch) {
   await (await db()).runAsync(FILE, ...filing(id, f));
 }
 
-/** Payments from the bank filed against the bills they paid, and the payments you logged for them that those replace: all or nothing. */
-export async function fileBills(filings: {id: string; patch: FilingPatch}[], remove: string[]) {
+/**
+ * Payments from the bank filed against the bills they paid, and the payments you logged for them that those replace: all or nothing.
+ * `needsCat`: still to be asked about (an Undo putting one back as it was); otherwise it's sorted.
+ */
+export async function fileBills(filings: {id: string; patch: FilingPatch; needsCat?: boolean}[], remove: string[]) {
   if (!filings.length && !remove.length) return;
   const d = await db();
   await d.withTransactionAsync(async () => {
-    for (const f of filings) await d.runAsync(FILE, ...filing(f.id, f.patch));
+    for (const f of filings) {
+      await d.runAsync(FILE, ...filing(f.id, f.patch));
+      if (f.needsCat) await d.runAsync("UPDATE tx SET needs_cat = 1 WHERE id = ?", f.id);
+    }
     for (const id of remove) await d.runAsync("DELETE FROM tx WHERE id = ?", id);
   });
 }

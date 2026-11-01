@@ -9,7 +9,7 @@ import {moneyBar, type BarPart, type Calc} from "@/lib/calc";
 import type {DayView} from "@/lib/day";
 import {isoD, niceDate, pad} from "@/lib/dates";
 import {money, moneyExact, r2} from "@/lib/money";
-import {allBanks, aside, totalOf} from "@/lib/banks";
+import {allBanks, aside, banksOn, totalOf} from "@/lib/banks";
 import {bringOut, bringToFront, startOrder} from "@/lib/stack";
 import type {Ctx} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
@@ -489,7 +489,7 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
           <Mug size={MUG} />
         </Animated.View>
       ) : null}
-      {shown ? (
+      {shown && banksOn ? (
         <Animated.View style={{position: "absolute", top: addTop, left: s[6], opacity: fade}}>
           <Pressable onPress={() => router.push("/link-bank")} accessibilityRole="button"
             style={[styles.addAccount, {borderColor: theme.line}]}>

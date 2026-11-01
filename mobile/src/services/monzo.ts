@@ -152,6 +152,11 @@ export async function fetchBank(since: string): Promise<Synced> {
   return {accountId: acc.id, mainPence: bal.balance, pots, txs, ...(number ? {numbers: [number]} : {})};
 }
 
+/** The main account's payments from the last 90 days (all Monzo shares once 5 minutes have passed since you approved), to look through for regular ones. */
+export async function fetchHistory(): Promise<RawTx[]> {
+  return fetchTxs(encodeURIComponent((await mainAccount()).id), setupSince(Date.now()), 50);
+}
+
 /** Forget everything Monzo-related on this phone. */
 export async function disconnect() {
   await Promise.all(Object.values(K).map(k => SecureStore.deleteItemAsync(k)));

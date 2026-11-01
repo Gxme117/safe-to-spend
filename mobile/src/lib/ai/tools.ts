@@ -1,10 +1,14 @@
 // What Tim and Frank can look up, run here on the phone where the money is. Each tool wraps the engine, so its figures are the
 // ones the app shows, and says where they come from (the bank and when, what you typed in, an estimate or an assumption).
-// Read only, apart from their notes. They answer in small JSON; what leaves the phone is only what a question needed.
-// Never in a result: account numbers, sort codes, ids, tokens or logos; payee names and notes lose any run of 6+ digits.
+// Read only, apart from their notes: add_bill, change_bill and remove_bill only propose a card (lib/billChange.ts), and the app
+// makes the change once you've said yes to it. They answer in small JSON; what leaves the phone is only what a question needed.
+// Never in a result: account numbers, sort codes, bank or payment ids, tokens or logos (a bill's id is the app's own, as a
+// note's is); payee names and notes lose any run of 6+ digits. A day of the month goes as words ("15th of every month"),
+// never a bare number, since every number in a result counts as a £ figure he can state (lib/ai/check.ts).
 // The names and arguments match supabase/functions/accountant/prompt.ts.
 import {allBanks, aside} from "../banks";
-import {BILL_FREQ, billDated, billDates, billMonthly, billPaid, METHOD_META} from "../bills";
+import {cardLine, FREQS, proposeAdd, proposeChange, proposeRemove, Refused, type BillArgs, type Proposal} from "../billChange";
+import {BILL_FREQ, billDated, billDates, billMonthly, billPaid, billWhenLong, METHOD_META, nextBill} from "../bills";
 import {budgetHint} from "../budget";
 import {calc, expected, forecast, gapLine, hero, type Hero} from "../calc";
 import {addDays, dayDiff, isoD, longDate, niceDate, nowHM, pad, parseD, shortDay} from "../dates";
@@ -12,7 +16,8 @@ import {SPEND_FREQ} from "../everyday";
 import {ciKey, FREQ, isReceived, lowAmt, mainIncome, occurrences, usualAmt} from "../income";
 import {money, newestFirst, r2} from "../money";
 import {unsorted} from "../payments";
-import type {AppState, Ctx, Income, IsoDate, Tx} from "../types";
+import {billChanges, regularsView, sameKind, type Answers, type Scan} from "../regulars";
+import type {AppState, Bill, BillFreq, Ctx, Income, IsoDate, Tx} from "../types";
 import {whatIf} from "../today";
 import {sum} from "./sum";
 
@@ -24,26 +29,31 @@ export interface Note { id: string; kind: NoteKind; text: string; amount?: numbe
 export const NOTE_KINDS: NoteKind[] = ["goal", "plan", "preference", "circumstance"];
 export const MAX_NOTES = 50, NOTE_LEN = 120;
 
-export const TOOL_NAMES = ["overview", "upcoming", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget"] as const;
+export const TOOL_NAMES = ["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
+  "add_bill", "change_bill", "remove_bill"] as const;
 export type ToolName = typeof TOOL_NAMES[number];
 export const isTool = (name: string): name is ToolName => (TOOL_NAMES as readonly string[]).includes(name);
 
 /** What they're doing, for the line where the answer will go. */
 export const DOING: Record<ToolName, string> = {
-  overview: "Checking your numbers…", upcoming: "Looking at what's due…", everyday: "Looking at your everyday budgets…",
-  spending: "Adding up your spending…", payments: "Looking through your payments…", what_if: "Trying it out…",
+  overview: "Checking your numbers…", upcoming: "Looking at what's due…", bills: "Looking at your bills…", regulars: "Going through your payments…",
+  everyday: "Looking at your everyday budgets…", spending: "Adding up your spending…", payments: "Looking through your payments…", what_if: "Trying it out…",
   forecast: "Looking at the days ahead…", calculate: "Doing the sums…", remember: "Making a note…", forget: "Crossing out a note…",
+  add_bill: "Writing it up…", change_bill: "Writing it up…", remove_bill: "Writing it up…",
 };
 // what an answer was checked against, for the line under it; notes aren't money
 const CHECKED: Record<ToolName, string | null> = {
-  overview: "your numbers", upcoming: "what's due", everyday: "your budgets", spending: "your spending", payments: "your payments",
-  what_if: "a what if", forecast: "the days ahead", calculate: "a sum", remember: null, forget: null,
+  overview: "your numbers", upcoming: "what's due", bills: "your bills", regulars: "your bank's payments", everyday: "your budgets",
+  spending: "your spending", payments: "your payments", what_if: "a what if", forecast: "the days ahead", calculate: "a sum", remember: null, forget: null,
+  add_bill: "your bills", change_bill: "your bills", remove_bill: "your bills",
 };
 
+/** The bank's payments looked through for regular ones (lib/regulars.ts), and what you've said about them. */
+export interface RegularsEnv { scan: Scan | null; answers: Answers }
 /** Everything a tool needs. `newId` names a new note. */
-export interface ToolEnv { ctx: Ctx; notes: Note[]; who: Who; newId: () => string }
-/** A note to save or remove: the tool only says so, the store does it. */
-export type ToolEffect = {add: Note} | {remove: Note};
+export interface ToolEnv { ctx: Ctx; notes: Note[]; who: Who; newId: () => string; regulars: RegularsEnv }
+/** A note to save or remove: the tool only says so, the store does it. A change to your bills: only ever a card for you to say yes to. */
+export type ToolEffect = {add: Note} | {remove: Note} | {propose: Proposal};
 /** A tool's answer for the accountant, whether it went wrong (`error`: his arguments didn't make sense), and a note to save or remove. */
 export interface ToolOut { result: unknown; error?: true; effect?: ToolEffect }
 
@@ -111,12 +121,13 @@ export function freshness(s: AppState, now: Date): string {
   return `${banks.length > 1 ? "your banks" : latest.source}, ${when}`;
 }
 
-/** The line under an answer: what it was checked against. Null when it didn't look anything up. */
-export function receipt(used: ToolName[], s: AppState, now: Date): string | null {
+/** The line under an answer: what it was checked against. Null when it didn't look anything up. `searched`: he searched the web
+ *  too, so this only speaks for your own figures, and a price from there is never made to sound checked against your bank. */
+export function receipt(used: ToolName[], s: AppState, now: Date, searched = false): string | null {
   const seen = [...new Set(used.map(t => CHECKED[t]).filter((x): x is string => !!x))];
   if (!seen.length) return null;
   if (seen[0] !== "a sum") seen[0] += ` (${freshness(s, now)})`;
-  return `Checked against ${seen.join(" · ")}`;
+  return `${searched ? "Your figures checked" : "Checked"} against ${seen.join(" · ")}`;
 }
 
 function payOf(src: Income) {
@@ -173,6 +184,55 @@ function upcoming({ctx}: ToolEnv, a: Args) {
     paydays,
     ...c.late && c.payday ? {pay_is_late: `The last payday passed with no pay; payday is assumed to be ${day(c.payday)}. That's an assumption.`} : {},
     held_back_now_for_bills: c.billsLeft,
+  };
+}
+
+const NO_DATE = "No payment date: a month's share is held back each pay until a payment for it lands.";
+
+function bills({ctx}: ToolEnv) {
+  const c = calc(ctx), t = ctx.today, s = ctx.state;
+  const end = c.payday ? addDays(c.payday, -1) : addDays(t, 30);
+  const regular = s.bills.filter(b => b.freq !== "oneoff"), oneOffs = s.bills.filter(b => b.freq === "oneoff");
+  // this pay cycle's due dates, paid or not; one with no date is paid once a payment for it lands in the cycle
+  const cycle = (b: Bill) => billDated(b)
+    ? billDates(b, c.cycleFrom, end).map(d => `${billPaid(ctx, b, d) ? "paid" : d < t ? "not paid" : "due"} ${day(d)}`)
+    : [ctx.txs.some(it => it.billId === b.id && it.date >= c.cycleFrom) ? "paid" : "not paid yet"];
+  const monthly = regular.filter(b => b.amount > 0).reduce((x, b) => x + billMonthly(b), 0);
+  return {
+    bills: regular.map(b => {
+      const next = billDated(b) ? nextBill(b, t) : null;
+      return {
+        id: b.id, name: clean(b.name), ...b.amount > 0 ? {amount: b.amount} : {no_amount_yet: true}, ...b.varies ? {varies: true} : {},
+        how_often: BILL_FREQ[b.freq].toLowerCase(), when: billWhenLong(b, t) ?? NO_DATE, ...b.method ? {how: METHOD_META[b.method]} : {},
+        ...next ? {next_due: day(next)} : {}, this_pay_cycle: cycle(b),
+        ...b.amount > 0 ? {a_month: r2(billMonthly(b)), a_year: r2(billMonthly(b) * 12)} : {},
+        ...b.payee ? {paid_to: clean(b.payee)} : {},
+      };
+    }),
+    ...oneOffs.length ? {one_offs: oneOffs.map(b => ({id: b.id, name: clean(b.name), ...b.amount > 0 ? {amount: b.amount} : {no_amount_yet: true}, ...b.date ? {on: day(b.date)} : {}}))} : {},
+    totals: {a_month: r2(monthly), a_year: r2(monthly * 12), note: "Every bill but one-offs. Weekly, quarterly and yearly bills are spread evenly over the year; one with no amount yet counts as nothing."},
+  };
+}
+
+function regulars({ctx, regulars: {scan, answers}}: ToolEnv) {
+  const v = regularsView(ctx, scan, answers), t = ctx.today, top = v.open.slice(0, 10);
+  const changes = billChanges(ctx).map(x => x.kind === "price"
+    ? {bill_id: x.b.id, name: clean(x.b.name), change: "new price", bill_says: x.b.amount, latest_payment: x.paid, paid_on: day(x.on)}
+    : {bill_id: x.b.id, name: clean(x.b.name), change: "not paid", was_due: day(x.due), note: "Nothing from the bank near this date: it may have stopped, been paid another way, or be late."});
+  return {
+    ...scan?.from ? {looked_through: {from: day(scan.from), to: day(scan.at)}} : {},
+    ...v.none ? {none: v.none} : {}, ...v.note ? {history_note: v.note} : {},
+    not_in_bills: top.map(r => ({
+      ref: r.ref, paid_to: clean(r.payee), amount: r.amount, ...r.varies ? {varies: true, last_amounts: r.amounts} : {},
+      how_often: BILL_FREQ[r.freq].toLowerCase(), when: billWhenLong(r, t), how: METHOD_META[r.method],
+      seen: `${r.n} times, ${day(r.first)} to ${day(r.last)}`, sure: r.sure,
+      ...r.sameAs ? {maybe_same_as: {bill_id: r.sameAs.id, name: clean(r.sameAs.name)}} : {},
+      ...r.partOf ? {maybe_part_of: {bill_id: r.partOf.id, name: clean(r.partOf.name)}} : {},
+    })),
+    ...v.open.length > top.length ? {more_not_shown: `${v.open.length - top.length} more, smaller`} : {},
+    changes,
+    two_of_a_kind: sameKind([...ctx.state.bills.flatMap(b => [b.name, b.payee ?? ""]), ...(scan?.found ?? []).map(r => r.payee)]),
+    note: "Patterns in the bank's payments: suggestions, not bills. Nothing is a bill until the person says so. sure \"maybe\" is a weaker pattern (only 2 payments).",
   };
 }
 
@@ -312,6 +372,21 @@ function forget({notes}: ToolEnv, a: Args): ToolOut {
   return {result: {forgotten: note.text}, effect: {remove: note}};
 }
 
+function billArgs(a: Args): BillArgs {
+  const howOften = a.how_often == null ? null : a.how_often as BillFreq;
+  if (howOften && !FREQS.includes(howOften)) throw new Bad(`how_often must be one of ${FREQS.join(", ")}.`);
+  if (a.varies != null && typeof a.varies !== "boolean") throw new Bad("varies must be true, false or null.");
+  return {
+    name: strArg(a, "name", true), amount: numArg(a, "amount", 0.01, 1_000_000, true), howOften,
+    day: numArg(a, "day_of_month", 1, 31, true), date: dateArg(a, "next_date", true), varies: a.varies as boolean | null, fromRegular: strArg(a, "from_regular", true),
+  };
+}
+// a card for the person, never a change: the app makes it once they say yes
+const propose = (ctx: Ctx, p: Proposal): ToolOut => ({
+  result: {card: cardLine(ctx, p), saved: false, note: "Shown to the person as a card. Nothing is saved until they tap it or say yes, so don't say it's done: ask them to check it."},
+  effect: {propose: p},
+});
+
 /** Runs one tool. A tool asked for with arguments that don't make sense says what's wrong, so he can try again. */
 export function runTool(name: string, input: unknown, env: ToolEnv): ToolOut {
   const a = (input && typeof input === "object" ? input : {}) as Args;
@@ -319,6 +394,8 @@ export function runTool(name: string, input: unknown, env: ToolEnv): ToolOut {
     switch (isTool(name) ? name : null) {
       case "overview": return {result: overview(env)};
       case "upcoming": return {result: upcoming(env, a)};
+      case "bills": return {result: bills(env)};
+      case "regulars": return {result: regulars(env)};
       case "everyday": return {result: everyday(env)};
       case "spending": return {result: spending(env, a)};
       case "payments": return {result: payments(env, a)};
@@ -331,10 +408,13 @@ export function runTool(name: string, input: unknown, env: ToolEnv): ToolOut {
       }
       case "remember": return remember(env, a);
       case "forget": return forget(env, a);
+      case "add_bill": return propose(env.ctx, proposeAdd(env.ctx, env.regulars.scan, billArgs(a), env.newId()));
+      case "change_bill": return propose(env.ctx, proposeChange(env.ctx, env.regulars.scan, strArg(a, "bill_id")!, billArgs(a)));
+      case "remove_bill": return propose(env.ctx, proposeRemove(env.ctx, strArg(a, "bill_id")!));
       default: return {result: {error: `There's no tool called ${name}.`}, error: true};
     }
   } catch (e) {
-    if (e instanceof Bad) return {result: {error: e.message}, error: true};
+    if (e instanceof Bad || e instanceof Refused) return {result: {error: e.message}, error: true};
     console.warn(`${name} failed:`, e instanceof Error ? e.message : e);
     return {result: {error: "That didn't work. Try another way."}, error: true};
   }
@@ -342,11 +422,11 @@ export function runTool(name: string, input: unknown, env: ToolEnv): ToolOut {
 
 /**
  * What the app tells him at the start of each question, inside <app_context>: the date and time, and at the start of a
- * conversation (`notes` given) what you've told him before.
+ * conversation (`notes` given) what you've told him before, and `extra`: what you did with his cards since your last message.
  */
-export function appContext(now: Date, notes: Note[] | null): string {
+export function appContext(now: Date, notes: Note[] | null, extra: string[] = []): string {
   const t = isoD(now);
-  const lines = [`Now: ${t} (${longDate(t)} ${t.slice(0, 4)}), ${nowHM(now)}.`];
+  const lines = [`Now: ${t} (${longDate(t)} ${t.slice(0, 4)}), ${nowHM(now)}.`, ...extra];
   if (notes) {
     lines.push(notes.length ? "Your notes from earlier conversations, all things the person told you:" : "You have no notes from earlier conversations.");
     for (const n of notes) {

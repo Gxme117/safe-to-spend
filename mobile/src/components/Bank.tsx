@@ -1,7 +1,7 @@
 import {router} from "expo-router";
 import {useEffect, useState} from "react";
 import {AppState, Animated, Easing, Pressable, View} from "react-native";
-import {allBanks} from "@/lib/banks";
+import {allBanks, banksOn} from "@/lib/banks";
 import {money} from "@/lib/money";
 import type {Bank} from "@/lib/types";
 import {type SyncError, useMoney} from "@/store/useMoney";
@@ -64,6 +64,7 @@ export function SyncButton() {
     loop.start();
     return () => loop.stop();
   }, [syncing, reduced, spin]);
+  if (!banksOn) return null;
   return (
     <Pressable onPress={() => connected ? syncNow() : router.push("/connect-bank")} disabled={syncing} hitSlop={4}
       accessibilityRole="button" accessibilityLabel={connected ? (syncing ? "Syncing your banks" : "Sync your banks") : "Connect a bank"} accessibilityState={{busy: syncing}}

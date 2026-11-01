@@ -16,33 +16,37 @@ const run = (mood: Parameters<typeof nextBeats>[0], rounds: number, seed = 1) =>
 };
 const contact = (b: Beat) => b.look === "you" || b.look.startsWith("near");
 
-test("idle, he meets your eye but never for long, then looks away and comes back", () => {
+test("idle, he holds your eye steadily for a few seconds, glances away a moment, and comes back", () => {
   const beats = run("idle", 200);
-  // eye contact (looking at you, or a tiny shift while doing it) never runs past 3s in one go
+  // eye contact (looking at you, or a tiny shift while doing it) runs 3-6s in one go
   let held = 0;
-  for (const b of beats) {
+  beats.forEach((b, i) => {
     held = contact(b) ? held + b.ms : 0;
     expect(held).toBeLessThanOrEqual(MAX_EYE_CONTACT);
-  }
-  // every round starts on you and ends looking away
+    if (!contact(b)) {
+      expect(contact(beats[i - 1])).toBe(true);
+      expect(b.ms).toBeLessThanOrEqual(1600); // away only a moment
+    }
+  });
   for (let i = 0; i < 200; i++) {
     const round = nextBeats("idle", seeded(i));
     expect(round[0].look).toBe("you");
+    expect(round.filter(contact).reduce((s, b) => s + b.ms, 0)).toBeGreaterThanOrEqual(3000);
     expect(contact(round[round.length - 1])).toBe(false);
   }
-  // mostly down or to the side; now and then up
+  // mostly to the side or up, thinking; only now and then down
   const away = beats.filter(b => !contact(b)).map(b => b.look);
-  expect(away.filter(l => l.startsWith("down")).length / away.length).toBeGreaterThan(.4);
+  expect(away.filter(l => l.startsWith("down")).length / away.length).toBeLessThan(.25);
   expect(away.some(l => l.startsWith("up"))).toBe(true);
 });
 
-test("idle, he blinks every few seconds on average, often as he looks away", () => {
+test("idle, he blinks every few seconds on average, not as he looks away", () => {
   const beats = run("idle", 300);
   const ms = beats.reduce((s, b) => s + b.ms, 0), blinks = beats.filter(b => b.blink).length;
   expect(ms / blinks).toBeGreaterThan(2500);
   expect(ms / blinks).toBeLessThan(7000);
   const away = beats.filter(b => !contact(b));
-  expect(away.filter(b => b.blink).length / away.length).toBeGreaterThan(.35);
+  expect(away.filter(b => b.blink).length / away.length).toBeLessThan(.3);
 });
 
 test("typing, he reads the box and glances up at you to check", () => {
@@ -53,12 +57,11 @@ test("typing, he reads the box and glances up at you to check", () => {
   expect(beats.some(b => b.look === "you" && b.ms <= 700)).toBe(true);
 });
 
-test("thinking, he does the maths up and to the sides, looks at you steadily, then glances away", () => {
+test("thinking, he does the maths up and to the sides, then looks at you steadily", () => {
   const beats = nextBeats("thinking", seeded(3));
   expect(beats.slice(0, 3).map(b => b.look)).toEqual(["upLeft", "upRight", "upLeft"]);
   expect(beats.slice(0, 3).every(b => b.ms <= 400)).toBe(true);
-  expect(beats[3]).toMatchObject({look: "you", ms: 2000});
-  expect(beats[4].look.startsWith("down")).toBe(true);
+  expect(beats.slice(3)).toEqual([{look: "you", ms: 3400, blink: true}]);
 });
 
 test("looking down, his lid follows a little; otherwise it's up", () => {

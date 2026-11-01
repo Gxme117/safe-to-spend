@@ -5,6 +5,7 @@ import {SafeAreaProvider} from "react-native-safe-area-context";
 import SetupScreen from "@/app/setup";
 import {keyboardCover} from "@/components/Setup";
 import {TODAY} from "@/lib/__tests__/fixtures";
+import * as banks from "@/lib/banks";
 import {withCatalog} from "@/lib/categories";
 import {DEFAULT_CATEGORIES} from "@/lib/defaults";
 import {syncNow} from "@/components/Bank";
@@ -218,6 +219,21 @@ test("no bank yet: before the bills, a shortcut to connect one, never a demand",
   expect(router.push).toHaveBeenCalledWith("/connect-bank?from=setup");
   await tap("I'll enter them myself");
   expect(screen.getByText("Fixed bills")).toBeOnTheScreen();
+});
+
+test("the tester build has no banks: setup never offers one, and goes straight to the bills", async () => {
+  const off = jest.replaceProperty(banks, "banksOn", false);
+  try {
+    await show();
+    expect(screen.queryByRole("button", {name: "Connect your bank"})).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText("Your balance"), "1250.50");
+    await next();
+    await fireEvent.changeText(screen.getByLabelText("Your pay a month, after tax"), "1800");
+    await next();
+    await next();
+    expect(screen.queryByText("Want us to do the boring part?")).toBeNull();
+    expect(screen.getByText("Fixed bills")).toBeOnTheScreen();
+  } finally { off.restore(); }
 });
 
 // what Monzo might find going out

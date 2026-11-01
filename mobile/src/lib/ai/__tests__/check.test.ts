@@ -1,4 +1,4 @@
-import {checkNote, knownIn, poundsIn, unchecked} from "../check";
+import {checkNote, knownIn, poundsIn, unchecked, webFigures, withoutWeb} from "../check";
 
 test("the £ amounts in a reply, however they're written", () => {
   expect(poundsIn("You've £1,234.56 now, £30 left today and £ 7.5 on snacks.")).toEqual([1234.56, 30, 7.5]);
@@ -45,5 +45,29 @@ test("a figure from nowhere is caught, once, as it would be written", () => {
 });
 
 test("the app's note when a figure doesn't check out", () => {
-  expect(checkNote(["£512.40", "£3"])).toBe("<app_check>These figures in your last answer don't match any tool result or calculation: £512.40, £3. Check them with the tools, then give your whole answer again.</app_check>");
+  expect(checkNote(["£512.40", "£3"])).toBe("<app_check>These figures in your last answer don't match any tool result, calculation or citation: £512.40, £3. Check them with the tools, then give your whole answer again.</app_check>");
+});
+
+describe("a price on the web", () => {
+  const cited = (text: string, ...quotes: string[]) => ({text, citations: quotes.map(cited_text => ({type: "web_search_result_location", cited_text}))});
+
+  test("counts only where the block's own citation quotes it", () => {
+    expect(webFigures(cited("Standard is £12.99 a month.", "Standard with ads £5.99, Standard £12.99, Premium £18.99"))).toEqual([12.99]);
+    expect(webFigures(cited("Standard is £13 a month.", "Standard £12.99"))).toEqual([]);
+    expect(webFigures({text: "Standard is £12.99 a month."})).toEqual([]);
+    expect(webFigures({text: "Standard is £12.99 a month.", citations: null})).toEqual([]);
+  });
+
+  test("taken out of what has to trace back; anything his citation doesn't quote stays in", () => {
+    expect(withoutWeb(cited("Standard is £12.99, you pay £10.99.", "Standard £12.99"))).toBe("Standard is , you pay £10.99.");
+    expect(withoutWeb({text: "£12.99."})).toBe("£12.99.");
+  });
+
+  test("never rounded, and never vouches for anything but itself", () => {
+    expect(unchecked("It's £12.99 a month.", [], [12.99])).toEqual([]);
+    expect(unchecked("It's £13 a month.", [], [12.99])).toEqual(["£13"]);
+    // a price he cited isn't known: it's no use for anything said about your money
+    const known = knownIn([{role: "assistant", content: [cited("Standard is £12.99.", "Standard £12.99")]} as never]);
+    expect(known).toEqual([]);
+  });
 });

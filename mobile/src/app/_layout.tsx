@@ -26,8 +26,11 @@ export default function RootLayout() {
       useMoney.setState({loaded: true});
       useMoney.getState().notify("Couldn't read your payments. Close the app and open it again.");
     });
-    // a new day when the app comes back: the daily number moves on
-    const sub = AppState.addEventListener("change", st => { if (st === "active") useMoney.getState().tick(); });
+    // a new day when the app comes back: the daily number moves on. Leaving it is when Frank last saw you (his catch-ups)
+    const sub = AppState.addEventListener("change", st => {
+      if (st === "active") useMoney.getState().tick();
+      else if (st === "background") useMoney.getState().seenAt(Date.now());
+    });
     return () => sub.remove();
   }, []);
   useEffect(() => { if (fontsLoaded && loaded) SplashScreen.hide(); }, [fontsLoaded, loaded]);

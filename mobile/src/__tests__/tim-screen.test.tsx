@@ -1,8 +1,10 @@
-import {act, fireEvent, render, screen} from "@testing-library/react-native";
+import {act, fireEvent, render, screen, waitFor} from "@testing-library/react-native";
+import {openBrowserAsync} from "expo-web-browser";
 import {Dimensions, StyleSheet} from "react-native";
 import {SafeAreaProvider} from "react-native-safe-area-context";
 import TimScreen from "@/app/(tabs)/tim";
 import {baseState, TODAY, tx} from "@/lib/__tests__/fixtures";
+import {NO_BRIEFS} from "@/lib/briefing";
 import {ON_TWOS} from "@/lib/timEyes";
 import {frankFrames, introFrames, linesOf, speechMs, TIM_OPENING, timFrames, untagged} from "@/lib/timSpeech";
 import {AccountantFail, say, send} from "@/services/accountant";
@@ -23,7 +25,8 @@ jest.mock("react-native-reanimated", () => ({
 }));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
 jest.mock("expo-router", () => ({router: {push: jest.fn()}, useFocusEffect: (f: () => void | (() => void)) => jest.requireActual("react").useEffect(f, [f])}));
-jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {}), updateFiling: jest.fn(async () => {})}));
+jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {}), updateFiling: jest.fn(async () => {}), fileBills: jest.fn(async () => {})}));
+jest.mock("expo-web-browser", () => ({openBrowserAsync: jest.fn(async () => ({type: "opened"}))}));
 // his brain is on a server; here, each test says what Claude hands back
 jest.mock("@/services/accountant", () => {
   class MockFail extends Error {
@@ -41,9 +44,20 @@ jest.mock("@/lib/frankVoice.json", () => {
   return {h0: {text: script, ms: words[words.length - 1].end + 150, words}};
 });
 jest.mock("../../assets/frank-voice", () => ({FRANK_CLIPS: {h0: 100}}));
+jest.mock("../../assets/frankWait-voice", () => ({FRANK_WAIT_CLIPS: {h0: 300}}));
 // Tim's voice: not recorded here (his hello as he says it without one, introFrames), unless a test puts a take in
 jest.mock("@/lib/timVoice.json", () => ({}));
 jest.mock("../../assets/tim-voice", () => ({TIM_CLIPS: {h0: 200}}));
+// their pictures and some of Frank's pieces, by name (every image is otherwise just 1 here), to tell light from dark
+jest.mock("../../assets/tim.jpg", () => "tim.jpg");
+jest.mock("../../assets/frank.jpg", () => "frank.jpg");
+jest.mock("../../assets/frank-blink-2.png", () => "frank-blink-2.png");
+jest.mock("../../assets/frank-mouth-1.png", () => "frank-mouth-1.png");
+jest.mock("../../assets/frank-dark.jpg", () => "frank-dark.jpg");
+jest.mock("../../assets/frank-dark-blink-2.png", () => "frank-dark-blink-2.png");
+jest.mock("../../assets/frank-dark-look-down.png", () => "frank-dark-look-down.png");
+jest.mock("../../assets/frank-dark-hands-left-1.png", () => "frank-dark-hands-left-1.png");
+jest.mock("../../assets/frank-dark-mouth-1.png", () => "frank-dark-mouth-1.png");
 const mockSound = {late: 0, stuck: false, from: null as number | null};
 const mockPlayer = {
   replace: jest.fn(() => { mockSound.from = null; }),
@@ -107,9 +121,11 @@ beforeEach(() => {
 });
 
 const metrics = {frame: {x: 0, y: 0, width: 390, height: 844}, insets: {top: 0, left: 0, right: 0, bottom: 0}};
-const show = async (n = 3, aiConsent = true) => {
+// briefed: Frank's had today's briefing already, so his tab opens with his opening (his briefings have their own tests)
+const show = async (n = 3, aiConsent = true, briefed = true) => {
   const txs = Array.from({length: n}, (_, i) => tx({id: `t${i}`, amount: 5, date: TODAY}));
-  useMoney.setState({state: baseState(), txs, today: TODAY, loaded: true, toast: null, accountant: "tim", aiConsent, notes: []});
+  useMoney.setState({state: baseState(), txs, today: TODAY, loaded: true, toast: null, theme: "system", accountant: "tim", aiConsent, notes: [],
+    briefLog: briefed ? {...NO_BRIEFS, lastDaily: TODAY} : NO_BRIEFS});
   await render(<SafeAreaProvider initialMetrics={metrics}><TimScreen /></SafeAreaProvider>);
 };
 const ask = async (text: string, name = "Tim") => {
@@ -117,11 +133,12 @@ const ask = async (text: string, name = "Tim") => {
   await fireEvent.press(screen.getByRole("button", {name: "Send"}));
 };
 
-test("only what's needed: him, and the box to ask him (no name, no suggestions)", async () => {
+test("only what's needed: him, the box to ask him, and a few questions to start with (no name)", async () => {
   await show(3);
   expect(screen.getByLabelText("Ask Tim a question")).toBeOnTheScreen();
   expect(screen.queryByRole("header")).toBeNull();
-  expect(screen.queryByText(/knows|Where did my money go/)).toBeNull();
+  expect(screen.queryByText(/knows/)).toBeNull();
+  expect(screen.getByTestId("starters")).toBeOnTheScreen();
   // he always smiles: at rest, his mouth is the smile
   expect(screen.getByTestId("tim-smile", {includeHiddenElements: true})).toBeTruthy();
 });
@@ -151,24 +168,22 @@ test("his eyes follow what you do: he reads the box as you type, and works it ou
   }
 });
 
-test("he says \"...Hi\" beside him: shy at first, then his mouth moves, and the words stay", async () => {
+test("he says \"Hi\" beside him, looking at you, his mouth moving, and the words stay", async () => {
   jest.useFakeTimers();
   try {
     await show();
     await act(() => jest.advanceTimersByTime(10));
-    expect(lookingAt()).toEqual(["tim-look-down"]);
-    expect(screen.queryByText("...Hi")).toBeNull();
-    // the dots come first, his mouth still
-    await act(() => jest.advanceTimersByTime(1400));
-    expect(screen.getByText("...")).toBeOnTheScreen();
+    expect(lookingAt()).toEqual([]); // at you
+    expect(screen.queryByText("Hi")).toBeNull();
     expect(screen.queryByTestId("tim-mouth", {includeHiddenElements: true})).toBeNull();
     // then he says it
     const frames = introFrames(), upTo = (i: number) => frames.slice(0, i).reduce((sum, f) => sum + f.ms, 0);
-    const speaks = upTo(frames.findIndex(f => f.mouth > 0));
-    await act(() => jest.advanceTimersByTime(speaks - 1410 + 1));
+    const speaks = upTo(frames.findIndex(f => f.mouth !== "X"));
+    await act(() => jest.advanceTimersByTime(speaks - 10 + 1));
     expect(screen.getByTestId("tim-mouth", {includeHiddenElements: true})).toBeTruthy();
+    expect(lookingAt()).toEqual([]);
     await act(() => jest.advanceTimersByTime(upTo(frames.findIndex(f => f.said)) - speaks));
-    expect(screen.getByLabelText("Tim says: Hi")).toHaveTextContent("...Hi");
+    expect(screen.getByLabelText("Tim says: Hi")).toHaveTextContent("Hi");
     expect(screen.queryByTestId("tim-mouth", {includeHiddenElements: true})).toBeNull();
   } finally {
     jest.useRealTimers();
@@ -262,6 +277,43 @@ test("Send puts your question in the conversation and empties the box; he looks 
   expect(screen.queryByLabelText(/^You asked/)).toBeNull();
 });
 
+describe("what he found on the web", () => {
+  const search = {type: "server_tool_use", id: "s1", name: "web_search", input: {query: "netflix uk price"}};
+  const found = {type: "web_search_tool_result", tool_use_id: "s1", content: [{type: "web_search_result", url: "https://www.netflix.com/gb", title: "Netflix", encrypted_content: "x"}]};
+  const citation = {type: "web_search_result_location", url: "https://www.netflix.com/gb/plans", title: "Netflix plans", encrypted_index: "i", cited_text: "Standard £12.99 a month"};
+
+  test("the page he cites is under his answer, a tap away, and never passed off as your numbers", async () => {
+    sendMock.mockResolvedValueOnce(asks("overview", {})).mockResolvedValueOnce({stop_reason: "end_turn", content: [search, found,
+      {type: "text", text: "Netflix lists Standard at "}, {type: "text", text: "£12.99 a month", citations: [citation]}, {type: "text", text: "."}]});
+    await show();
+    await ask("How much is Netflix now?");
+    expect(await screen.findByLabelText("Tim says: Netflix lists Standard at £12.99 a month.")).toBeOnTheScreen();
+    expect(screen.getByText("Your figures checked against your numbers (your balance from Thu 1 Oct)")).toBeOnTheScreen();
+    expect(screen.getByText("From the web, as listed:")).toBeOnTheScreen();
+    expect(screen.queryByText(/I couldn't check/)).toBeNull();
+    await fireEvent.press(screen.getByRole("link", {name: "Open Netflix plans, on netflix.com"}));
+    expect(openBrowserAsync).toHaveBeenCalledWith("https://www.netflix.com/gb/plans");
+  });
+
+  test("a price with no source says so, and he said he looked", async () => {
+    const answer = {stop_reason: "end_turn", content: [search, found, {type: "text", text: "It's about £12.99."}]};
+    sendMock.mockResolvedValueOnce(answer).mockResolvedValueOnce(answer);
+    await show();
+    await ask("How much is Netflix now?");
+    expect(await screen.findByText("I couldn't check £12.99 against your numbers or a source.")).toBeOnTheScreen();
+    expect(screen.getByText("Looked on the web, nothing to cite.")).toBeOnTheScreen();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  test("an answer that never searched has nothing about the web under it", async () => {
+    sendMock.mockResolvedValueOnce(says("Not much is due."));
+    await show();
+    await ask("What's due?");
+    expect(await screen.findByLabelText("Tim says: Not much is due.")).toBeOnTheScreen();
+    expect(screen.queryByText(/on the web|From the web/)).toBeNull();
+  });
+});
+
 test("once you've asked, he's a bubble pinned at the top with his name beside it, and no hello; tap it and he's back; the other accountant is as he was", async () => {
   sendMock.mockResolvedValueOnce(says("Not much is due.")).mockResolvedValueOnce(says("Then it's easier.")).mockResolvedValueOnce(says("About the same."));
   await show();
@@ -313,6 +365,45 @@ test("a follow-up carries on the same conversation", async () => {
   expect(second[2].content[1].text).toBe("And if I wait till payday?");
 });
 
+test("a starter is asked with one tap, and they go once the chat's begun or you type", async () => {
+  sendMock.mockResolvedValueOnce(says("£42 today."));
+  await show();
+  await fireEvent.changeText(screen.getByLabelText("Ask Tim a question"), "Can I");
+  expect(screen.queryByTestId("starters")).toBeNull();
+  await fireEvent.changeText(screen.getByLabelText("Ask Tim a question"), "");
+  await fireEvent.press(screen.getByRole("button", {name: "What can I spend today?"}));
+  expect(screen.getByLabelText("You asked: What can I spend today?")).toBeOnTheScreen();
+  expect(sendMock.mock.calls[0][1][0].content[1].text).toBe("What can I spend today?");
+  expect(screen.queryByTestId("starters")).toBeNull();
+});
+
+test("under his latest answer, what you might ask next: one tap asks it, and only the latest has them", async () => {
+  sendMock.mockResolvedValueOnce(says("Not much is due.\n<next>What about next week? | Is rent covered?</next>"));
+  await show();
+  await ask("What's due?");
+  await screen.findByLabelText("Tim says: Not much is due.");
+  expect(screen.queryByText(/<next>/)).toBeNull();
+  expect(screen.getByRole("button", {name: "Is rent covered?"})).toBeOnTheScreen();
+  // he's working it out: they're gone
+  await fireEvent.press(screen.getByRole("button", {name: "What about next week?"}));
+  expect(screen.getByLabelText("You asked: What about next week?")).toBeOnTheScreen();
+  expect(screen.queryByTestId("next")).toBeNull();
+  expect(sendMock.mock.calls[1][1].at(-1).content[1].text).toBe("What about next week?");
+});
+
+test("he can lead with a picture: what the figure is, the figure, and a bar of what it's made of, above his words", async () => {
+  sendMock.mockResolvedValueOnce(says(`<figure label="Spent so far">£1,284</figure>\n<split>£650 rent | £634 everything else</split>\n\nThe rest is mostly food.`));
+  await show();
+  await ask("I've spent 1284: 650 rent, 634 the rest. Where did it go?");
+  const pic = await screen.findByTestId("answer-figure");
+  expect(pic).toHaveProp("accessibilityLabel", "Spent so far, £1,284. £650 rent, £634 everything else.");
+  expect(screen.getByText("Spent so far")).toBeOnTheScreen();
+  expect(screen.getByText("£1,284")).toBeOnTheScreen();
+  expect(screen.getByText("£650")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Tim says: The rest is mostly food.")).toBeOnTheScreen();
+  expect(screen.queryByText(/<figure|<split/)).toBeNull();
+});
+
 test("a figure he can't trace back is shown, but flagged", async () => {
   sendMock.mockResolvedValueOnce(says("About £999.")).mockResolvedValueOnce(says("About £999."));
   await show();
@@ -356,6 +447,84 @@ test("something you tell him that will matter later is noted straight away, with
   toast.undo!();
   expect(useMoney.getState().notes).toEqual([]);
 });
+});
+
+// A change to your bills: a card under his answer, and nothing changes until you say yes to it
+describe("bills, only with your yes", () => {
+  const gym = {name: "Gym", amount: 30, how_often: "monthly", day_of_month: 20, next_date: null, varies: null, from_regular: null};
+  const card = async () => {
+    sendMock.mockResolvedValueOnce(asks("add_bill", gym)).mockResolvedValueOnce(says("Here's your gym. Check the card."));
+    await show();
+    useMoney.setState({speaks: false});
+    await ask("Add my gym, £30 on the 20th");
+    await screen.findByLabelText("Tim says: Here's your gym. Check the card.");
+  };
+  const gyms = () => useMoney.getState().state!.bills.filter(b => b.name === "Gym");
+  // what the app told him in front of your message (the conversation goes on growing after it's sent, so it's found by your words)
+  type M = {role: string; content: {text?: string}[] | string};
+  const contextOf = (q: string) => {
+    const m = sendMock.mock.calls.flatMap(c => c[1] as M[]).find(x => x.role === "user" && Array.isArray(x.content) && x.content[1]?.text === q);
+    return (m!.content as {text: string}[])[0].text;
+  };
+
+  test("the card shows what it'd be and today's amount; nothing's saved until you tap Add, then he says it's done, with Undo", async () => {
+    await card();
+    expect(screen.getByText("Add Gym")).toBeOnTheScreen();
+    expect(screen.getByText("£30 every month")).toBeOnTheScreen();
+    expect(screen.getByText(/^Today's amount: £\d+ → £\d+$/)).toBeOnTheScreen();
+    expect(gyms()).toEqual([]);
+    await fireEvent.press(screen.getByRole("button", {name: "Add it"}));
+    expect(await screen.findByLabelText("Tim says: Done. I've added Gym to your bills at £30 a month.")).toBeOnTheScreen();
+    expect(gyms()).toEqual([expect.objectContaining({amount: 30, day: 20, since: TODAY})]);
+    expect(screen.getByText("Done")).toBeOnTheScreen();
+    const toast = useMoney.getState().toast!;
+    expect(toast.msg).toBe("Gym added");
+    await act(async () => { toast.undo!(); });
+    expect(gyms()).toEqual([]);
+    expect(screen.getByText("Undone: put back as it was")).toBeOnTheScreen();
+    // he's told on your next message, without asking Claude for the yes itself
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    sendMock.mockResolvedValueOnce(says("Fine."));
+    await ask("ok thanks");
+    await screen.findByLabelText("Tim says: Fine.");
+    const context = contextOf("ok thanks");
+    expect(context).toContain("They tapped yes on your card: Add Gym");
+    expect(context).toContain("then undid it");
+  });
+
+  test("a plain typed yes is the same as tapping it; a no leaves everything", async () => {
+    await card();
+    await ask("go ahead");
+    expect(await screen.findByLabelText("Tim says: Done. I've added Gym to your bills at £30 a month.")).toBeOnTheScreen();
+    expect(screen.getByLabelText("You asked: go ahead")).toBeOnTheScreen();
+    expect(gyms()).toHaveLength(1);
+    expect(sendMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("Not now saves nothing", async () => {
+    await card();
+    await fireEvent.press(screen.getByRole("button", {name: "Not now"}));
+    expect(await screen.findByLabelText("Tim says: No problem. I've left it as it was.")).toBeOnTheScreen();
+    expect(gyms()).toEqual([]);
+  });
+
+  test("anything else goes to him, and the card closes with nothing changed", async () => {
+    await card();
+    sendMock.mockResolvedValueOnce(says("Got it, £35 then."));
+    await ask("it's £35 actually");
+    await screen.findByLabelText("Tim says: Got it, £35 then.");
+    expect(screen.getByText("Not answered: nothing changed")).toBeOnTheScreen();
+    expect(gyms()).toEqual([]);
+    expect(contextOf("it's £35 actually")).toContain("They didn't answer your card: Add Gym");
+  });
+
+  test("if it can't be saved, the card says so and stays to try again", async () => {
+    await card();
+    useMoney.setState({state: {...useMoney.getState().state!, bills: [...useMoney.getState().state!.bills, {id: "g", name: "Gym", amount: 25, freq: "monthly"}]}});
+    await fireEvent.press(screen.getByRole("button", {name: "Add it"}));
+    expect(await screen.findByText("There's a bill like it now. Ask him again.")).toBeOnTheScreen();
+    expect(gyms()).toHaveLength(1);
+  });
 });
 
 // Saying your question instead of typing it. One button does all three jobs, and the recogniser's events are played
@@ -627,7 +796,7 @@ test("he says a line of his answer from his bubble, his words beside it as he sa
   await ask("Can I buy trainers?", "Frank");
   // the answer's written in full, without the line he says
   expect(await screen.findByLabelText("Frank says: Go on, then. Rent's out Friday.")).toBeOnTheScreen();
-  expect(sayMock).toHaveBeenCalledWith("frank", LINE);
+  expect(sayMock).toHaveBeenCalledWith("frank", LINE, undefined); // an answer's line, not a briefing
   await act(async () => {});
   expect(mockPlayer.replace).toHaveBeenLastCalledWith({uri: TAKE.uri});
   await until(() => aloud()?.props.children === "Fine… go on, then.", 3000);
@@ -658,11 +827,11 @@ test("his answer's there to read straight away, while his voice is still on its 
 });
 
 test("Tim says a line of his answer too, in his own voice", async () => {
-  sendMock.mockResolvedValueOnce(says("Yes, you can.\n\n<say>[softly] Yes... you can.</say>"));
+  sendMock.mockResolvedValueOnce(says("Yes, you can.\n\n<say>[calmly] Yes... you can.</say>"));
   await show();
   await ask("Can I buy trainers?");
   expect(await screen.findByLabelText("Tim says: Yes, you can.")).toBeOnTheScreen();
-  expect(sayMock).toHaveBeenCalledWith("tim", "[softly] Yes... you can.");
+  expect(sayMock).toHaveBeenCalledWith("tim", "[calmly] Yes... you can.", undefined);
   await act(async () => {});
   expect(mockPlayer.replace).toHaveBeenLastCalledWith({uri: TAKE.uri});
   await until(() => aloud()?.props.children === "you can.", 3000);
@@ -722,6 +891,42 @@ async function until(done: () => boolean, ms: number, each: () => void = () => {
   for (let t = 0; t < ms && !done(); t += 50) { await act(() => jest.advanceTimersByTime(50)); each(); }
   expect(done()).toBe(true);
 }
+
+describe("dark mode", () => {
+  const images = () => screen.container.queryAll(i => i.type === "Image").map(i => i.props.source);
+  const dark = async () => await act(async () => { useMoney.setState({theme: "dark"}); });
+
+  test("Frank is in his dark room, his pieces made from it; Tim has only his own picture so far", async () => {
+    await show();
+    await dark();
+    await toFrank();
+    expect(images()).toEqual(expect.arrayContaining(["frank-dark.jpg", "frank-dark-blink-2.png", "frank-dark-look-down.png", "frank-dark-hands-left-1.png", "frank-dark-mouth-1.png"]));
+    expect(images()).not.toContain("frank.jpg");
+    expect(images()).not.toContain("frank-blink-2.png");
+    expect(screen.getByTestId("frank-picture").props.accessibilityLabel).toMatch(/in a dark room$/);
+    await fireEvent.press(screen.getByRole("radio", {name: "Tim"}));
+    expect(images()).toContain("tim.jpg");
+  });
+
+  test("in light mode he's at his light desk, as before", async () => {
+    await show();
+    await toFrank();
+    expect(images()).toEqual(expect.arrayContaining(["frank.jpg", "frank-blink-2.png", "frank-mouth-1.png"]));
+    expect(images().filter(s => typeof s === "string" && s.startsWith("frank-dark"))).toEqual([]);
+  });
+
+  test("asked something, Frank's hair comes out over his bubble's top (his picture's background is the page's); Tim's doesn't", async () => {
+    sendMock.mockResolvedValue(says("Doing fine."));
+    await show();
+    await dark();
+    await ask("How am I doing?");
+    await screen.findByLabelText("Tim says: Doing fine."); // one question at a time: his answer's in before Frank is asked
+    expect(images().filter(s => s === "tim.jpg")).toHaveLength(1);
+    await toFrank();
+    await ask("How am I doing?", "Frank");
+    expect(images().filter(s => s === "frank-dark.jpg")).toHaveLength(2); // his picture in the bubble, and his hair over it
+  });
+});
 
 test("Frank looks at you while he says hello, blinking, then now and then looks down at his laptop and types", async () => {
   jest.useFakeTimers();
@@ -790,4 +995,91 @@ test("a tap on him and he says it again", async () => {
   } finally {
     jest.useRealTimers();
   }
+});
+
+describe("Frank's briefing", () => {
+const BRIEF = "[flatly] Morning. I've had a look... steady enough. Nothing due this week. <mentioned>f1</mentioned>";
+const SHOWN = "Morning. I've had a look... steady enough. Nothing due this week.";
+const briefOf = (call: unknown[]) => ((call[1] as {content: {text: string}[]}[])[0].content[1].text);
+const clipOf = (n: number) => mockPlayer.replace.mock.calls.some(c => (c as unknown[])[0] === n);
+const sayMock = say as jest.Mock;
+beforeEach(() => { sayMock.mockReset(); sayMock.mockResolvedValue(null); useMoney.setState({speaks: true}); });
+
+test("the first visit of the day, he says he's having a look and briefs you instead of his opening, out loud; once a day", async () => {
+  let land!: (t: unknown) => void;
+  sendMock.mockImplementationOnce(() => new Promise(r => { land = r; }));
+  await show(3, true, false);
+  await toFrank();
+  // "Just a second… let me have a look.", from its recording, not his opening's
+  await waitFor(() => expect(clipOf(300)).toBe(true));
+  expect(clipOf(100)).toBe(false);
+  expect(sendMock).toHaveBeenCalledTimes(1);
+  expect(sendMock.mock.calls[0][0]).toBe("frank");
+  expect(briefOf(sendMock.mock.calls[0])).toMatch(/^<app_brief kind="daily">\n/);
+  await act(async () => { land(says(BRIEF)); });
+  // his first message, from his bubble; the tags and his marks never show
+  expect(await screen.findByLabelText(`Frank says: ${SHOWN}`)).toBeOnTheScreen();
+  expect(screen.getByText("Tap him for a new chat")).toBeOnTheScreen();
+  expect(useMoney.getState().briefLog).toMatchObject({lastDaily: TODAY, last: {kind: "daily", text: SHOWN}, said: {today: {stage: TODAY, told: true}}});
+  // all of it out loud, tags and all, as a briefing (so it may be longer than an answer's line)
+  expect(sayMock).toHaveBeenCalledWith("frank", BRIEF.replace(" <mentioned>f1</mentioned>", ""), "brief");
+  // the next visit the same day: his opening, no second briefing
+  await screen.unmount();
+  sendMock.mockClear();
+  mockPlayer.replace.mockClear();
+  await render(<SafeAreaProvider initialMetrics={metrics}><TimScreen /></SafeAreaProvider>);
+  await act(async () => {});
+  expect(sendMock).not.toHaveBeenCalled();
+  expect(clipOf(300)).toBe(false);
+});
+
+test("with their answers not read out, the briefing's only written: no take is asked for", async () => {
+  sendMock.mockResolvedValueOnce(says(BRIEF));
+  await show(3, true, false);
+  useMoney.setState({speaks: false});
+  await toFrank();
+  expect(await screen.findByLabelText(`Frank says: ${SHOWN}`)).toBeOnTheScreen();
+  expect(sayMock).not.toHaveBeenCalled();
+});
+
+test("a question after it carries on from the briefing", async () => {
+  sendMock.mockResolvedValueOnce(says(BRIEF)).mockResolvedValueOnce(says("Can't pay it for you. Your bank's app can."));
+  await show(3, true, false);
+  await toFrank();
+  await screen.findByLabelText(`Frank says: ${SHOWN}`);
+  await ask("Can you pay that for me?", "Frank");
+  expect(await screen.findByLabelText("Frank says: Can't pay it for you. Your bank's app can.")).toBeOnTheScreen();
+  const sent = sendMock.mock.calls[1][1] as {role: string; content: {text: string}[]}[];
+  expect(sent[0].content[1].text).toMatch(/^<app_brief/);
+  expect(sent[1].role).toBe("assistant");
+  expect(sent[2].content[1].text).toBe("Can you pay that for me?");
+});
+
+test("only Frank, only once you've said he can look at your numbers", async () => {
+  await show(3, true, false);
+  await act(async () => {});
+  expect(sendMock).not.toHaveBeenCalled(); // Tim never briefs
+  await screen.unmount();
+  await show(3, false, false);
+  await toFrank();
+  await act(async () => {});
+  expect(sendMock).not.toHaveBeenCalled();
+  expect(clipOf(100)).toBe(true); // his opening, as ever
+});
+
+test("if he can't, or there's nothing worth saying, it's his opening; only a briefing he gave counts as given", async () => {
+  sendMock.mockRejectedValueOnce(new AccountantFail("offline"));
+  await show(3, true, false);
+  await toFrank();
+  await waitFor(() => expect(clipOf(100)).toBe(true));
+  expect(useMoney.getState().briefLog.lastDaily).toBeNull();
+  expect(screen.queryByLabelText(/^Frank says: No connection/)).toBeNull(); // no failure in the chat: he just carries on
+  await screen.unmount();
+  mockPlayer.replace.mockClear();
+  sendMock.mockResolvedValueOnce(says("<nothing/>"));
+  await show(3, true, false);
+  await toFrank();
+  await waitFor(() => expect(clipOf(100)).toBe(true));
+  expect(useMoney.getState().briefLog.lastDaily).toBe(TODAY);
+});
 });

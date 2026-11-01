@@ -1,0 +1,41 @@
+{
+ "h0": {
+  "text": "[strong New York accent, low and tired] [sighs] Just a second... let me have a look.",
+  "ms": 3239,
+  "words": [
+   {
+    "start": 722,
+    "end": 882
+   },
+   {
+    "start": 962,
+    "end": 1122
+   },
+   {
+    "start": 1362,
+    "end": 1602
+   },
+   {
+    "start": 2242,
+    "end": 2322
+   },
+   {
+    "start": 2362,
+    "end": 2402
+   },
+   {
+    "start": 2482,
+    "end": 2562
+   },
+   {
+    "start": 2602,
+    "end": 2642
+   },
+   {
+    "start": 2802,
+    "end": 2962
+   }
+  ],
+  "loud": "046532113276998715544210001267665202100"
+ }
+}

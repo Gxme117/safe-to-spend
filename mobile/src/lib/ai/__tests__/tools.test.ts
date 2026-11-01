@@ -1,13 +1,16 @@
 import {calc, forecast, hero} from "../../calc";
 import {addDays} from "../../dates";
 import {baseState, ctx, TODAY, tx} from "../../__tests__/fixtures";
+import type {Regular, Scan} from "../../regulars";
 import {whatIf} from "../../today";
-import type {Bank, Ctx} from "../../types";
+import type {Bank, Bill, Ctx} from "../../types";
+import {knownIn} from "../check";
 import {appContext, clean, MAX_NOTES, receipt, runTool, TOOL_NAMES, type Note, type ToolEnv} from "../tools";
 
 // Mon 5 Oct 2026: £1,000, paid £1,800 on the last working day (Fri 30 Oct), rent £400 on the 15th, phone £20 on the 1st,
 // a £200 groceries budget
-const env = (over: Partial<Ctx> = {}, notes: Note[] = []): ToolEnv => ({ctx: ctx(over), notes, who: "frank", newId: () => "n_new"});
+const env = (over: Partial<Ctx> = {}, notes: Note[] = [], regulars: ToolEnv["regulars"] = {scan: null, answers: {}}): ToolEnv =>
+  ({ctx: ctx(over), notes, who: "frank", newId: () => "n_new", regulars});
 const run = (name: string, input: object = {}, e = env()) => runTool(name, input, e);
 // what the accountant gets
 const res = (name: string, input: object = {}, e = env()) => run(name, input, e).result as Record<string, any>;
@@ -16,7 +19,8 @@ const monzo: Bank = {source: "Monzo", accountId: "acc_00009XYZ", main: 1000, asO
   pots: [{id: "pot_0000HOLS", name: "Holiday", balance: 300, role: "save"}]};
 
 test("the same tools as the server offers", () => {
-  expect([...TOOL_NAMES]).toEqual(["overview", "upcoming", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget"]);
+  expect([...TOOL_NAMES]).toEqual(["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
+    "add_bill", "change_bill", "remove_bill"]);
 });
 
 test("overview: the engine's own figures for today and until payday, and where they come from", () => {
@@ -84,6 +88,67 @@ test("forecast: Safe to Spend each day from tomorrow, the engine's, with payday 
 test("everyday: each budget, spent this pay cycle and what's left", () => {
   const e = res("everyday", {}, env({txs: [tx({amount: 230, date: "2026-10-03", cat: "groceries"})]}));
   expect(e.budgets).toEqual([{name: "Groceries", monthly_budget: 200, spent_this_pay_cycle: 230, left: 0, past_it_by: 30}]);
+});
+
+// what the accountant gets, as the £ check reads it: every number in it is a figure he may state
+const figures = (result: unknown) => knownIn([{role: "user", content: [{type: "tool_result", tool_use_id: "x", content: JSON.stringify(result)}]}]);
+
+test("bills: each one once, what it comes to a month and a year, and the totals; one-offs apart", () => {
+  const more: Bill[] = [
+    {id: "gym", name: "Gym", amount: 10, freq: "weekly", date: "2026-10-09"},
+    {id: "ins", name: "Insurance", amount: 120, freq: "yearly", date: "2026-12-01", payee: "AVIVA 12345678"},
+    {id: "water", name: "Water", amount: 0, freq: "monthly", day: 8},
+    {id: "gift", name: "Wedding gift", amount: 50, freq: "oneoff", date: "2026-10-20"},
+  ];
+  const b = res("bills", {}, env({state: baseState({bills: [...baseState().bills, ...more]})}));
+  expect(b.bills.map((x: {name: string}) => x.name)).toEqual(["Rent", "Phone", "Gym", "Insurance", "Water"]);
+  expect(b.bills[0]).toEqual({id: "rent", name: "Rent", amount: 400, how_often: "every month", when: "15th of every month", how: "direct debit",
+    next_due: "2026-10-15 Thu", this_pay_cycle: ["due 2026-10-15 Thu"], a_month: 400, a_year: 4800});
+  // the phone went out on Thu 1 Oct with nothing paid; next it's Mon 2 Nov (the 1st is a Sunday)
+  expect(b.bills[1]).toMatchObject({this_pay_cycle: ["not paid 2026-10-01 Thu"], next_due: "2026-11-02 Mon"});
+  expect(b.bills[2]).toMatchObject({how_often: "every week", a_month: 43.33, a_year: 520,
+    this_pay_cycle: ["not paid 2026-10-02 Fri", "due 2026-10-09 Fri", "due 2026-10-16 Fri", "due 2026-10-23 Fri"]});
+  expect(b.bills[3]).toMatchObject({when: "1 December every year", a_month: 10, a_year: 120, this_pay_cycle: [], paid_to: "AVIVA •••"});
+  expect(b.bills[4]).toMatchObject({no_amount_yet: true});
+  expect(b.bills[4].a_month).toBeUndefined();
+  expect(b.one_offs).toEqual([{id: "gift", name: "Wedding gift", amount: 50, on: "2026-10-20 Tue"}]);
+  expect(b.totals).toMatchObject({a_month: 473.33, a_year: 5680});
+  // a day of the month is never a figure he could state as £15
+  expect(figures(b)).not.toContain(15);
+  expect(figures(b)).not.toContain(8);
+});
+
+describe("regulars: what the bank's payments show that isn't in the bills", () => {
+  const flix: Bill = {id: "flix", name: "Netflix", amount: 10.99, freq: "monthly", day: 3, method: "card", payee: "NETFLIX.COM"};
+  const reg = (o: Partial<Regular> & Pick<Regular, "name" | "amount">): Regular => ({payee: o.name, varies: false, freq: "monthly", day: 12, method: "card",
+    n: 3, ref: o.name.toLowerCase(), first: "2026-07-13", last: "2026-09-14", amounts: [o.amount, o.amount, o.amount], sure: "likely", ...o});
+  const found = [reg({name: "EE", amount: 20, day: 1, method: "dd"}), reg({name: "Spotify", amount: 11.99}), reg({name: "Disney Plus", amount: 9.99, n: 2, sure: "maybe"})];
+  const scan: Scan = {at: TODAY, from: "2026-07-07", found};
+  const banked = env({state: baseState({bank: monzo, bills: [...baseState().bills, flix]}),
+    txs: [tx({amount: 12.99, date: "2026-10-03", note: "NETFLIX.COM", billId: "flix", forDate: "2026-10-05", monzoId: "m1"})]}, [], {scan, answers: {}});
+
+  test("each with what it's based on, one like a bill you have asked about as that bill, changes and two of a kind", () => {
+    const r = res("regulars", {}, banked);
+    expect(r.looked_through).toEqual({from: "2026-07-07 Tue", to: "2026-10-05 Mon"});
+    expect(r.not_in_bills).toHaveLength(3);
+    expect(r.not_in_bills[0]).toMatchObject({paid_to: "EE", how: "direct debit", maybe_same_as: {bill_id: "phone", name: "Phone"}});
+    expect(r.not_in_bills[1]).toEqual({ref: "spotify", paid_to: "Spotify", amount: 11.99, how_often: "every month", when: "12th of every month", how: "card",
+      seen: "3 times, 2026-07-13 Mon to 2026-09-14 Mon", sure: "likely"});
+    expect(r.not_in_bills[2]).toMatchObject({sure: "maybe", seen: expect.stringMatching(/^2 times/)});
+    expect(r.changes).toEqual([{bill_id: "flix", name: "Netflix", change: "new price", bill_says: 10.99, latest_payment: 12.99, paid_on: "2026-10-03 Sat"}]);
+    expect(r.two_of_a_kind).toEqual([{kind: "streaming", names: ["Netflix", "Disney+"]}]);
+    expect(figures(r)).not.toContain(12);
+    expect(JSON.stringify(r)).not.toMatch(/acc_00009XYZ|12345612345678|m1/);
+  });
+
+  test("ones you answered stay out; ten at most; no bank says so", () => {
+    const answered = env({state: baseState({bank: monzo})}, [], {scan, answers: {spotify: {verdict: "not_a_bill", at: TODAY, name: "Spotify"}}});
+    expect(res("regulars", {}, answered).not_in_bills.map((x: {paid_to: string}) => x.paid_to)).toEqual(["EE", "Disney Plus"]);
+    const many = Array.from({length: 12}, (_, i) => reg({name: `Shop ${String.fromCharCode(65 + i)}`, amount: 30 - i}));
+    const lots = res("regulars", {}, env({state: baseState({bank: monzo})}, [], {scan: {...scan, found: many}, answers: {}}));
+    expect([lots.not_in_bills.length, lots.more_not_shown]).toEqual([10, "2 more, smaller"]);
+    expect(res("regulars").none).toBe("No bank is connected, so there are no payments to look through.");
+  });
 });
 
 const paid = [
@@ -163,6 +228,33 @@ test("the line under an answer: what it was checked against, and how fresh", () 
   expect(receipt(["overview", "calculate", "overview", "remember"], baseState(), now)).toBe("Checked against your numbers (your balance from Thu 1 Oct) · a sum");
   expect(receipt(["what_if", "upcoming"], baseState({bank: monzo}), now)).toBe("Checked against a what if (Monzo, 09:12) · what's due");
   expect(receipt(["calculate"], baseState(), now)).toBe("Checked against a sum");
+  // he searched the web too: this only speaks for your own figures
+  expect(receipt(["what_if"], baseState({bank: monzo}), now, true)).toBe("Your figures checked against a what if (Monzo, 09:12)");
+  expect(receipt([], baseState(), now, true)).toBeNull();
   expect(receipt(["remember"], baseState(), now)).toBeNull();
   expect(receipt([], baseState(), now)).toBeNull();
+});
+
+describe("add_bill, change_bill, remove_bill: a card, never a change", () => {
+  const spotify: Regular = {name: "Spotify", payee: "Spotify", amount: 11.99, varies: false, freq: "monthly", day: 12, method: "card", n: 3,
+    ref: "spotify", first: "2026-07-13", last: "2026-09-14", amounts: [11.99, 11.99, 11.99], sure: "likely"};
+  const none = {name: null, amount: null, how_often: null, day_of_month: null, next_date: null, varies: null, from_regular: null};
+  const withScan = env({}, [], {scan: {at: TODAY, from: "2026-07-07", found: [spotify]}, answers: {}});
+
+  test("a regular payment brings who it's paid to and how; the effect is only ever a proposal", () => {
+    const out = run("add_bill", {...none, from_regular: "spotify"}, withScan);
+    expect(out.effect).toEqual({propose: {kind: "add", ref: "spotify", bill: expect.objectContaining({id: "n_new", payee: "Spotify", method: "card", source: "bank", since: TODAY})}});
+    expect(out.result).toMatchObject({saved: false, card: expect.stringMatching(/^Add Spotify: £11.99 every month; 12th of every month; Card, to Spotify\./)});
+    expect(run("change_bill", {...none, bill_id: "phone", amount: 25}).effect).toMatchObject({propose: {kind: "change", after: {amount: 25}}});
+    expect(run("remove_bill", {bill_id: "rent"}).effect).toMatchObject({propose: {kind: "remove", bill: {id: "rent"}}});
+  });
+
+  test("what's missing or wrong comes back as something to ask or fix", () => {
+    expect(run("add_bill", {...none, name: "Rent", amount: 400, how_often: "monthly", day_of_month: 15}).result).toEqual({error: expect.stringMatching(/already a bill for this.*id rent/)});
+    expect(run("add_bill", {...none, from_regular: "netflix"}, withScan).error).toBe(true);
+    expect(run("add_bill", {...none, name: "Gym", how_often: "monthly"}).result).toEqual({error: "Ask how much Gym is."});
+    expect(run("add_bill", {...none, name: "Gym", amount: 30, how_often: "monthly", next_date: "soon"}).error).toBe(true);
+    expect(run("add_bill", {...none, name: "Gym", amount: 30, how_often: "daily"}).error).toBe(true);
+    expect(run("remove_bill", {bill_id: "nope"}).error).toBe(true);
+  });
 });

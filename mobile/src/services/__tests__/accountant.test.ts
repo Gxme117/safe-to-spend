@@ -79,7 +79,7 @@ test("no answer in time: it gives up and says so", async () => {
       init.signal!.addEventListener("abort", () => no(new Error("aborted")));
     }));
     const p = why();
-    await jest.advanceTimersByTimeAsync(70_000);
+    await jest.advanceTimersByTimeAsync(130_000);
     expect(await p).toBe("timeout");
   } finally {
     jest.useRealTimers();

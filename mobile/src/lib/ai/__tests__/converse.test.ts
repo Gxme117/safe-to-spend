@@ -1,6 +1,6 @@
 import {calc, hero} from "../../calc";
 import {ctx} from "../../__tests__/fixtures";
-import {converse, MAX_ROUNDS, type Deps, type Transcript, type Turn} from "../converse";
+import {converse, MAX_PAUSES, MAX_ROUNDS, type Deps, type Transcript, type Turn} from "../converse";
 import type {Note, ToolEffect} from "../tools";
 
 // Claude's side, scripted: each turn as the function would hand it back
@@ -18,7 +18,7 @@ function server(...turns: Turn[]) {
   const sent: Transcript[] = [], effects: ToolEffect[] = [], doing: string[] = [];
   const deps: Deps = {
     send: jest.fn(async (m: Transcript) => { sent.push(JSON.parse(JSON.stringify(m))); const t = turns.shift(); if (!t) throw new Error("no more turns"); return t; }),
-    env: () => ({ctx: x, notes: [tv], who: "frank", newId: () => "n_new"}),
+    env: () => ({ctx: x, notes: [tv], who: "frank", newId: () => "n_new", regulars: {scan: null, answers: {}}}),
     apply: e => { effects.push(e); },
     doing: d => { doing.push(d); },
   };
@@ -76,7 +76,7 @@ test("a figure that doesn't trace back gets one more look; checked out, it's sho
   const a = await converse([], "What's left after rent?", s.deps, NOW);
   expect(a.unchecked).toEqual([]);
   const check = s.sent[2][4].content as {text: string}[];
-  expect(check[0].text).toContain("<app_check>These figures in your last answer don't match any tool result or calculation: £512.40.");
+  expect(check[0].text).toContain("<app_check>These figures in your last answer don't match any tool result, calculation or citation: £512.40.");
   expect(growsOnly([...s.sent, a.transcript])).toBe(true);
 });
 
@@ -143,6 +143,36 @@ test("cut off or declined, nothing's said out loud and the tag never shows", asy
   expect(a.spoken).toBeUndefined();
 });
 
+test("what you might ask next comes out of his words; cut off, the tag still never shows", async () => {
+  let s = server(asks(["overview", {}]), said(`£${perDay} today.\n<next>What about tomorrow? | Is rent covered?</next>\n<say>[calmly] £${perDay} today.</say>`));
+  let a = await converse([], "What can I spend?", s.deps, NOW);
+  expect(a).toMatchObject({text: `£${perDay} today.`, next: ["What about tomorrow?", "Is rent covered?"], spoken: `[calmly] £${perDay} today.`});
+  s = server(said("Not that one. <next>Why not?</next>", "refusal"));
+  a = await converse([], "Help me with crypto", s.deps, NOW);
+  expect(a).toMatchObject({text: "Not that one.", ended: "refused"});
+  expect(a.next).toBeUndefined();
+});
+
+test("the picture he leads with comes out of the words, and is kept when its figures check out", async () => {
+  const pic = `<figure label="Spent so far">£1,284</figure>\n<split>£650 rent | £634 everything else</split>`;
+  const s = server(asks(["calculate", {expression: "650 + 634"}]), said(`${pic}\n\nThe rest is mostly food.`));
+  const a = await converse([], "I paid 650 rent and 634 on the rest. Total?", s.deps, NOW);
+  expect(a).toMatchObject({text: "The rest is mostly food.", unchecked: [],
+    visual: {label: "Spent so far", amount: 1284, parts: [{amount: 650, name: "rent"}, {amount: 634, name: "everything else"}]}});
+});
+
+test("a picture's figure that doesn't trace back gets the second look; still from nowhere, the picture goes and it's flagged", async () => {
+  const pic = `<figure label="Spent so far">£1,284</figure>`;
+  let s = server(said(`${pic}\nMostly food.`), asks(["calculate", {expression: "650 + 634"}]), said(`${pic}\nMostly food.`));
+  let a = await converse([], "Rent was 650, the rest 634. Where did it go?", s.deps, NOW);
+  expect((s.sent[1][s.sent[1].length - 1].content as {text: string}[])[0].text).toContain("£1,284");
+  expect(a.visual).toMatchObject({amount: 1284});
+  s = server(said(`${pic}\nMostly food.`), said(`${pic}\nMostly food.`));
+  a = await converse([], "Where did it go?", s.deps, NOW);
+  expect(a).toMatchObject({text: "Mostly food.", unchecked: ["£1,284"]});
+  expect(a.visual).toBeUndefined();
+});
+
 test("he's asked for plain text: a stray **bold** or heading loses its marks", async () => {
   const a = await converse([], "Hi", server(said("## Today\n**Yes**, go for it.")).deps, NOW);
   expect(a.text).toBe("Today\nYes, go for it.");
@@ -153,4 +183,183 @@ test("when the server can't be reached, the question fails and the conversation 
   const before: Transcript = [];
   await expect(converse(before, "Hi", s.deps, NOW)).rejects.toThrow("no more turns");
   expect(before).toEqual([]);
+});
+
+describe("changes to bills: only ever cards on the answer, never made by him", () => {
+  const gym = {name: "Gym", amount: 30, how_often: "monthly", day_of_month: 3, next_date: null, varies: null, from_regular: null};
+
+  test("a proposal rides on the answer and never reaches apply; he's told nothing is saved", async () => {
+    const s = server(asks(["add_bill", gym]), said("Here's the card for your gym: check it and tap Add."));
+    const a = await converse([], "Add my gym, £30 on the 3rd", s.deps, NOW);
+    expect(a.proposals).toEqual([expect.objectContaining({kind: "add", bill: expect.objectContaining({name: "Gym", amount: 30, day: 3})})]);
+    expect(s.effects).toEqual([]);
+    const result = JSON.parse((s.sent[1][2].content as {content: string}[])[0].content);
+    expect(result).toMatchObject({saved: false, card: expect.stringMatching(/^Add Gym: £30 every month; 3rd of every month\./)});
+  });
+
+  test("one card per bill (the latest wins), at most 3; none on an answer that ended early", async () => {
+    const s = server(asks(["add_bill", gym], ["add_bill", {...gym, amount: 35}]), said("Check the card."));
+    const a = await converse([], "Gym is £35 actually", s.deps, NOW);
+    expect(a.proposals!.map(p => p.kind === "add" && p.bill.amount)).toEqual([35]);
+    const four = server(asks(...["A", "B", "C", "D"].map(n => ["add_bill", {...gym, name: n}] as [string, object])), said("Check the cards."));
+    const b = await converse([], "Add four bills", four.deps, NOW);
+    expect(b.proposals).toHaveLength(3);
+    expect(JSON.parse((four.sent[1][2].content as {content: string}[])[3].content).error).toMatch(/3 cards already/);
+    const cut = server(asks(["add_bill", gym]), said("Here's", "max_tokens"));
+    expect((await converse([], "Add my gym", cut.deps, NOW)).proposals).toBeUndefined();
+  });
+
+  test("what you did with his cards goes in front of your next message, and its £ figures count as known", async () => {
+    const s = server(said("Good, your £30 gym is in."));
+    const a = await converse([], "Thanks", s.deps, NOW, ["They tapped yes on your card: Add Gym (£30 every month). It's saved."]);
+    expect((s.sent[0][0].content as {text: string}[])[0].text).toContain("They tapped yes on your card: Add Gym (£30 every month).");
+    expect(a.unchecked).toEqual([]);
+  });
+});
+
+describe("a search on the web: Claude's side runs it and it comes back in his turn", () => {
+  const NETFLIX = "https://www.netflix.com/gb";
+  const search = {type: "server_tool_use", id: "s1", name: "web_search", input: {query: "netflix uk price"}};
+  const found = {type: "web_search_tool_result", tool_use_id: "s1", content: [{type: "web_search_result", url: NETFLIX, title: "Netflix", encrypted_content: "secret", page_age: "1 October 2026"}]};
+  const words = (text: string) => ({type: "text", text});
+  const cites = (text: string, cited_text = "Standard £12.99 a month") =>
+    ({type: "text", text, citations: [{type: "web_search_result_location", url: NETFLIX, title: "Netflix", encrypted_index: "i", cited_text}]});
+  const turn = (stop: Turn["stop_reason"], ...content: object[]) => ({content, stop_reason: stop} as unknown as Turn);
+
+  test("a sentence split by its citation goes back together, what he said before looking doesn't show, and the page is kept", async () => {
+    const s = server(turn("end_turn", words("I'll look that up."), search, found, words("Netflix lists Standard at "), cites("£12.99 a month"), words(", ads or not.")));
+    const a = await converse([], "How much is Netflix now?", s.deps, NOW);
+    expect(a).toMatchObject({text: "Netflix lists Standard at £12.99 a month, ads or not.", unchecked: [], searched: true,
+      sources: [{title: "Netflix", url: NETFLIX, host: "netflix.com"}]});
+    // one go: no second look for a price his citation quotes
+    expect(s.sent).toHaveLength(1);
+    // what came back goes back exactly as it came, or Claude's side refuses it
+    expect(a.transcript[1].content).toEqual([words("I'll look that up."), search, found, words("Netflix lists Standard at "), cites("£12.99 a month"), words(", ads or not.")]);
+  });
+
+  test("an answer that didn't search says nothing about the web", async () => {
+    const a = await converse([], "Hi", server(said("Morning.")).deps, NOW);
+    expect(a.searched).toBeUndefined();
+    expect(a.sources).toBeUndefined();
+  });
+
+  test("a price with no citation has to trace back like any other: a second look, then flagged", async () => {
+    const answer = () => turn("end_turn", search, found, words("Netflix is £12.99 a month."));
+    const s = server(answer(), answer());
+    const a = await converse([], "How much is Netflix now?", s.deps, NOW);
+    expect(s.sent).toHaveLength(2);
+    expect(a).toMatchObject({unchecked: ["£12.99"], searched: true});
+    expect(a.sources).toBeUndefined();
+  });
+
+  test("a price the citation doesn't quote, or one he rounded, isn't vouched for", async () => {
+    const answer = (price: string) => () => turn("end_turn", search, found, cites(`Netflix is ${price} a month.`));
+    for (const [price, bad] of [["£14.99", "£14.99"], ["£13", "£13"]]) {
+      const make = answer(price), s = server(make(), make());
+      expect((await converse([], "How much is Netflix now?", s.deps, NOW)).unchecked).toEqual([bad]);
+    }
+  });
+
+  test("a price on a page can't vouch for a figure about your money, even in the same answer", async () => {
+    const answer = () => turn("end_turn", search, found, cites("Netflix lists Standard at £12.99."), words(" You have £12.99 left today."));
+    const s = server(answer(), answer());
+    const a = await converse([], "Netflix?", s.deps, NOW);
+    expect(a.unchecked).toEqual(["£12.99"]);
+  });
+
+  test("nor does what he found earlier count later on: it has to be cited again", async () => {
+    const s = server(turn("end_turn", search, found, cites("Netflix is £12.99.")), said("So £12.99 left."), said("So £12.99 left."));
+    const a = await converse([], "Netflix?", s.deps, NOW);
+    const b = await converse(a.transcript, "And what's left?", s.deps, NOW);
+    expect(b.unchecked).toEqual(["£12.99"]);
+  });
+
+  test("your own figure and a cited price sit side by side, and he can say out loud what he cited", async () => {
+    const s = server(asks(["overview", {}]), turn("end_turn", search, found, cites("Netflix lists Standard at £12.99."), words(` You've £${perDay} today.\n<say>[flatly] £12.99 a month, and £${perDay} today.</say>`)));
+    const a = await converse([], "Netflix?", s.deps, NOW);
+    expect(a).toMatchObject({text: `Netflix lists Standard at £12.99. You've £${perDay} today.`, unchecked: [], spoken: `[flatly] £12.99 a month, and £${perDay} today.`});
+  });
+
+  test("no picture of a web price: a picture's figures have to trace back to your own", async () => {
+    const answer = () => turn("end_turn", search, found, words('<figure label="Netflix">£12.99</figure>\n'), cites("Standard is £12.99."));
+    const s = server(answer(), answer());
+    const a = await converse([], "Netflix?", s.deps, NOW);
+    expect(a.unchecked).toEqual(["£12.99"]);
+    expect(a.visual).toBeUndefined();
+    expect(a.spoken).toBeUndefined();
+  });
+
+  test("a paused search goes back as it came and carries on, without a word added", async () => {
+    const paused = turn("pause_turn", words("Looking."), search);
+    const s = server(paused, turn("end_turn", found, cites("Netflix is £12.99.")));
+    const a = await converse([], "Netflix?", s.deps, NOW);
+    expect(a).toMatchObject({text: "Netflix is £12.99.", unchecked: [], searched: true});
+    expect(s.sent).toHaveLength(2);
+    expect(s.sent[1]).toHaveLength(2);
+    expect(s.sent[1][1]).toEqual({role: "assistant", content: paused.content});
+    expect(growsOnly([...s.sent, a.transcript])).toBe(true);
+  });
+
+  test("paused too often: he stops, nothing half-finished shows, and the next question can carry on", async () => {
+    const turns = Array.from({length: MAX_PAUSES + 1}, () => turn("pause_turn", words("Still looking."), search));
+    const s = server(...turns, said("Morning."));
+    const a = await converse([], "Everything?", s.deps, NOW);
+    expect(a).toMatchObject({ended: "went-round", text: ""});
+    expect(s.deps.send).toHaveBeenCalledTimes(MAX_PAUSES + 1);
+    expect(a.transcript[a.transcript.length - 1].role).toBe("user");
+    expect((await converse(a.transcript, "Hi", s.deps, NOW)).text).toBe("Morning.");
+  });
+
+  test("a search and a phone tool asked for together: only the tool's result goes back, and the search runs next", async () => {
+    const s = server(turn("tool_use", search, {type: "tool_use", id: "tu_x", name: "overview", input: {}}), turn("end_turn", found, cites("Netflix is £12.99."), words(` You've £${perDay} today.`)));
+    const a = await converse([], "Netflix?", s.deps, NOW);
+    expect(a).toMatchObject({text: `Netflix is £12.99. You've £${perDay} today.`, used: ["overview"], unchecked: [], searched: true});
+    expect((s.sent[1][2].content as {type: string}[]).map(b => b.type)).toEqual(["tool_result"]);
+  });
+
+  test("on the last round with a search waiting, the note that it's the last doesn't go with the results: Claude's side would refuse it", async () => {
+    const tools = Array.from({length: MAX_ROUNDS - 1}, () => asks(["overview", {}]));
+    const s = server(...tools, turn("tool_use", search, {type: "tool_use", id: "tu_y", name: "overview", input: {}}), turn("end_turn", found, words("Done.")));
+    await converse([], "Everything?", s.deps, NOW);
+    const last = s.sent[MAX_ROUNDS][s.sent[MAX_ROUNDS].length - 1].content as {type: string}[];
+    expect(last.map(b => b.type)).toEqual(["tool_result"]);
+  });
+
+  test("stopped with a search waiting: that turn goes, so the next question isn't refused", async () => {
+    const s = server(turn("max_tokens", search, {type: "tool_use", id: "tu_z", name: "overview", input: {}}), said("Morning."));
+    const a = await converse([], "Netflix?", s.deps, NOW);
+    expect(a.ended).toBe("cut-off");
+    expect(a.transcript[a.transcript.length - 1].role).toBe("user");
+    expect(JSON.stringify(a.transcript)).not.toContain("srvtoolu");
+    expect((await converse(a.transcript, "Hi", s.deps, NOW)).text).toBe("Morning.");
+  });
+});
+
+describe("a briefing (said whole)", () => {
+  const brief = '<app_brief kind="daily">\n{"kind":"daily","facts":[{"id":"f1","what":"bill_due","status":"new","name":"Phone","amount":42,"due":"2026-10-06 Tue"}]}\n</app_brief>';
+
+  test("what's shown is what he says, tags out; what's said keeps them; his marks come out of both", async () => {
+    const s = server(said("[flatly] Morning. Phone bill, £42, goes tomorrow.\n<next>What else is due?</next>\n<mentioned>f1</mentioned>"));
+    const a = await converse([], brief, s.deps, NOW, [], {whole: true});
+    expect(a).toMatchObject({text: "Morning. Phone bill, £42, goes tomorrow.", spoken: "[flatly] Morning. Phone bill, £42, goes tomorrow.",
+      mentioned: ["f1"], next: ["What else is due?"], unchecked: []});
+    expect(a.nothing).toBeUndefined();
+    // the facts went as the question, after the date and his notes, so the conversation carries on from them
+    expect((s.sent[0][0].content as {text: string}[])[1].text).toBe(brief);
+  });
+
+  test("the facts' figures count as a tool's; one from nowhere gets the second look and isn't said", async () => {
+    const s = server(said("Phone bill, £45, tomorrow. <mentioned>f1</mentioned>"), said("Phone bill, £45, tomorrow. <mentioned>f1</mentioned>"));
+    const a = await converse([], brief, s.deps, NOW, [], {whole: true});
+    expect(a.unchecked).toEqual(["£45"]);
+    expect(a.spoken).toBeUndefined();
+    // the date in a fact isn't a £ figure he can use
+    const d = server(said("£2026 today."), said("£2026 today."));
+    expect((await converse([], brief, d.deps, NOW, [], {whole: true})).unchecked).toEqual(["£2,026"]);
+  });
+
+  test("nothing worth saying", async () => {
+    const a = await converse([], brief, server(said("<nothing/>")).deps, NOW, [], {whole: true});
+    expect(a).toMatchObject({text: "", mentioned: [], nothing: true});
+  });
 });

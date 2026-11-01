@@ -79,8 +79,10 @@ const nameWords = (s: string) => plain(s.replace(/['’]/g, "")).split(/[^a-z]+/
 /** Every word of the bill's name is in the payment's, so a reference added on the end doesn't matter: "Netflix" finds
  *  "NETFLIX.COM", "Council tax" finds "LB HACKNEY COUNCIL TAX". Only that way round: "Amazon Prime" doesn't find "AMAZON". */
 const named = (name: string, paid: string[]) => { const w = nameWords(name); return w.length > 0 && w.every(x => paid.includes(x)); };
-// about what the bill is: within 10% (how setup found it), or from half to double for one that varies
-const aboutRight = (b: Bill, amount: number) =>
+/** A payment is paid to this bill, by name: to the payee the bank saw, or every word of the bill's name is in the payment's. */
+export const paidTo = (b: Pick<Bill, "name" | "payee">, note: string) => { const paid = nameWords(note); return named(b.payee ?? "", paid) || named(b.name, paid); };
+/** About what the bill is: within 10% (how setup found it), or from half to double for one that varies. */
+export const aboutRight = (b: Pick<Bill, "amount" | "varies">, amount: number) =>
   b.varies ? amount >= b.amount / 2 && amount <= b.amount * 2 : Math.abs(amount - b.amount) <= b.amount * 0.1 + 0.005;
 
 /**

@@ -14,6 +14,8 @@ export default function TabsLayout() {
   const bar = {height: BAR + bottom, paddingTop: 2, borderTopWidth: 1};
   // Today keeps the colours it was drawn in, its tab bar too
   const look = {...c, ...home[dark ? "dark" : "light"].page};
+  // the accountant's tab is his picture's background; dark, its rule is the tab's own line
+  const tim = timPage[dark ? "dark" : "light"], timRule = dark ? tim.edge : look.line;
   const accountant = useMoney(st => st.accountant);
   return (
     <Tabs screenOptions={{
@@ -32,8 +34,8 @@ export default function TabsLayout() {
         tabBarStyle: {...bar, backgroundColor: look.bg, borderTopColor: look.line}, tabBarActiveTintColor: look.ink, tabBarInactiveTintColor: look.muted,
         tabBarIcon: ({color}) => <Icon name="pit" color={color} size={ICON} />}} />
       {/* Tim, your accountant, in the middle: his picture runs up under the status bar, in Today's look */}
-      <Tabs.Screen name="tim" options={{title: accountant === "frank" ? "Frank" : "Tim", sceneStyle: {backgroundColor: dark ? look.bg : timPage, paddingTop: 0},
-        tabBarStyle: {...bar, backgroundColor: dark ? look.bg : timPage, borderTopColor: look.line}, tabBarActiveTintColor: look.ink, tabBarInactiveTintColor: look.muted,
+      <Tabs.Screen name="tim" options={{title: accountant === "frank" ? "Frank" : "Tim", sceneStyle: {backgroundColor: tim.page, paddingTop: 0},
+        tabBarStyle: {...bar, backgroundColor: tim.page, borderTopColor: timRule}, tabBarActiveTintColor: look.ink, tabBarInactiveTintColor: look.muted,
         tabBarIcon: ({color}) => <Icon name="glasses" color={color} size={ICON} />}} />
       <Tabs.Screen name="month" options={{title: "Coming up", tabBarIcon: ({color}) => <Icon name="month" color={color} size={ICON} />}} />
       <Tabs.Screen name="settings"options={{title: "Settings", tabBarIcon: ({color}) => <Icon name="sliders" color={color} size={ICON} />}} />

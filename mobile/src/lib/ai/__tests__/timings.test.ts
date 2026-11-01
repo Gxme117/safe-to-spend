@@ -14,4 +14,6 @@ test("a round says which lookups it asked for, or that it was his answer", () =>
   const answers = {content: [{type: "thinking"}, {type: "text", text: "Yes."}], stop_reason: "end_turn"} as unknown as Turn;
   expect(roundOf(1, asks)).toBe("round 1 (overview, what_if)");
   expect(roundOf(2, answers)).toBe("round 2 (answer)");
+  const searches = {content: [{type: "server_tool_use", name: "web_search"}, {type: "web_search_tool_result"}, {type: "text", text: "£12.99."}], stop_reason: "end_turn"} as unknown as Turn;
+  expect(roundOf(3, searches)).toBe("round 3 (web_search)");
 });

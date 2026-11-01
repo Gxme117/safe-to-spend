@@ -4,7 +4,8 @@
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
-import {mainOf, type TlAccount, type TlBalance, type TlTx} from "@/lib/truelayer";
+import {setupSince, type RawTx} from "@/lib/monzo";
+import {mainOf, toRawTx, type TlAccount, type TlBalance, type TlTx} from "@/lib/truelayer";
 import {MonzoFail} from "./monzo";
 
 // The bank function's address isn't a secret. EXPO_PUBLIC_BANK_FN_URL in mobile/.env.local overrides it.
@@ -82,6 +83,11 @@ export async function fetchLink(id: string, since: string) {
     ? (await api<{results: TlTx[]}>(id, `/data/v1/accounts/${encodeURIComponent(main.account_id)}/transactions?from=${since}&to=${to}`)).results
     : [];
   return {accounts, balances, txs};
+}
+
+/** The linked bank's main account's payments from the last 90 days, as Monzo's, to look through for regular ones (lib/regulars.ts). */
+export async function fetchLinkHistory(id: string): Promise<RawTx[]> {
+  return (await fetchLink(id, setupSince(Date.now()))).txs.map(toRawTx);
 }
 
 /** Forget a linked bank's tokens on this phone. */

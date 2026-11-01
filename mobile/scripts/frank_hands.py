@@ -12,9 +12,11 @@ Saved as assets/frank-hands-left-1.png, -left-2, -right-1, -right-2.
 
 Made from assets/frank.jpg itself, so every piece lines up pixel for pixel with the picture on screen. Prints HANDS_CROP (where
 the pieces go in frank.jpg) for src/app/(tabs)/tim.tsx. Run it again whenever frank.jpg changes.
+With --dark, the same from his dark-mode picture (assets/frank-dark.jpg, by frank_dark.py), saved as frank-dark-hands-….
 
-Run from mobile/: python3 scripts/frank_hands.py   (needs Pillow)
+Run from mobile/: python3 scripts/frank_hands.py [--dark]   (needs Pillow)
 """
+import sys
 from math import cos, pi
 from pathlib import Path
 
@@ -32,11 +34,21 @@ TOP = 26                         # rows at the top over which the lift fades in
 BOTTOM = 14                      # rows at the bottom (where his sleeve rests on the desk) over which it fades out
 REACH = 42                       # columns out from the laptop's edge over which it fades out, towards his elbow
 SIDES = {"left": (230, 300), "right": (560, 640)}  # columns to look for the laptop's edge in, either side
+LID = (5, 55, 140)               # the laptop's lid: at least this much bluer than red, and between these brightnesses
+
+# His dark-mode picture is put where his face is in frank.jpg; there his cuffs come down to the desk a few rows lower, and the
+# laptop's lid, lit less, is dimmer and only just bluer than red at its edges.
+DARK = "--dark" in sys.argv
+if DARK:
+    SRC = ROOT / "assets" / "frank-dark.jpg"
+    ROWS = (680, 790)
+    LID = (2, 45, 140)
+NAME = "frank-dark" if DARK else "frank"
 
 
 def laptop(p):
     # the laptop's lid: a flat blue-grey (his jumper is darker and redder, his cuff white)
-    return p[2] - p[0] >= 5 and 55 < lum(p) < 140
+    return p[2] - p[0] >= LID[0] and LID[1] < lum(p) < LID[2]
 
 
 def edges(im, side):
@@ -85,10 +97,10 @@ def main():
         pieces = [hand(im, edge, side, lift) for lift in LIFTS]
         box = pieces[-1].getchannel("A").getbbox()  # the bigger lift reaches furthest
         for i, p in enumerate(pieces, 1):
-            p.crop(box).save(ASSETS / f"frank-hands-{side}-{i}.png", optimize=True)
+            p.crop(box).save(ASSETS / f"{NAME}-hands-{side}-{i}.png", optimize=True)
         crops[side] = box
     print("HANDS_CROP = {" + ", ".join(f"{s}: {{x: {b[0]}, y: {b[1]}, w: {b[2] - b[0]}, h: {b[3] - b[1]}}}" for s, b in crops.items()) + "}")
-    print(f"(in the {im.width}x{im.height} frank.jpg)")
+    print(f"(in the {im.width}x{im.height} {SRC.name})")
 
 
 if __name__ == "__main__":

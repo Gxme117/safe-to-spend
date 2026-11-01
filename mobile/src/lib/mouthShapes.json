@@ -1,0 +1,19 @@
+{
+ "_": "Tim's and Frank's mouth shapes (lib/lipsync.ts), the Hanna-Barbera / Preston Blair set as Rhubarb Lip Sync names it. Each is how the mouth is, not a picture: jaw (how far it opens, 0-1), width (of the opening, a share of the mouth line), round (corners in, lips out), press (lips tight together), teeth (upper teeth showing). scripts/tim_mouth.py and frank_mouth.py draw them from the picture; pieces says which drawn piece stands in for each until it has its own (an index into MOUTHS in app/(tabs)/tim.tsx). mood is how the mouth is at rest, the other axis: shapes are drawn on it.",
+ "shapes": {
+  "X": {"say": "rest", "jaw": 0, "width": 0, "round": 0, "press": 0, "teeth": 0},
+  "A": {"say": "m b p", "jaw": 0, "width": 0, "round": 0, "press": 1, "teeth": 0},
+  "B": {"say": "most consonants, ee", "jaw": 0.2, "width": 0.8, "round": 0, "press": 0, "teeth": 1},
+  "C": {"say": "e, a as in cat", "jaw": 0.55, "width": 0.8, "round": 0, "press": 0, "teeth": 0.5},
+  "D": {"say": "ah, i as in I", "jaw": 1, "width": 0.9, "round": 0, "press": 0, "teeth": 0.5},
+  "E": {"say": "o, er", "jaw": 0.5, "width": 0.55, "round": 0.6, "press": 0, "teeth": 0},
+  "F": {"say": "oo, w", "jaw": 0.25, "width": 0.35, "round": 1, "press": 0, "teeth": 0},
+  "G": {"say": "f v", "jaw": 0.1, "width": 0.7, "round": 0, "press": 0.5, "teeth": 1},
+  "H": {"say": "l", "jaw": 0.5, "width": 0.7, "round": 0, "press": 0, "teeth": 0.5}
+ },
+ "mood": {"tim": "smile", "frank": "tash"},
+ "pieces": {
+  "tim": {"X": 0, "A": 0, "B": 1, "C": 2, "D": 2, "E": 3, "F": 3, "G": 0, "H": 2},
+  "frank": {"X": 0, "A": 0, "B": 1, "C": 2, "D": 2, "E": 3, "F": 3, "G": 0, "H": 2}
+ }
+}

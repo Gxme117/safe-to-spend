@@ -20,9 +20,12 @@ so it has to hold up to a long look, not just a blink.
 
 Made from assets/frank.jpg itself, so every piece lines up pixel for pixel with the picture on screen. Prints LOOK_CROP and
 LID_CROP (where the pieces go in frank.jpg) for src/app/(tabs)/tim.tsx. Run it again whenever frank.jpg changes.
+With --dark, the same from his dark-mode picture (assets/frank-dark.jpg, by frank_dark.py), saved as frank-dark-look-down.png
+and frank-dark-blink-1..3.png.
 
-Run from mobile/: python3 scripts/frank_eyes.py   (needs Pillow)
+Run from mobile/: python3 scripts/frank_eyes.py [--dark]   (needs Pillow)
 """
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageFilter
@@ -47,6 +50,13 @@ TAPER = 6                        # columns past each corner over which the lid's
 COVER = 1                        # shut, the lid comes this far past the white's bottom edge, onto the line where the lids meet
 MIN_SKIN = 8                     # rows of lid skin a column needs to make its own lid from
 RIM_DARK = 105                   # a lid rim darker than this is in the shadow over his pupil, not the lid's own edge (~115-140)
+
+# His dark-mode picture is put where his face is in frank.jpg, so the same columns and rows find his eyes, and his whites, skin,
+# frame and pupils pass the same tests, only dimmer.
+DARK = "--dark" in sys.argv
+if DARK:
+    SRC = ROOT / "assets" / "frank-dark.jpg"
+NAME = "frank-dark" if DARK else "frank"
 
 
 def white(p):
@@ -302,12 +312,12 @@ def main():
     frame = frame_mask(im)
     eyes = [measure(im, frame, x0, x1) for x0, x1 in EYES]
     pupils = [find_pupil(im, eye) for eye in eyes]
-    look_crop = save([look_down(im, eyes, pupils)], "frank-look-", ["down"])
+    look_crop = save([look_down(im, eyes, pupils)], f"{NAME}-look-", ["down"])
     plan = lid_plan(im, frame, eyes, pupils)
-    lid_crop = save([lid(im, frame, plan, t) for t in POSES], "frank-blink-", ["1", "2", "3"])
+    lid_crop = save([lid(im, frame, plan, t) for t in POSES], f"{NAME}-blink-", ["1", "2", "3"])
     print(f"LOOK_CROP = {{x: {look_crop['x']}, y: {look_crop['y']}, w: {look_crop['w']}, h: {look_crop['h']}}}")
     print(f"LID_CROP = {{x: {lid_crop['x']}, y: {lid_crop['y']}, w: {lid_crop['w']}, h: {lid_crop['h']}}}")
-    print(f"(in the {im.width}x{im.height} frank.jpg; eyes in columns " + ", ".join(f"{min(e)}-{max(e)}" for e in eyes)
+    print(f"(in the {im.width}x{im.height} {SRC.name}; eyes in columns " + ", ".join(f"{min(e)}-{max(e)}" for e in eyes)
           + "; pupils at " + ", ".join(f"({cx:.1f}, {cy:.1f}) r {r:.1f}" for cx, cy, r in pupils) + ")")
 
 

@@ -1,58 +1,70 @@
 {
  "h0": {
-  "text": "[softly, a little shy] ...Hi. [quietly] I'm Tim. I can see your recent transactions, so I can help you make sense of your money. What would you like to ask me?",
-  "ms": 8516,
+  "text": "[calm, warm and assured] Hi. I'm Tim. I can see your recent transactions, so I can help you make sense of your money. What would you like to ask me?",
+  "ms": 7967,
   "words": [
    {
-    "start": 240,
-    "end": 640
+    "start": 160,
+    "end": 480
    },
    {
-    "start": 1280,
-    "end": 1440
+    "start": 880,
+    "end": 1040
    },
    {
-    "start": 1520,
-    "end": 1760
+    "start": 1200,
+    "end": 1360
    },
    {
-    "start": 2560,
-    "end": 2613
+    "start": 1920,
+    "end": 1960
    },
    {
-    "start": 2667,
-    "end": 2720
+    "start": 2000,
+    "end": 2160
    },
    {
-    "start": 2800,
+    "start": 2240,
+    "end": 2320
+   },
+   {
+    "start": 2400,
+    "end": 2560
+   },
+   {
+    "start": 2720,
     "end": 2880
    },
    {
-    "start": 2960,
-    "end": 3120
+    "start": 3360,
+    "end": 3840
    },
    {
-    "start": 3280,
-    "end": 3440
+    "start": 4080,
+    "end": 4400
    },
    {
-    "start": 3880,
-    "end": 4320
+    "start": 4480,
+    "end": 4520
    },
    {
-    "start": 4840,
-    "end": 5040
+    "start": 4560,
+    "end": 4720
    },
    {
-    "start": 5200,
-    "end": 5253
+    "start": 4800,
+    "end": 4880
    },
    {
-    "start": 5307,
-    "end": 5360
+    "start": 4920,
+    "end": 4960
    },
    {
-    "start": 5440,
+    "start": 5040,
+    "end": 5200
+   },
+   {
+    "start": 5280,
     "end": 5520
    },
    {
@@ -64,20 +76,24 @@
     "end": 5840
    },
    {
-    "start": 5920,
+    "start": 5960,
     "end": 6080
    },
    {
-    "start": 6160,
-    "end": 6240
+    "start": 6640,
+    "end": 6720
    },
    {
-    "start": 6320,
-    "end": 6400
+    "start": 6800,
+    "end": 6880
    },
    {
-    "start": 6520,
-    "end": 6640
+    "start": 6920,
+    "end": 6960
+   },
+   {
+    "start": 7040,
+    "end": 7120
    },
    {
     "start": 7200,
@@ -85,29 +101,13 @@
    },
    {
     "start": 7360,
-    "end": 7440
+    "end": 7600
    },
    {
-    "start": 7480,
-    "end": 7520
-   },
-   {
-    "start": 7600,
-    "end": 7680
-   },
-   {
-    "start": 7760,
-    "end": 7840
-   },
-   {
-    "start": 7920,
-    "end": 8080
-   },
-   {
-    "start": 8160,
-    "end": 8320
+    "start": 7680,
+    "end": 7760
    }
   ],
-  "mouth": "0001221000000001221211000000012222223212211111211111110011211122221232122222312100000032323212322110000"
+  "loud": "007931000059668210000017595776486552973932211221164435379827843486457765210000007437743863221000"
  }
 }

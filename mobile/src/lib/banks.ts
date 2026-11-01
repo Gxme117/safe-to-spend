@@ -4,6 +4,9 @@ import {isoD} from "./dates";
 import {r2} from "./money";
 import type {AppState, Bank, PotRole} from "./types";
 
+/** False in the tester build (eas.json): Monzo is your own developer client and TrueLayer is a mock bank for now, so testers type their numbers in. */
+export const banksOn = process.env.EXPO_PUBLIC_BANKS !== "off";
+
 /** Every connected bank, Monzo first. Everything else reads banks from here. */
 export const allBanks = (s: AppState): Bank[] => [...(s.bank ? [s.bank] : []), ...(s.links || [])];
 

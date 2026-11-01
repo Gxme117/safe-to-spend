@@ -15,6 +15,6 @@ export function stopwatch(now: () => number = Date.now): Stopwatch {
 
 /** What a round of a question was, for the log: the lookups it asked for, or that it was his answer. */
 export function roundOf(n: number, turn: Turn): string {
-  const tools = turn.content.flatMap(b => b.type === "tool_use" ? [b.name] : []);
+  const tools = turn.content.flatMap(b => b.type === "tool_use" || b.type === "server_tool_use" ? [b.name] : []);
   return `round ${n} (${tools.length ? tools.join(", ") : "answer"})`;
 }

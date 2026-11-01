@@ -7,14 +7,18 @@ import {withCatalog} from "@/lib/categories";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
 import type {SetupFound} from "@/lib/found";
-import {setPotRole} from "@/lib/banks";
+import {allBanks, ownAccounts, setPotRole} from "@/lib/banks";
 import {applySync, importTxs, missingDetails, type RawTx, standIns, syncSince, unfiledBills} from "@/lib/monzo";
 import {r2} from "@/lib/money";
 import type {FilingPatch} from "@/lib/payments";
+import {type Answers, type Scan, scanOf, type Verdict} from "@/lib/regulars";
+import {billOf, filed, filingsFor, idOf, type Proposal, stale} from "@/lib/billChange";
+import {type BriefLog, NO_BRIEFS} from "@/lib/briefing";
+import {keyOf} from "@/lib/found";
 import {toBank, toRawTx, withLink, withoutLink} from "@/lib/truelayer";
 import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
-import {disconnect, fetchBank, loggedIn, MonzoFail, type MonzoError} from "@/services/monzo";
-import {fetchLink, linkBank, unlink} from "@/services/truelayer";
+import {disconnect, fetchBank, fetchHistory, loggedIn, MonzoFail, type MonzoError} from "@/services/monzo";
+import {fetchLink, fetchLinkHistory, linkBank, unlink} from "@/services/truelayer";
 
 export type ThemePref = "system" | "light" | "dark";
 /** The Safe to Spend card: the accent colour, or glass (iOS 26). */
@@ -44,6 +48,9 @@ interface MoneyStore {
   aiConsent: boolean;         // you've agreed to Tim and Frank looking at your numbers (what leaves the phone, in ConsentSheet)
   speaks: boolean;            // Tim and Frank say a line of each answer out loud (off: their voices are never asked for)
   notes: Note[];             // what you've told them that will still matter next time; kept through Start over
+  scan: Scan | null;          // the bank's last 90 days, looked through for regular payments once a day (lib/regulars.ts)
+  answers: Answers;           // what you've said about the regular payments it found; kept through Start over
+  briefLog: BriefLog;         // what Frank's briefings have said, and when (lib/briefing.ts); Start over clears it
   toast: Toast | null;
   syncing: boolean;           // a bank sync is running
   setupBank: number | null;   // the Monzo total (main + all pots), when connected during setup (not saved)
@@ -64,6 +71,10 @@ interface MoneyStore {
   removeNote(id: string): {note: Note; at: number} | null;
   restoreNote(n: Note, at: number): void;
   forgetAll(): void;
+  /** A briefing was shown: what it said is kept (logBrief in lib/briefing.ts). */
+  setBriefLog(log: BriefLog): void;
+  /** You left the app (ms since epoch): a catch-up is only for coming back after a while. */
+  seenAt(ms: number): void;
 
   setup(balance: number, income?: Income, bills?: Bill[], categories?: Category[]): void;
   setSetupBank(main: number | null, found?: SetupFound | null): void;
@@ -86,6 +97,16 @@ interface MoneyStore {
   skip(key: string): void;
 
   syncBank(): Promise<SyncResult>;
+  /** Looks through every bank's last 90 days for regular payments. If it can't, the last look stays. */
+  scanRegulars(): Promise<void>;
+  /**
+   * Makes a change to your bills that Tim or Frank proposed, once you've said yes to its card: this pay cycle's payments that paid
+   * it filed first (so a failure changes nothing), then the bill, read back. `undo` puts the bill and the payments back exactly.
+   * `stale`: the bill changed since the card was made, so nothing was done.
+   */
+  applyProposal(p: Proposal): Promise<{undo: () => Promise<void>} | {error: string; stale?: true}>;
+  /** What you said about a regular payment it found; returns an undo. */
+  answerRegular(key: string, verdict: Verdict, name: string): () => void;
   /** Link a bank through TrueLayer and read it once. null: you closed the login. */
   addLink(): Promise<{id: string} | SyncFail | null>;
   removeLink(id: string): Promise<void>;
@@ -144,6 +165,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     try { await fileBills(filings, [...remove]); } catch { return; }
     set({txs: get().txs.filter(t => !remove.has(t.id)).map(filed)});
   };
+  let scanning = false;
 
   const syncMonzo = async (): Promise<SyncResult> => {
     try {
@@ -186,7 +208,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", accountant: "tim", aiConsent: false, speaks: true, notes: [], toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", accountant: "tim", aiConsent: false, speaks: true, notes: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -211,6 +233,8 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     // undo: back where it was in the list
     restoreNote(n, at) { const notes = get().notes; if (!notes.some(x => x.id === n.id)) set({notes: [...notes.slice(0, at), n, ...notes.slice(at)]}); },
     forgetAll() { set({notes: []}); },
+    setBriefLog(briefLog) { set({briefLog}); },
+    seenAt(ms) { set({briefLog: {...get().briefLog, lastSeen: ms}}); },
 
     // one write, so the app never renders a state without the pay that sets payday (or the bills and everyday amounts that hold money back)
     setup(balance, income, bills = [], categories) {
@@ -219,7 +243,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     },
     setSetupBank(main, found = null) { set({setupBank: main === null ? null : r2(main), setupFound: main === null ? null : found}); },
     // payments go first, so a failure leaves everything as it was
-    async reset() { await deleteAllTx(); set({state: null, txs: []}); },
+    async reset() { await deleteAllTx(); set({state: null, txs: [], scan: null, briefLog: NO_BRIEFS}); },
     setBalance(balance) { patch(() => ({balance: r2(balance), balanceSetAt: Date.now(), balanceAsOf: today()})); },
     setName(name) { patch(() => ({name: name.trim() || undefined})); },
     setSaving(monthly) { patch(() => ({saving: monthly > 0 ? r2(monthly) : undefined})); },
@@ -292,8 +316,64 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         ];
         await tidyBills();
         const failed = results.find(r => "error" in r);
+        // once a day, the bank's last 90 days are looked through for regular payments: never waited for, so syncing isn't slower
+        if (!failed && get().scan?.at !== today()) void get().scanRegulars();
         return failed ?? {added: results.reduce((a, r) => a + ("added" in r ? r.added : 0), 0)};
       } finally { set({syncing: false}); }
+    },
+    async scanRegulars() {
+      const s = get().state;
+      if (!s || scanning || !allBanks(s).length) return;
+      scanning = true;
+      try {
+        const raw = [
+          ...(s.bank ? await fetchHistory() : []),
+          ...(await Promise.all((s.links || []).map(l => fetchLinkHistory(l.accountId)))).flat(),
+        ];
+        set({scan: scanOf(raw, today(), ownAccounts(get().state ?? s))});
+      } catch (e) {
+        console.warn("Looking through the bank's payments failed:", e instanceof Error ? e.message : e);
+      } finally { scanning = false; }
+    },
+    async applyProposal(p) {
+      const s = get().state;
+      if (!s) return {error: "The app isn't set up yet."};
+      const c = {state: s, txs: get().txs, today: today()};
+      const why = stale(c, p);
+      if (why) return {error: why, stale: true};
+      const b = billOf(p), id = idOf(p), at = s.bills.findIndex(x => x.id === id);
+      const files = b ? filingsFor(c, b) : [];
+      try { await fileBills(files.map(f => ({id: f.id, patch: f.patch})), []); } catch { return {error: SAVE_FAILED}; }
+      const by = new Map(files.map(f => [f.id, f.patch]));
+      set({txs: get().txs.map(t => by.has(t.id) ? filed(t, by.get(t.id)!) : t)});
+      // the payments as they were, and still asked about if they were
+      const unfile = async () => {
+        await fileBills(files.map(f => ({id: f.id, patch: f.was, needsCat: f.wasAsked})), []);
+        const back = new Map(files.map(f => [f.id, f]));
+        set({txs: get().txs.map(t => { const f = back.get(t.id); if (!f) return t; const n = filed(t, f.was); if (f.wasAsked) n.needsCat = true; return n; })});
+      };
+      try {
+        if (b) get().saveBill(b); else get().removeBill(id);
+      } catch { await unfile().catch(() => {}); return {error: SAVE_FAILED}; }
+      // read back: the bill as it should be, or gone
+      const now = get().state?.bills.find(x => x.id === id);
+      if (b ? JSON.stringify(now) !== JSON.stringify(b) : now) { await unfile().catch(() => {}); return {error: SAVE_FAILED}; }
+      // a bill from the bank you remove isn't suggested again straight away
+      const undoAnswer = p.kind === "remove" && p.bill.payee ? get().answerRegular(keyOf(p.bill.payee), "not_now", p.bill.name) : null;
+      return {undo: async () => {
+        const st = get();
+        if (p.kind === "add") st.removeBill(id); else if (p.kind === "change") st.saveBill(p.before); else st.restoreBill(p.bill, at);
+        undoAnswer?.();
+        try { await unfile(); } catch { st.notify(SAVE_FAILED); }
+      }};
+    },
+    answerRegular(key, verdict, name) {
+      const was = get().answers[key];
+      set({answers: {...get().answers, [key]: {verdict, at: today(), name}}});
+      return () => {
+        const {[key]: _, ...rest} = get().answers;
+        set({answers: was ? {...rest, [key]: was} : rest});
+      };
     },
     async addLink() {
       if (!get().state) return {error: "other", detail: "the app isn't set up yet"};
@@ -322,5 +402,5 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   version: 3,
   migrate: (saved, version) => migrateSaved(saved, version) as MoneyStore,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView, accountant: s.accountant, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView, accountant: s.accountant, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes, scan: s.scan, answers: s.answers, briefLog: s.briefLog}),
 }));

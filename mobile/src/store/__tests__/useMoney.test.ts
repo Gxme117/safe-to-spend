@@ -1,7 +1,9 @@
-import {insertMany, insertTx, updateFiling} from "@/db/transactions";
+import {fileBills, insertMany, insertTx, updateFiling} from "@/db/transactions";
+import type {Proposal} from "@/lib/billChange";
 import type {Income} from "@/lib/types";
 import {fetchBank, MonzoFail} from "@/services/monzo";
-import {fetchLink, linkBank, unlink} from "@/services/truelayer";
+import {fetchLink, fetchLinkHistory, linkBank, unlink} from "@/services/truelayer";
+import {today} from "@/lib/dates";
 import {CATALOG} from "@/lib/categories";
 import {baseState} from "@/lib/__tests__/fixtures";
 import {migrateSaved, useMoney} from "../useMoney";
@@ -22,20 +24,22 @@ jest.mock("@/db/transactions", () => ({
   deleteTx: jest.fn(async () => {}),
   deleteAllTx: jest.fn(async () => {}),
   updateFiling: jest.fn(async () => {}),
+  fileBills: jest.fn(async () => {}),
 }));
 jest.mock("@/services/monzo", () => ({
   ...jest.requireActual("@/services/monzo"),
   loggedIn: jest.fn(async () => false),
   fetchBank: jest.fn(),
+  fetchHistory: jest.fn(async () => []),
 }));
-jest.mock("@/services/truelayer", () => ({linkBank: jest.fn(), fetchLink: jest.fn(), unlink: jest.fn(async () => {})}));
+jest.mock("@/services/truelayer", () => ({linkBank: jest.fn(), fetchLink: jest.fn(), fetchLinkHistory: jest.fn(async () => []), unlink: jest.fn(async () => {})}));
 
 const job = (o: Partial<Income>): Income => ({id: "a", name: "A", type: "work", freq: "monthly-lastworking", varies: false, amount: 1000, ...o});
 const store = () => useMoney.getState();
 
 beforeEach(() => {
   mockMem.clear();
-  useMoney.setState({state: null, txs: [], toast: null});
+  useMoney.setState({state: null, txs: [], toast: null, scan: null, answers: {}});
   store().setup(1000);
 });
 
@@ -178,6 +182,91 @@ test("if a bank's payments don't save, that bank stays as it was", async () => {
   (insertMany as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
   expect(await store().syncBank()).toEqual({error: "not-saved", bank: "Mock Bank"});
   expect(store().state!.links![0].main).toBe(250);
+});
+
+test("once a day after a sync, the bank's 90 days are looked through for regular payments, without holding the sync up", async () => {
+  (linkBank as jest.Mock).mockResolvedValueOnce("tl_1");
+  (fetchLink as jest.Mock).mockResolvedValueOnce(mockBank());
+  await store().addLink();
+  useMoney.setState({scan: null});
+  const history = [-9.99, -9.99, -9.99].map((amount, i) => ({transaction_id: `h${i}`, timestamp: `2026-0${7 + i}-12T12:00:00Z`, amount, transaction_type: "DEBIT", merchant_name: "Spotify"}));
+  let land: (v: unknown) => void = () => {};
+  (fetchLinkHistory as jest.Mock).mockReturnValueOnce(new Promise(r => { land = r; }));
+  (fetchLink as jest.Mock).mockResolvedValueOnce(mockBank());
+  expect(await store().syncBank()).toEqual({added: 0});
+  // the sync is done while the look through is still going
+  expect(store().syncing).toBe(false);
+  expect(store().scan).toBeNull();
+  const {toRawTx} = jest.requireActual("@/lib/truelayer");
+  land(history.map(toRawTx));
+  await new Promise(r => setTimeout(r, 0));
+  expect(store().scan).toMatchObject({at: today(), from: "2026-07-12"});
+  expect(fetchLinkHistory).toHaveBeenCalledWith("tl_1");
+  // the next sync today doesn't look again
+  (fetchLinkHistory as jest.Mock).mockClear();
+  (fetchLink as jest.Mock).mockResolvedValueOnce(mockBank());
+  await store().syncBank();
+  expect(fetchLinkHistory).not.toHaveBeenCalled();
+});
+
+test("if looking through the bank's payments fails, the last look stays", async () => {
+  (linkBank as jest.Mock).mockResolvedValueOnce("tl_1");
+  (fetchLink as jest.Mock).mockResolvedValueOnce(mockBank());
+  await store().addLink();
+  const old = {at: "2026-09-01", from: "2026-06-01", found: []};
+  useMoney.setState({scan: old});
+  (fetchLinkHistory as jest.Mock).mockRejectedValueOnce(new MonzoFail("offline"));
+  const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  await store().scanRegulars();
+  expect(store().scan).toBe(old);
+  expect(warn).toHaveBeenCalled();
+  warn.mockRestore();
+});
+
+describe("a change to your bills you said yes to", () => {
+  // Netflix on the 3rd; its payment this pay cycle went under Fun, still asked about
+  const flix = {id: "flix", name: "Netflix", amount: 10.99, freq: "monthly" as const, day: Number(today().slice(8)), payee: "NETFLIX.COM"};
+  const paid = {id: "p1", type: "expense" as const, amount: 10.99, cat: "entertainment", note: "NETFLIX.COM", date: today(), created: 1, monzoId: "m1", needsCat: true as const};
+  const add: Proposal = {kind: "add", bill: flix};
+  beforeEach(() => { useMoney.setState({txs: [paid]}); (fileBills as jest.Mock).mockClear(); });
+
+  test("its payment is filed first, then the bill saved and read back; Undo puts both back exactly", async () => {
+    const r = await store().applyProposal(add);
+    if ("error" in r) throw new Error(r.error);
+    expect(fileBills).toHaveBeenCalledWith([{id: "p1", patch: expect.objectContaining({cat: "bills", billId: "flix"})}], []);
+    expect(store().state!.bills.at(-1)).toEqual(flix);
+    expect(store().txs[0]).toMatchObject({billId: "flix", cat: "bills"});
+    expect(store().txs[0].needsCat).toBeUndefined();
+    await r.undo();
+    expect(store().state!.bills.find(b => b.id === "flix")).toBeUndefined();
+    expect(fileBills).toHaveBeenLastCalledWith([{id: "p1", patch: {cat: "entertainment"}, needsCat: true}], []);
+    expect(store().txs[0]).toEqual(paid);
+  });
+
+  test("if the payment can't be filed, nothing changes and it says so", async () => {
+    (fileBills as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
+    expect(await store().applyProposal(add)).toEqual({error: "That didn't save. Try again."});
+    expect(store().state!.bills.find(b => b.id === "flix")).toBeUndefined();
+    expect(store().txs[0]).toEqual(paid);
+  });
+
+  test("a card for a bill that's changed since does nothing", async () => {
+    store().saveBill({...flix, amount: 12.99});
+    const change: Proposal = {kind: "change", before: flix, after: {...flix, amount: 11.99}};
+    expect(await store().applyProposal(change)).toEqual({error: "That bill's changed since.", stale: true});
+    expect(store().state!.bills.find(b => b.id === "flix")!.amount).toBe(12.99);
+  });
+
+  test("a bill from the bank you remove isn't suggested again for a while; Undo brings both back", async () => {
+    store().saveBill(flix);
+    const r = await store().applyProposal({kind: "remove", bill: flix});
+    if ("error" in r) throw new Error(r.error);
+    expect(store().state!.bills.find(b => b.id === "flix")).toBeUndefined();
+    expect(store().answers["netflix.com"]).toEqual({verdict: "not_now", at: today(), name: "Netflix"});
+    await r.undo();
+    expect(store().state!.bills.find(b => b.id === "flix")).toEqual(flix);
+    expect(store().answers["netflix.com"]).toBeUndefined();
+  });
 });
 
 test("removing a bank takes its money off and forgets its login", async () => {

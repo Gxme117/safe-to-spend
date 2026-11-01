@@ -5,14 +5,15 @@ Each opening in src/lib/<who>Hellos.json is one script, written to be heard: wha
 tags] ("[sighs]", "[softly]") and the cadence in its punctuation (ellipses for a pause, a full stop for a beat). It's
 recorded in one take on Eleven v4 (which does tags, and does Jerry B., a professional clone, justice), with the
 "with-timestamps" call, so we know when each letter is said. Everything on screen follows the recording: the captions are
-cut from where he pauses and ends his sentences, each word shows as he says it (src/lib/timSpeech.ts), and his mouth comes
-from how loud he is every 1/12s (on twos), shut in pauses and sighs, narrower on an o or u.
+cut from where he pauses and ends his sentences, each word shows as he says it (src/lib/timSpeech.ts), and his mouth takes
+each word's shapes (src/lib/lipsync.ts), opening with how loud he is every 1/12s (on twos), saved here as a digit 0-9 a pose.
 
 One take each, to save credits. To refine one, change its script (the tags, the punctuation) and run this again: it records
 only the openings whose script has changed since their recording, into assets/<who>-voice/h<i>.mp3, and writes
 src/lib/<who>Voice.json and assets/<who>-voice/index.ts. --only 3 records that one again even if its script hasn't changed
 (another take of the same words). A script changed but not recorded again shows at his own pace, silent (a test says so).
-  Run from mobile/:  python3 scripts/voice.py  [--who tim]  [--only 3]
+--mouth-only records nothing: it listens to the recordings there are again for how loud he is (free, no key needed).
+  Run from mobile/:  python3 scripts/voice.py  [--who tim]  [--only 3]  [--mouth-only]
 
 The key is never in the repo: it's ELEVENLABS_API_KEY in the shell, or else the one the ElevenLabs CLI saved in the repo
 root's .env.local (git ignores it; `npx @elevenlabs/cli@latest onboard init` puts it there). Needs macOS (afconvert).
@@ -40,11 +41,12 @@ API = "https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps?outpu
 WHO = {
     "frank": {"voice": "QzTKubutNn9TjrB7Xb2Q", "clips": "FRANK_CLIPS", "name": "Frank"},  # Jerry B. (New York Italian mobster)
     "tim": {"voice": "qxePw1S1QmBgjlU3GIy5", "clips": "TIM_CLIPS", "name": "Tim"},
+    # what Frank says while he writes his briefing (src/lib/frankWaitHellos.json)
+    "frankWait": {"voice": "QzTKubutNn9TjrB7Xb2Q", "clips": "FRANK_WAIT_CLIPS", "name": "Frank"},
 }
 MODEL = "eleven_v4"  # tags and professional clones both; v3 didn't sound like him, multilingual v2 ignores tags
 SETTINGS = {"speed": 1.0}  # the same for every take, so all of them sound like one man on one day
 TICK = 1000 / 12  # ms: his mouth changes on twos (ON_TWOS in src/lib/timEyes.ts)
-ROUND = set("ouw")  # said with rounded lips: his narrower mouth (3)
 
 
 def key(i):
@@ -112,26 +114,11 @@ def loudness(mp3):
     return [min(1, x / loud) for x in levels], round(n * 1000 / rate)
 
 
-def mouth_of(levels, letters, words):
-    """His mouth each TICK: 0 shut (quiet), 1 slightly open, 2 open, 3 narrower when it's open on an o, u or w. Between words
-    (a sigh, clearing his throat) it opens a little at most, so it doesn't look like talking; a lone tick open between shut
-    ones is only a little open."""
-    said = [(c.lower(), s) for c, s, _ in letters if c.isalpha()]
-    out, j = [], 0
-    for t, level in enumerate(levels):
-        mid = (t + 0.5) * TICK
-        while j + 1 < len(said) and said[j + 1][1] <= mid:
-            j += 1
-        pose = 0 if level < 0.12 else 1 if level < 0.35 else 2
-        if not any(w["start"] - TICK / 2 <= mid <= w["end"] + TICK / 2 for w in words):
-            pose = min(pose, 1)
-        elif pose == 2 and said and said[j][0] in ROUND:
-            pose = 3
-        out.append(pose)
-    for t in range(1, len(out) - 1):
-        if out[t] > 1 and out[t - 1] == 0 and out[t + 1] == 0:
-            out[t] = 1
-    return "".join(map(str, out))
+def loud_of(levels, ms):
+    """How loud he is each TICK all through the take (ms long), one digit 0-9 a pose; quiet after the sound ends. The app's
+    lipTrack makes his mouth from it and the words, so the rules for his mouth are in one place."""
+    n = math.ceil(ms * 12 / 1000)
+    return "".join(str(round(x * 9)) for x in levels[:n]).ljust(n, "0")
 
 
 def record(text, voice, model, api_key):
@@ -157,7 +144,8 @@ def take(out, i, script, voice, model, api_key):
         sys.exit(f"{script!r}: the recording's words don't line up with the script's ({len(words)} for {len(untagged(script).split())})")
     levels, ms = loudness(mp3)
     print(f"{mp3.name}  {ms / 1000:4.1f}s  {untagged(script)}")
-    return {"text": script, "ms": max(ms, words[-1]["end"]), "words": words, "mouth": mouth_of(levels, letters, words)}
+    ms = max(ms, words[-1]["end"])
+    return {"text": script, "ms": ms, "words": words, "loud": loud_of(levels, ms)}
 
 
 def write_index(out, who, times):
@@ -174,6 +162,7 @@ def main():
     ap.add_argument("--only", type=int, help="record just this opening again, even if its script hasn't changed (0 is the first)")
     ap.add_argument("--voice", help="another voice to try (his own, otherwise)")
     ap.add_argument("--model", default=MODEL)
+    ap.add_argument("--mouth-only", action="store_true", help="record nothing: listen to the recordings there are again for how loud he is")
     args = ap.parse_args()
     hellos = ROOT / "src" / "lib" / f"{args.who}Hellos.json"
     times_file = ROOT / "src" / "lib" / f"{args.who}Voice.json"
@@ -183,6 +172,12 @@ def main():
     if args.only is not None and not 0 <= args.only < len(scripts):
         sys.exit(f"--only goes from 0 to {len(scripts) - 1}")
     times = json.loads(times_file.read_text()) if times_file.exists() else {}
+    if args.mouth_only:
+        for k, clip in times.items():
+            clip.pop("mouth", None)
+            clip["loud"] = loud_of(loudness(out / f"{k}.mp3")[0], clip["ms"])
+        times_file.write_text(json.dumps(dict(sorted(times.items())), indent=1) + "\n")
+        return print(f"Listened to {len(times)} of {WHO[args.who]['name']}'s recordings again: nothing recorded.")
     # what to record: the one asked for, or every opening whose recording isn't of its script as it is now
     todo = [args.only] if args.only is not None else [i for i, s in enumerate(scripts) if times.get(key(i), {}).get("text") != s]
     if todo:

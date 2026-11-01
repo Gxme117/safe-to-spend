@@ -10,7 +10,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.gxme1170.money-tracker",
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "Pinch turns what you say into text on your phone. It doesn't send your voice anywhere."
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSpeechRecognitionUsageDescription": "Pinch turns what you say into text on your phone. It doesn't send your voice anywhere.",
+        "NSMicrophoneUsageDescription": "Pinch uses the microphone so you can say your question to Tim and Frank instead of typing it."
       }
     },
     "android": {
@@ -20,7 +22,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -49,6 +55,17 @@
         }
       ]
     ],
-    "scheme": "moneytracker"
+    "scheme": "moneytracker",
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "40fd5790-8238-4a21-a22a-8236c04461e9"
+      }
+    },
+    "owner": "gxme1170"
   }
 }

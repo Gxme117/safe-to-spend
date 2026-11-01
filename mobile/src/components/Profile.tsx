@@ -5,6 +5,7 @@ import {PotRoles} from "@/components/Bank";
 import {Icon} from "@/components/Icon";
 import {Button, Card, CardHead, Field, Input, T} from "@/components/ui";
 import type {Note} from "@/lib/ai/tools";
+import {banksOn} from "@/lib/banks";
 import {isoD, niceDate, pad, shortDate} from "@/lib/dates";
 import {money} from "@/lib/money";
 import type {Bank} from "@/lib/types";
@@ -50,6 +51,7 @@ export function BankSettings() {
       useMoney.getState().disconnectBank().then(() => useMoney.getState().notify("Monzo disconnected"), () => useMoney.getState().notify("That didn't disconnect. Try again."));
     }},
   ]);
+  if (!banksOn) return null;
   return (
     <Card>
       <CardHead title="Bank" />

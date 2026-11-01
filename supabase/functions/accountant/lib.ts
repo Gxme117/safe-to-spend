@@ -1,20 +1,26 @@
 // The pure parts of the accountant function: no network, so they can be tested with `deno test`.
 // The Anthropic API key is only ever used in index.ts, read from Supabase secrets.
 import type Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
-import {RULES, TOOLS, VOICES, type Who} from "./prompt.ts";
+import {RULES, TOOLS, VOICES, WEB_SEARCH, type Who} from "./prompt.ts";
 
 type Message = Anthropic.Beta.Messages.BetaMessageParam;
 export type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 
-/** A conversation as the phone sends it: whose it is, and every message so far, ending with the person's (or a tool result). */
+/** A conversation as the phone sends it: whose it is, and every message so far, ending with the person's (or a tool result), or
+ *  with a web search Claude's side paused, which goes back as it came to carry on. */
 export interface Ask { who: Who; messages: Message[] }
 
-// A long conversation is still well under these; anything bigger isn't from the app.
-export const MAX_BYTES = 256_000, MAX_MESSAGES = 160;
+// A long conversation is still well under these; anything bigger isn't from the app. Web results come back encrypted and have
+// to go back whole on every request, so they're most of what a conversation weighs.
+export const MAX_BYTES = 2_000_000, MAX_MESSAGES = 160;
+
+// a turn of his with a web search in it: the only one the phone may end a conversation on
+const searched = (m: Message) => m.role === "assistant" && Array.isArray(m.content) &&
+  m.content.some(b => b.type === "server_tool_use" || b.type === "web_search_tool_result");
 
 /**
  * Reads the phone's request. Only Tim or Frank, only the person's and the accountant's own messages (no system messages:
- * the rulebook is ours), starting and ending with the person's side. The API itself checks the blocks inside.
+ * the rulebook is ours), starting with the person's side and ending with it or a paused search. The API itself checks the blocks inside.
  */
 export function readAsk(raw: string): Ask | {error: string} {
   if (new TextEncoder().encode(raw).length > MAX_BYTES) return {error: "too_big"};
@@ -29,7 +35,8 @@ export function readAsk(raw: string): Ask | {error: string} {
     if (role !== "user" && role !== "assistant") return {error: "bad_request"};
     if (typeof content !== "string" && !Array.isArray(content)) return {error: "bad_request"};
   }
-  if ((messages[0] as Message).role !== "user" || (messages[messages.length - 1] as Message).role !== "user") return {error: "bad_request"};
+  const last = messages[messages.length - 1] as Message;
+  if ((messages[0] as Message).role !== "user" || (last.role !== "user" && !searched(last))) return {error: "bad_request"};
   return {who, messages: messages as Message[]};
 }
 
@@ -89,7 +96,7 @@ export function params(ask: Ask, model: string): Params {
     output_config: {effort: "medium"},
     betas: ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"],
     fallbacks: "default",
-    tools: TOOLS,
+    tools: [...TOOLS, WEB_SEARCH],
     system: [{type: "text", text: RULES}, {type: "text", text: VOICES[ask.who], cache_control: {type: "ephemeral"}}],
     // and the conversation so far, so each tool round reads the earlier ones from the cache
     cache_control: {type: "ephemeral"},
@@ -102,23 +109,26 @@ export function params(ask: Ask, model: string): Params {
 // saying a short line. Credits go by the character, so MAX_SAY is what a line can cost at most.
 // accent: how every one of his openings starts.
 export const SPEAKERS: Record<Who, {voice: string; accent: string}> = {
-  tim: {voice: "qxePw1S1QmBgjlU3GIy5", accent: "[softly, a little shy]"},
+  tim: {voice: "qxePw1S1QmBgjlU3GIy5", accent: "[calm, warm and assured]"},
   frank: {voice: "QzTKubutNn9TjrB7Xb2Q", accent: "[strong New York accent, low and tired]"}, // Jerry B.
 };
 export const VOICE_MODEL = "eleven_v4";
 export const MAX_SAY = 200;
+/** Frank's briefing is said in full (kind "brief"), so it can be longer, up to this. */
+export const MAX_BRIEF = 650;
 export const sayUrl = (who: Who) =>
   `https://api.elevenlabs.io/v1/text-to-speech/${SPEAKERS[who].voice}/with-timestamps?output_format=mp3_22050_32`;
 
-/** The line the phone wants said, and who says it: 1 to MAX_SAY characters, Tim or Frank (Frank when it doesn't say, as an
- *  app from before Tim spoke asks). */
+/** The line the phone wants said, and who says it: 1 to MAX_SAY characters (MAX_BRIEF for a briefing, kind "brief"), Tim or
+ *  Frank (Frank when it doesn't say, as an app from before Tim spoke asks). */
 export function readSay(raw: string): {who: Who; text: string} | {error: string} {
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return {error: "bad_request"}; }
-  const {text, who = "frank"} = (body ?? {}) as {text?: unknown; who?: unknown};
+  const {text, who = "frank", kind} = (body ?? {}) as {text?: unknown; who?: unknown; kind?: unknown};
   if (who !== "tim" && who !== "frank") return {error: "bad_request"};
+  if (kind !== undefined && kind !== "brief") return {error: "bad_request"};
   if (typeof text !== "string" || !text.trim()) return {error: "bad_request"};
-  if (text.trim().length > MAX_SAY) return {error: "too_big"};
+  if (text.trim().length > (kind === "brief" ? MAX_BRIEF : MAX_SAY)) return {error: "too_big"};
   return {who, text: text.trim()};
 }
 
@@ -161,15 +171,16 @@ export function failure(status: number | undefined): {status: number; error: str
 }
 
 /** One log line per request: who, what model, how long (Claude's turn, and the sign-in check before it, or "cached"), the
- *  tokens, why it stopped and which tools it asked for. Never what was said. */
+ *  tokens, why it stopped, which tools it asked for and how many web searches it ran. Never what was said or searched for. */
 export function logLine(x: {
   who: Who; model: string; ms: number; auth: number | "cached"; stop: string | null;
-  usage?: {input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null};
+  usage?: {input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null; server_tool_use?: {web_search_requests?: number | null} | null};
   tools: string[];
 }) {
   const u = x.usage ?? {};
   return JSON.stringify({
     who: x.who, model: x.model, ms: x.ms, auth: x.auth, stop: x.stop, tools: x.tools,
     in: u.input_tokens ?? 0, out: u.output_tokens ?? 0, cache_read: u.cache_read_input_tokens ?? 0, cache_write: u.cache_creation_input_tokens ?? 0,
+    searches: u.server_tool_use?.web_search_requests ?? 0,
   });
 }

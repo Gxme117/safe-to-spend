@@ -13,8 +13,9 @@ const when = (t: RawTx): IsoDate => isoD(new Date(t.created));
 // real money that moved: not declined, not a move between your own pots
 const moved = (t: RawTx) => !!t?.id && !!t.created && !t.decline_reason && !!t.amount
   && !String(t.description || "").startsWith("pot_") && t.category !== "savings" && t.scheme !== "uk_retail_pot";
-// "ACME SALARY 0925" and "ACME SALARY 1025" are the same payer
-const payeeKey = (t: RawTx) => plain(payee(t)) || payee(t).toLowerCase();
+/** Who a payment's with, as one key: "ACME SALARY 0925" and "ACME SALARY 1025" are the same payer. */
+export const keyOf = (name: string) => plain(name) || name.toLowerCase();
+const payeeKey = (t: RawTx) => keyOf(payee(t));
 const byPayee = (raw: RawTx[]) => {
   const groups = new Map<string, RawTx[]>();
   for (const t of raw) { const k = payeeKey(t); groups.set(k, [...(groups.get(k) || []), t]); }
@@ -160,8 +161,24 @@ const nice = (s: string) => s !== s.toUpperCase() || !/[A-Z]/.test(s) ? s
  * it's about the same amount every month or 4 weeks: a subscription, or rent by standing order. A shop you go to every
  * week, or food and drink at any pace, isn't a bill: it's everyday spending. Biggest first.
  */
-export function findBills(raw: RawTx[], today: IsoDate): FoundBill[] {
-  const out: FoundBill[] = [], names = new Set<string>();
+export const findBills = (raw: RawTx[], today: IsoDate): FoundBill[] => regularsIn(raw, today).map(x => x.bill);
+
+/**
+ * The same regular payments, with what each is based on, for Tim and Frank to ask about after setup (lib/regulars.ts):
+ * `ref` who it's paid to as one key, the first and last payment, the last few amounts, and how sure the pattern is:
+ * likely for a direct debit or 3 or more payments on the rule, maybe for just 2.
+ */
+export type Regular = FoundBill & {ref: string; first: IsoDate; last: IsoDate; amounts: number[]; sure: "likely" | "maybe"};
+export function findRegulars(raw: RawTx[], today: IsoDate): Regular[] {
+  return regularsIn(raw, today).map(({bill, list}) => ({
+    ...bill, ref: payeeKey(list[list.length - 1]), first: when(list[0]), last: when(list[list.length - 1]),
+    amounts: list.slice(-3).map(t => r2(-t.amount / 100)), sure: bill.method === "dd" || bill.n >= 3 ? "likely" : "maybe",
+  }));
+}
+
+// each regular payment as the bill it would be, with the payments it's based on (oldest first)
+function regularsIn(raw: RawTx[], today: IsoDate): {bill: FoundBill; list: RawTx[]}[] {
+  const out: {bill: FoundBill; list: RawTx[]}[] = [], names = new Set<string>();
   for (const list of paidOut(raw)) {
     if (list.length < 2) continue;
     const dd = list.some(t => t.scheme === "bacs" || t.category === "bills");
@@ -179,9 +196,9 @@ export function findBills(raw: RawTx[], today: IsoDate): FoundBill[] {
     const bill = asBill(list, best.t, best.n, today);
     if (names.has(bill.name.toLowerCase())) continue;
     names.add(bill.name.toLowerCase());
-    out.push(bill);
+    out.push({bill, list});
   }
-  return out.sort((a, b) => b.amount - a.amount);
+  return out.sort((a, b) => b.bill.amount - a.bill.amount);
 }
 
 // money you paid out, by who it went to (not pay, not your own pots)

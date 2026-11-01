@@ -1,10 +1,9 @@
-// Where Tim looks, and when. He's an AI who found himself stuck inside your phone and now has to help you: assertive but shy,
-// good at his job (really good at maths), not very social. His eyes show it:
-// - idle: he meets your eye for a moment, never long, then looks away (mostly down or to the side; now and then up at the edges
-//   of the phone he's stuck in), and back. Shy people blink as they look away, so he often does.
+// Where Tim looks, and when. He's an AI who found himself inside your phone and now helps you with your money: wise and
+// confident, good at his job (really good at maths). His eyes show it:
+// - idle: he holds your eye, steadily, for a few seconds (now and then a tiny shift), then glances away for a moment, mostly to
+//   the side or up as if thinking something through, now and then down, and back. He blinks now and then, not as he looks away.
 // - typing: he reads what you type (down at the box), glancing up at you now and then to check. Reading, he blinks less.
-// - thinking (just after Send): quick maths scans up and to the sides, then a steady look at you (he's sure of himself), then a
-//   shy glance away.
+// - thinking (just after Send): quick maths scans up and to the sides, then a steady look at you (he's sure of himself).
 // Eyes jump between points rather than glide, so every change is instant; the screen holds each look for `ms`.
 // A beat with `blink` starts with a blink, and the look changes while the lid is shut. A beat with `typing`: he types on his
 // laptop all through it (Frank; typingPoses says how his hands go).
@@ -14,7 +13,7 @@ export type Look = "you" | "nearLeft" | "nearRight" | "left" | "right" | "down" 
 export type Mood = "idle" | "typing" | "thinking";
 export type Beat = {look: Look; ms: number; blink?: boolean; typing?: boolean};
 
-export const MAX_EYE_CONTACT = 3000;
+export const MAX_EYE_CONTACT = 6000;
 
 /** One held pose "on twos": 2 frames at 24fps. Blinks and his mouth both move at this pace. */
 export const ON_TWOS = 1000 / 12;
@@ -92,17 +91,16 @@ export function nextBeats(mood: Mood, rand: () => number = Math.random): Beat[] 
   ];
   if (mood === "thinking") return [
     {look: "upLeft", ms: 300}, {look: "upRight", ms: 280}, {look: "upLeft", ms: 320},
-    {look: "you", ms: 2000, blink: true},
-    {look: pick<Look>(rand, [["downLeft", 1], ["downRight", 1], ["down", 1]]), ms: 1400},
+    {look: "you", ms: 3400, blink: true},
   ];
-  // idle: eye contact (sometimes with a tiny shift part way), then away
-  const contact = between(rand, 1500, MAX_EYE_CONTACT), blink = rand() < .3;
+  // idle: steady eye contact (sometimes with a tiny shift part way), then a moment away
+  const contact = between(rand, 3000, MAX_EYE_CONTACT), blink = rand() < .8;
   const beats: Beat[] = [];
   if (rand() < .35) {
-    const first = between(rand, 700, contact - 500);
-    beats.push({look: "you", ms: first, blink}, {look: rand() < .5 ? "nearLeft" : "nearRight", ms: contact - first});
+    const first = between(rand, 1500, contact - 1000);
+    beats.push({look: "you", ms: first, blink}, {look: rand() < .5 ? "nearLeft" : "nearRight", ms: contact - first, blink: rand() < .4});
   } else beats.push({look: "you", ms: contact, blink});
-  const away = pick<Look>(rand, [["down", 2], ["downLeft", 2], ["downRight", 1.5], ["left", 1.5], ["right", 1.5], ["upLeft", .75], ["upRight", .75]]);
-  beats.push({look: away, ms: between(rand, 800, 2000), blink: rand() < .5});
+  const away = pick<Look>(rand, [["left", 2], ["right", 2], ["upLeft", 1.5], ["upRight", 1.5], ["downLeft", .75], ["downRight", .75]]);
+  beats.push({look: away, ms: between(rand, 800, 1600), blink: rand() < .2});
   return beats;
 }

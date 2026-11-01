@@ -1,5 +1,6 @@
 // Every £ figure Tim or Frank states has to come from somewhere checkable: a tool's result (the engine's own figures), a sum
-// they worked out with calculate, or something you said. A figure from none of those is what this catches.
+// they worked out with calculate, something you said, or a price on the web, quoted by what they cite. A figure from none of
+// those is what this catches.
 import type Anthropic from "@anthropic-ai/sdk";
 import {money} from "../money";
 
@@ -30,9 +31,14 @@ function fromResult(content: unknown, out: number[]) {
 }
 
 // what's said on the person's side: their own words, any number; the app's context, only its £ (your notes: the date's digits
-// aren't figures); the app's check, nothing (it quotes the figures that didn't check out)
-const fromText = (t: string) => t.startsWith("<app_check>") ? []
-  : t.startsWith("<app_context>") ? poundsIn(t) : [...t.matchAll(ANY)].map(x => num(x[0]));
+// aren't figures); the app's check, nothing (it quotes the figures that didn't check out); the facts a briefing is made from
+// (lib/briefing.ts), as a tool's result counts
+const BRIEF = /^<app_brief[^>]*>([\s\S]*)<\/app_brief>$/;
+const fromText = (t: string) => {
+  const brief = BRIEF.exec(t.trim());
+  if (brief) { const out: number[] = []; fromResult(brief[1], out); return out; }
+  return t.startsWith("<app_check>") ? [] : t.startsWith("<app_context>") ? poundsIn(t) : [...t.matchAll(ANY)].map(x => num(x[0]));
+};
 
 /**
  * Every figure a reply may use: each tool result in the conversation, and everything you said (and your notes).
@@ -58,12 +64,34 @@ const same = (said: number, k: number) => {
   return Math.abs(said - a) < 0.005 || (Number.isInteger(said) && Math.round(a) === said);
 };
 
-/** The £ figures in a reply that don't match anything known, as they'd be written (£1,234.56). Empty when it all checks out. */
-export function unchecked(reply: string, known: number[]): string[] {
-  const bad = poundsIn(reply).filter(said => said !== 0 && !known.some(k => same(said, k)));
+/**
+ * The £ figures in a reply that don't match anything known, as they'd be written (£1,234.56). Empty when it all checks out.
+ * `exact`: figures that only count to the penny, never rounded (a price on the web, lib/ai/web.ts).
+ */
+export function unchecked(reply: string, known: number[], exact: number[] = []): string[] {
+  const bad = poundsIn(reply).filter(said => said !== 0 && !exact.includes(said) && !known.some(k => same(said, k)));
   return [...new Set(bad)].map(x => money(x));
+}
+
+// A price on the web: all the app can read of a page is what he cites from it, so a £ counts as the web's only inside the text block
+// that cites it, quoted there to the penny. These are never added to what's known above: a price on a page must never vouch for a
+// figure about your money.
+type Cited = {text: string; citations?: readonly unknown[] | null};
+const quoted = ({citations}: Cited) => (citations ?? []).flatMap(c =>
+  c && typeof c === "object" && "cited_text" in c && typeof c.cited_text === "string" ? poundsIn(c.cited_text) : []);
+
+/** The £ figures in this block of his words that its own citations quote. */
+export function webFigures(block: Cited): number[] {
+  const q = quoted(block);
+  return poundsIn(block.text).filter(x => q.includes(x));
+}
+
+/** This block of his words with those figures taken out: what's left has to trace back to the tools or you. */
+export function withoutWeb(block: Cited): string {
+  const q = quoted(block);
+  return q.length ? block.text.replace(POUNDS, m => q.includes(poundsIn(m)[0]) ? "" : m) : block.text;
 }
 
 /** What the app tells him when a figure didn't check out: he looks again and gives the whole answer again. */
 export const checkNote = (figures: string[]) =>
-  `<app_check>These figures in your last answer don't match any tool result or calculation: ${figures.join(", ")}. Check them with the tools, then give your whole answer again.</app_check>`;
+  `<app_check>These figures in your last answer don't match any tool result, calculation or citation: ${figures.join(", ")}. Check them with the tools, then give your whole answer again.</app_check>`;

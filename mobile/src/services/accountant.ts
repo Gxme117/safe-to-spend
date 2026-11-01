@@ -8,8 +8,9 @@ import {accessToken, PUBLIC_KEY, SessionFail, SUPABASE} from "./session";
 
 // The function's address isn't a secret. EXPO_PUBLIC_ACCOUNTANT_FN_URL in mobile/.env.local overrides it.
 const FN = process.env.EXPO_PUBLIC_ACCOUNTANT_FN_URL?.trim() || `${SUPABASE}/functions/v1/accountant`;
-// a round with a lot of thinking can take a while; past this, something's wrong
-const WAIT_MS = 70_000;
+// a round with a lot of thinking, or a few web searches, can take a while; past this, something's wrong (a little over the
+// function's own 120s, so its answer gets here first)
+const WAIT_MS = 130_000;
 
 /** Why he couldn't answer: no connection, no answer in time, too many questions at once, his side's down, or it isn't set up yet. */
 export type AccountantError = "offline" | "timeout" | "busy" | "unavailable" | "not-set-up";
@@ -52,11 +53,13 @@ const SAY_MS = 20_000;
 let takes = 0;
 
 /** His line in his voice (Tim's or Frank's, `who`): recorded once by the function (ElevenLabs), kept in the phone's cache
- *  for replays, with when each word is said. Anything going wrong is null: he just doesn't say it, and nothing's said about it. */
-export async function say(who: Who, text: string): Promise<Take | null> {
+ *  for replays, with when each word is said. Anything going wrong is null: he just doesn't say it, and nothing's said about it.
+ *  `kind` "brief": Frank's briefing, all of it, so it may be longer than an answer's line. */
+export async function say(who: Who, text: string, kind?: "brief"): Promise<Take | null> {
+  const body = {who, text, ...kind ? {kind} : {}};
   try {
-    let r = await post("say", {who, text}, await accessToken(), SAY_MS);
-    if (r.status === 401) r = await post("say", {who, text}, await accessToken(true), SAY_MS);
+    let r = await post("say", body, await accessToken(), SAY_MS);
+    if (r.status === 401) r = await post("say", body, await accessToken(true), SAY_MS);
     const j = await r.json().catch(() => ({})) as {audio?: unknown; ms?: unknown; words?: unknown};
     if (!r.ok || typeof j.audio !== "string" || typeof j.ms !== "number" || !Array.isArray(j.words)) return null;
     const file = new File(Paths.cache, `${who}-says-${Date.now()}-${takes++}.mp3`);

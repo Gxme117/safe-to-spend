@@ -1,6 +1,7 @@
 // The accountant function: the only place the Anthropic and ElevenLabs API keys are used. It keeps nothing: the phone sends
 // the conversation so far, this adds the rulebook, the accountant's voice and the tools, asks Claude, and hands back what
-// Claude said, either an answer or the tools it wants run. The tools run on the phone, where the money is.
+// Claude said, either an answer or the tools it wants run. The tools run on the phone, where the money is; a web search runs on
+// Anthropic's side, and comes back as part of what Claude said.
 //   POST /chat {who, messages} → {content, stop_reason}
 //   POST /say {who, text} → {audio (mp3, base64), ms, words}: Tim's or Frank's short spoken line, in his voice
 // Only signed-in users of the app (anonymous sign-in counts). Nothing said is logged.
@@ -13,8 +14,9 @@ const model = Deno.env.get("ACCOUNTANT_MODEL") || "claude-opus-5-5";
 const supabase = Deno.env.get("SUPABASE_URL") ?? "";
 const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const voiceKey = Deno.env.get("ELEVENLABS_API_KEY") ?? ""; // their voices, for /say
-// one try per request: the phone says "busy, ask again" rather than keeping you waiting twice as long
-const client = new Anthropic({apiKey: key, timeout: 60_000, maxRetries: 0});
+// one try per request: the phone says "busy, ask again" rather than keeping you waiting twice as long. Long enough for a few web
+// searches, and short of the 150s Supabase gives a function to answer
+const client = new Anthropic({apiKey: key, timeout: 120_000, maxRetries: 0});
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {status, headers: {"content-type": "application/json"}});
