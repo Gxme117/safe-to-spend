@@ -3,11 +3,18 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "tester",
+        "EXPO_PUBLIC_LINKS": "off"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "env": {
         "APP_VARIANT": "tester",
-        "EXPO_PUBLIC_BANKS": "off"
+        "EXPO_PUBLIC_LINKS": "off"
       },
       "ios": {
         "distribution": "store"
@@ -15,6 +22,11 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "bundleIdentifier": "com.gxme.pinch",
+        "appName": "Pinch: Safe to Spend"
+      }
+    }
   }
 }

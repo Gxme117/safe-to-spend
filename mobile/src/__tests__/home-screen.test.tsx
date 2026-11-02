@@ -18,6 +18,20 @@ const show = (txs: Tx[], state: AppState = baseState()) => {
   useMoney.setState({state, txs, today: TODAY, loaded: true});
   return render(<HomeScreen />);
 };
+
+test("a connected bank's card syncs by hand; with no bank, no card has the button", async () => {
+  const syncBank = jest.fn(async () => ({added: 0}));
+  const notify = jest.fn();
+  useMoney.setState({syncBank, notify});
+  await show([groceries], baseState({bank: {source: "Monzo", accountId: "a", main: 500, pots: [], asOf: new Date().toISOString()}}));
+  await fireEvent.press(screen.getByRole("button", {name: "Show all your accounts"}));
+  await fireEvent.press(screen.getByRole("button", {name: "Sync your banks"}));
+  await waitFor(() => expect(notify).toHaveBeenCalledWith("Updated from Monzo. No new payments", true));
+  expect(syncBank).toHaveBeenCalledTimes(1);
+  await show([groceries]);
+  await fireEvent.press(screen.getByRole("button", {name: "Show all your accounts"}));
+  expect(screen.queryByRole("button", {name: "Sync your banks"})).toBeNull();
+});
 // the 30 Sep pay was never confirmed: the check card asks about it, and the number treats it as late
 const unconfirmedPay = () => baseState({incomes: [{...baseState().incomes[0], since: "2026-09-01"}]});
 

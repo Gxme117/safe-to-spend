@@ -9,7 +9,6 @@ import {Icon} from "@/components/Icon";
 import {Choice, Picks} from "@/components/Form";
 import {AmountInput, AmountRow, StepShell, TextLink} from "@/components/Setup";
 import {Button, Chip, Field, Input, Row, T} from "@/components/ui";
-import {banksOn} from "@/lib/banks";
 import {BILL_FREQ, billMonthly, billWhen, draftBill, draftReady, newDraft, type BillDraft} from "@/lib/bills";
 import {DEFAULT_CATEGORIES, uid} from "@/lib/defaults";
 import {niceDate} from "@/lib/dates";
@@ -252,13 +251,11 @@ function Setup() {
       cta="Continue" canNext={!Number.isNaN(b)} onNext={() => go(1)}>
       {fromBank === null ? (
         <View style={{gap: s[6]}}>
-          {banksOn ? (
-            <View style={{gap: s[3]}}>
-              <Button label={reading ? "Reading your Monzo…" : "Connect your bank"} kind="good" disabled={reading}
-                onPress={() => { Keyboard.dismiss(); router.push("/connect-bank?from=setup"); }} />
-              <T size="sm" muted style={{textAlign: "center"}}>or enter it below</T>
-            </View>
-          ) : null}
+          <View style={{gap: s[3]}}>
+            <Button label={reading ? "Reading your Monzo…" : "Connect your bank"} kind="good" disabled={reading}
+              onPress={() => { Keyboard.dismiss(); router.push("/connect-bank?from=setup"); }} />
+            <T size="sm" muted style={{textAlign: "center"}}>or enter it below</T>
+          </View>
           <AmountInput key="bal" autoFocus={false} value={bal} onChangeText={setBal} caption={<>...pots and all. <T size="sm" muted weight="bold">“EVERYTHING”</T>.</>}
             accessibilityLabel="Your balance" />
         </View>
@@ -485,7 +482,7 @@ function Setup() {
   );
 
   // no bank yet: a shortcut, not a demand
-  if (banksOn && fromBank === null && !manual) return (
+  if (fromBank === null && !manual) return (
     <StepShell key="boring" step={3} total={TOTAL} keyboard={false} title="Want us to do the boring part?"
       why="Connect your bank and we'll find your regular payments and spending for you."
       onBack={back} cta="Connect bank" canNext onNext={() => router.push("/connect-bank?from=setup")}

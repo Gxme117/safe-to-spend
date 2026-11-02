@@ -9,7 +9,7 @@ import {moneyBar, type BarPart, type Calc} from "@/lib/calc";
 import type {DayView} from "@/lib/day";
 import {isoD, niceDate, pad} from "@/lib/dates";
 import {money, moneyExact, r2} from "@/lib/money";
-import {allBanks, aside, banksOn, totalOf} from "@/lib/banks";
+import {allBanks, aside, linksOn, totalOf} from "@/lib/banks";
 import {bringOut, bringToFront, startOrder} from "@/lib/stack";
 import type {Ctx} from "@/lib/types";
 import {useMoney} from "@/store/useMoney";
@@ -17,6 +17,7 @@ import {deepen, inkOn} from "@/theme/color";
 import {GLASS} from "@/theme/glass";
 import {faceMetrics, radius, s, textSize} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
+import {SyncButton} from "./Bank";
 import {BigMoney, COUNT_MS, useCountUp, useReducedMotion} from "./BigMoney";
 import {Icon} from "./Icon";
 import {Mug} from "./Mug";
@@ -375,13 +376,13 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
   // Linked banks take the placeholders' spots, so there are always as many cards (their rows are kept from the first render)
   const linked = (ctx.state.links || []).map((b, i) => {
     const bg = LINKED[i % LINKED.length];
-    return {bg, ink: inkOn(bg), mark: b.source, label: b.source, said: `${b.source} balance`, amount: totalOf(b), eye: true};
+    return {bg, ink: inkOn(bg), mark: b.source, label: b.source, said: `${b.source} balance`, amount: totalOf(b), eye: true, sync: true};
   });
   const cards = [
     {bg: BANK_BG, ink: BANK_INK, mark: "monzo", label: "Monzo", said: "Monzo balance",
-      amount: r2(c.balance + aside(ctx.state) - linked.reduce((a, k) => a + k.amount, 0)), eye: true},
+      amount: r2(c.balance + aside(ctx.state) - linked.reduce((a, k) => a + k.amount, 0)), eye: true, sync: !!ctx.state.bank},
     ...linked,
-    ...OTHERS.map(o => ({bg: o.bg, ink: o.ink ?? inkOn(o.bg), mark: o.mark, label: o.label, said: `${o.label} card balance`, amount: 0, eye: false})),
+    ...OTHERS.map(o => ({bg: o.bg, ink: o.ink ?? inkOn(o.bg), mark: o.mark, label: o.label, said: `${o.label} card balance`, amount: 0, eye: false, sync: false})),
   ].slice(0, SPREAD.length);
   const n = cards.length;
   const total = r2(cards.reduce((sum, k) => sum + k.amount, 0));
@@ -472,7 +473,10 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
             <Pressable onPress={() => open ? swap(i) : setOpen(true)} accessible={false} style={styles.hangingTap}>
               <View style={styles.markRow}>
                 {/* in its own box: the button keeps to the top of whatever holds it, and the top of a hanging card is off the screen */}
-                <View><BalanceButton amount={k.amount} exact eye={k.eye} ink={k.ink} hidden={hidden} onToggle={toggle} label={k.said} /></View>
+                <View style={{flexDirection: "row", alignItems: "center", gap: s[3]}}>
+                  <BalanceButton amount={k.amount} exact eye={k.eye} ink={k.ink} hidden={hidden} onToggle={toggle} label={k.said} />
+                  {k.sync ? <SyncButton ink={k.ink} /> : null}
+                </View>
                 <CardMark mark={k.mark} label={k.label} ink={k.ink} />
               </View>
             </Pressable>
@@ -489,7 +493,7 @@ export function CardPeek({ctx, c, top, open, setOpen}: {ctx: Ctx; c: Calc; top: 
           <Mug size={MUG} />
         </Animated.View>
       ) : null}
-      {shown && banksOn ? (
+      {shown && linksOn ? (
         <Animated.View style={{position: "absolute", top: addTop, left: s[6], opacity: fade}}>
           <Pressable onPress={() => router.push("/link-bank")} accessibilityRole="button"
             style={[styles.addAccount, {borderColor: theme.line}]}>

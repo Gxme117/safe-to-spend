@@ -11,6 +11,7 @@
       "bundleIdentifier": "com.gxme1170.money-tracker",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "Pinch doesn't look at your photos. A tool built into the app mentions the photo library, so Apple asks us to say so here, but Pinch never opens it.",
         "NSSpeechRecognitionUsageDescription": "Pinch turns what you say into text on your phone. It doesn't send your voice anywhere.",
         "NSMicrophoneUsageDescription": "Pinch uses the microphone so you can say your question to Tim and Frank instead of typing it."
       }

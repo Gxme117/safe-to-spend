@@ -1,7 +1,7 @@
 import {router} from "expo-router";
 import {useEffect, useState} from "react";
 import {AppState, Animated, Easing, Pressable, View} from "react-native";
-import {allBanks, banksOn} from "@/lib/banks";
+import {allBanks} from "@/lib/banks";
 import {money} from "@/lib/money";
 import type {Bank} from "@/lib/types";
 import {type SyncError, useMoney} from "@/store/useMoney";
@@ -51,8 +51,9 @@ export function useAutoSync() {
 }
 
 /** One round button for every connected bank: syncs them all, or opens Connect when there are none yet.
- *  Icon only; the arrows turn while it works (they stay still with Reduce Motion on). */
-export function SyncButton() {
+ *  Icon only; the arrows turn while it works (they stay still with Reduce Motion on).
+ *  `ink`: on a bank card, just the arrows in the card's ink, the size of the balance's eye. */
+export function SyncButton({ink}: {ink?: string}) {
   const {c} = useTheme();
   const connected = useMoney(st => !!st.state && allBanks(st.state).length > 0);
   const syncing = useMoney(st => st.syncing);
@@ -64,13 +65,12 @@ export function SyncButton() {
     loop.start();
     return () => loop.stop();
   }, [syncing, reduced, spin]);
-  if (!banksOn) return null;
   return (
-    <Pressable onPress={() => connected ? syncNow() : router.push("/connect-bank")} disabled={syncing} hitSlop={4}
+    <Pressable onPress={() => connected ? syncNow() : router.push("/connect-bank")} disabled={syncing} hitSlop={ink ? s[2] : 4}
       accessibilityRole="button" accessibilityLabel={connected ? (syncing ? "Syncing your banks" : "Sync your banks") : "Connect a bank"} accessibilityState={{busy: syncing}}
-      style={{width: 36, height: 36, borderRadius: radius.pill, backgroundColor: c.surface, alignItems: "center", justifyContent: "center"}}>
+      style={ink ? undefined : {width: 36, height: 36, borderRadius: radius.pill, backgroundColor: c.surface, alignItems: "center", justifyContent: "center"}}>
       <Animated.View style={{transform: [{rotate: spin.interpolate({inputRange: [0, 1], outputRange: ["0deg", "360deg"]})}]}}>
-        <Icon name="refresh" color={c.ink} size={20} />
+        <Icon name="refresh" color={ink ?? c.ink} size={20} />
       </Animated.View>
     </Pressable>
   );
