@@ -12,6 +12,14 @@ const NAME = {tim: "Tim", frank: "Frank"} as const;
  *  for a bubble `size` pt across. */
 export type Face = {pic: number; scale: number; x: number; y: number; size: number; w: number; h: number};
 const DOT = 32;
+// the other tabs, with the tab bar's icons
+const PLACES = [
+  {href: "/", title: "Today", icon: "home"},
+  {href: "/living", title: "Living", icon: "pit"},
+  {href: "/month", title: "Coming up", icon: "month"},
+  {href: "/settings", title: "Settings", icon: "sliders"},
+] as const;
+export type Place = (typeof PLACES)[number]["href"];
 
 /** A small round picture of who the chat was with: his bubble's crop, scaled down. */
 function FaceDot({who, face, bg}: {who: Who; face: Face; bg: string}) {
@@ -27,9 +35,9 @@ function FaceDot({who, face, bg}: {who: Who; face: Face; bg: string}) {
 /** What's inside the recent chats panel on Tim and Frank's tab, as in the ChatGPT app: the app's name, a search box, the chats
  *  of the last 30 days in their groups (Tim's and Frank's together, each with his face on the left), and "Chat" for a new one at
  *  the bottom left. Tap a chat to open it; press and hold to delete it, after asking. */
-export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete, onNew, tone, bottom, faces}: {
+export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete, onNew, onGo, tone, bottom, faces}: {
   rows: ChatRow[]; now: number; openIds: string[]; query: string; onQuery: (q: string) => void;
-  onOpen: (id: string) => void; onDelete: (id: string) => void; onNew: () => void;
+  onOpen: (id: string) => void; onDelete: (id: string) => void; onNew: () => void; onGo: (href: Place) => void;
   tone: (typeof timPage)["light"]; bottom: number; faces: Record<Who, Face>;
 }) {
   const {c} = useTheme();
@@ -53,6 +61,16 @@ export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete
       </View>
       <ScrollView style={{flex: 1, marginHorizontal: -12}} contentContainerStyle={{paddingHorizontal: 12, paddingTop: 8, paddingBottom: 72}}
         keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
+        {/* the rest of the app, since his tab has no tab bar (a trial) */}
+        <View style={{marginTop: 8}}>
+          {PLACES.map(p => (
+            <Pressable key={p.href} onPress={() => onGo(p.href)} accessibilityRole="link" accessibilityLabel={p.title}
+              style={{flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 12}}>
+              <View style={{width: DOT, alignItems: "center"}}><Icon name={p.icon} color={c.ink} size={22} /></View>
+              <Text style={{flex: 1, fontFamily: hanken.medium, fontSize: 16, lineHeight: 21, color: c.ink}}>{p.title}</Text>
+            </Pressable>
+          ))}
+        </View>
         {!groups.length && (
           <Text style={{marginTop: 16, fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.muted}}>
             {rows.length ? "No chats match that" : "No chats yet"}

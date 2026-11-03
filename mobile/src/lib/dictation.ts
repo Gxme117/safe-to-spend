@@ -15,8 +15,8 @@
 export type MicState = "mic" | "stop" | "send";
 
 /** What the button looks like and what a screen reader calls it. Send keeps its name, so nothing that knew it changes. */
-export const MIC_BUTTON: Record<MicState, {icon: "mic" | "stop" | "up"; label: string}> = {
-  mic: {icon: "mic", label: "Speak your question"},
+export const MIC_BUTTON: Record<MicState, {icon: "wave" | "stop" | "up"; label: string}> = {
+  mic: {icon: "wave", label: "Speak your question"},
   stop: {icon: "stop", label: "Stop listening"},
   send: {icon: "up", label: "Send"},
 };
@@ -53,6 +53,8 @@ const SAY: Record<string, string> = {
   busy: "Something else is using the microphone. Try again in a moment, or just type it",
   network: "That wanted to go online to listen, so I stopped. Type your question and I'll read it",
   "language-not-supported": "Your phone can't do this in your language yet. Type your question and I'll read it",
+  // ours, not the recogniser's: the phone can't listen without sending your voice away, so we don't
+  "not-on-phone": "This phone can't listen without sending your voice away, so I won't. Type your question and I'll read it",
 };
 
 /** What he says when the microphone didn't work out — or nothing, when there's nothing worth saying. */

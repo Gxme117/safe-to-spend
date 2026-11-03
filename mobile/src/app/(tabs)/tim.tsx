@@ -1,14 +1,15 @@
 import {setAudioModeAsync, useAudioPlayer, type AudioSource} from "expo-audio";
 import {GlassView} from "expo-glass-effect";
 import {LinearGradient} from "expo-linear-gradient";
-import {useFocusEffect} from "expo-router";
+import {router, useFocusEffect} from "expo-router";
 import {openBrowserAsync} from "expo-web-browser";
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
-import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type HostInstance, type ScrollViewInstance} from "react-native";
+import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type HostInstance, type ScrollViewInstance} from "react-native";
 import {canDictate, mic, micLang, useMicEvent} from "@/services/dictation";
 import {useKeyboardHeight} from "@/services/keyboard";
 import Reanimated, {Easing, useAnimatedStyle, useSharedValue, withTiming} from "react-native-reanimated";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
+import {useChrome} from "@/store/chrome";
 import {useReducedMotion} from "@/components/BigMoney";
 import {ConsentSheet} from "@/components/ConsentSheet";
 import {Icon} from "@/components/Icon";
@@ -97,6 +98,8 @@ const ESTIMATE = "No shop's own page showed the price, so any price here is an e
 // a chat to keep, from your first question in it
 const newChatId = () => ({id: uid(), made: Date.now()});
 const Track = GLASS ? GlassView : View; // the Tim · Frank switch's track
+const Bar = GLASS ? GlassView : View; // the question box
+const BAR_FOOT = 12; // how far the bar at the top runs on below his bubble, to its hairline
 /** The round buttons at the top: Liquid Glass where the phone has it (tinted when `tint`), else a plain circle in `fill`. */
 function Round({fill, tint, children}: {fill: string; tint?: string; children: React.ReactNode}) {
   const round = {flex: 1, borderRadius: 24, alignItems: "center" as const, justifyContent: "center" as const};
@@ -430,8 +433,9 @@ function useDictation(o: {q: string; setQ: (s: string) => void; hush: () => void
   useEffect(() => close, [close]); // and so does leaving the screen
 
   const toggle = useCallback(async () => {
-    if (!mic) return;
-    if (live.current) return mic.stop(); // finishes the sentence and keeps it
+    if (live.current) return mic?.stop(); // finishes the sentence and keeps it
+    // the microphone is always shown; where the phone can't keep your voice on it, tapping it says so instead
+    if (!mic || !canDictate()) { now.current.trouble(calmly("not-on-phone")!); return; }
     now.current.hush(); // he stops talking before the microphone opens
     const got = await mic.requestMicrophonePermissionsAsync().catch(() => null);
     if (!got?.granted) { setAble(false); now.current.trouble(calmly("not-allowed")!); return; }
@@ -564,8 +568,10 @@ function Tim() {
   const measure = () => page.current?.measureInWindow((_x, y, _w, h) => setUnder(Math.max(0, Math.round(Dimensions.get("window").height - y - h))));
   const {height: keys} = useKeyboardHeight(); // minus the keyboard's height, this frame
   const ios = Platform.OS === "ios";
-  // up by what the keyboard covers above the tab bar; nothing when it covers less
-  const lift = useAnimatedStyle(() => ({transform: [{translateY: ios ? Math.min(0, keys.value + under) : 0}]}));
+  // with no tab bar (a conversation, for now), the box keeps clear of the home indicator itself
+  const bare = useChrome(st => st.bare), foot = bare ? insets.bottom : 0;
+  // up by what the keyboard covers above the tab bar (or the home indicator); nothing when it covers less
+  const lift = useAnimatedStyle(() => ({transform: [{translateY: ios ? Math.min(0, keys.value + under + foot) : 0}]}));
   const [covered, setCovered] = useState(0);
   useEffect(() => {
     if (Platform.OS !== "ios") return;
@@ -668,6 +674,10 @@ function Tim() {
   // conversation cleared, the other's kept). A switch to the other accountant shows him as he is straight away, and so does
   // reduced motion.
   const small = smallFor[who];
+  // while a conversation's going, no tab bar, for the room (the other tabs are in the recent chats panel); back with a
+  // new chat, or when you leave the tab
+  const setBare = useChrome(st => st.setBare);
+  useFocusEffect(useCallback(() => { setBare(small); return () => setBare(false); }, [small, setBare]));
   // asked something, or Frank's briefing: his bubble and his name at the top
   const asked = small && thread.some(s => s.who === who);
   const shrunk = useSharedValue(small ? 1 : 0), was = useRef(who);
@@ -870,6 +880,7 @@ function Tim() {
     const text = tapped ?? q.trim();
     if (!text || working || dict.listening || !useMoney.getState().state) return;
     if (!tapped) setQ("");
+    Keyboard.dismiss(); // sent: the keyboard goes down so his answer has the room
     // a plain yes or no to the one card he's showing is the same as tapping it: no need to ask him
     const open = openCards(who), reply = !tapped && open.length === 1 ? yesNo(text) : "reply";
     if (reply !== "reply") { say({who, mine: true, text}); void decide(open[0].s, open[0].i, reply === "yes"); return; }
@@ -879,6 +890,8 @@ function Tim() {
   };
   const button = micState({listening: dict.listening, text: q, working: !!working, canDictate: dict.able});
   const off = button === "send" && !!working; // only Send ever waits; stop and the microphone are always yours to tap
+  // an empty box shows the soundwave, even where the phone can't listen (there it's still Send, with nothing to send)
+  const icon = button === "send" && !working && !q.trim() ? "wave" : MIC_BUTTON[button].icon;
   // read out what he's doing, and what he says when he's done
   const last = thread[thread.length - 1];
   // suggestions: starters on an empty chat while the box is empty; after that, under his latest answer, while he isn't working
@@ -903,6 +916,12 @@ function Tim() {
       contentInset={{bottom: covered}} scrollIndicatorInsets={{bottom: covered}}
       onContentSizeChange={() => { if (follow.current) { follow.current = false; scroll.current?.scrollToEnd({animated: !reduced}); } }}>
       <Reanimated.View style={[{alignSelf: "stretch", marginHorizontal: -32, backgroundColor: bg}, space]}>
+        {/* while he's a bubble, the bar behind him and his name is solid, in the page's colour, ending in a hairline, not a fade */}
+        {small && (
+          <View pointerEvents="none" style={{position: "absolute", left: 0, right: 0, top: 0, bottom: -BAR_FOOT, backgroundColor: bg}}>
+            <View style={{position: "absolute", left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: edge}} />
+          </View>
+        )}
         {/* asked something: room for his bubble, and his name beside it */}
         {asked && (
           <View style={{flexDirection: "row", alignItems: "flex-start", gap: 12, paddingTop: bubbleTop, paddingHorizontal: 32}}>
@@ -922,8 +941,6 @@ function Tim() {
             )}
           </View>
         )}
-        {/* the conversation fades in under it as it scrolls */}
-        {small && <LinearGradient colors={[bg, bg + "00"]} style={{position: "absolute", left: 0, right: 0, bottom: -16, height: 16}} pointerEvents="none" />}
         {/* his hair out over the bubble's top (where the copy's background is the page's own) */}
         {asked && blends && (
           <Reanimated.View {...hidden} style={[{position: "absolute", left: 32, top: bubbleTop - TOP_ROOM, width: BUBBLE_D, height: TOP_ROOM + HAIR[1], overflow: "hidden"}, after]}>
@@ -1064,7 +1081,7 @@ function Tim() {
     </View>
 
     {/* the question box, at the bottom as in the OpenAI app; it grows as you write (return makes a new line), Send sends */}
-    <Reanimated.View style={[{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12, backgroundColor: bg}, lift]}>
+    <Reanimated.View style={[{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12 + foot, backgroundColor: bg}, lift]}>
       {/* on an empty chat, a few questions to start with, one tap to ask */}
       {starters ? (
         <ScrollView testID="starters" horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
@@ -1072,24 +1089,34 @@ function Tim() {
           {STARTERS.map(chip)}
         </ScrollView>
       ) : null}
-      <View style={{flexDirection: "row", alignItems: "flex-end", gap: 8}}>
-        {/* beside the box, the box's height and look; it does nothing yet */}
+      {/* Liquid Glass where the phone has it, as the top buttons are, tinted in the box's colour so it reads solid on
+          the flat page (untinted, with nothing behind it to frost, it looked faded); else the box in its own colour */}
+      <Bar {...GLASS ? {glassEffectStyle: "regular" as const, tintColor: box} : {}} style={[{flexDirection: "row", alignItems: "flex-end", gap: 4, minHeight: 52, paddingHorizontal: 6, paddingVertical: 6, borderRadius: 26},
+        GLASS ? null : {backgroundColor: box, borderWidth: 1, borderColor: edge}]}>
+        {/* in the box, on the left, the send button's size; it does nothing yet */}
         <Pressable accessibilityRole="button" accessibilityLabel="More" hitSlop={4}
-          style={{width: 52, height: 52, borderRadius: 26, backgroundColor: box, borderWidth: 1, borderColor: edge, alignItems: "center", justifyContent: "center"}}>
-          <Icon name="plus" color={c.ink} size={22} />
+          style={{width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center"}}>
+          <Icon name="plus" color={c.ink} size={28} />
         </Pressable>
-      <View style={{flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-end", gap: 8, minHeight: 52, paddingLeft: 20, paddingRight: 6, paddingVertical: 6, borderRadius: 26, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
         <TextInput value={q} onChangeText={setQ} placeholder={dict.listening ? "Listening…" : `Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
           multiline autoComplete="off" onFocus={() => setBoxFocused(true)} onBlur={() => setBoxFocused(false)}
           style={{flex: 1, minWidth: 0, maxHeight: BOX_LINE * BOX_LINES + 16, fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink, paddingTop: 8, paddingBottom: 8}} />
+        {/* the microphone, plain, beside the round button as in the OpenAI app: speak into the box, words or not.
+            While it's listening the round button is stop, so this steps aside. Shown even where the phone can't
+            listen on its own: a tap then says why */}
+        {!dict.listening ? (
+          <Pressable onPress={dict.toggle} accessibilityRole="button" accessibilityLabel="Dictate" hitSlop={4}
+            style={{width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center"}}>
+            <Icon name="mic" color={c.ink} size={22} />
+          </Pressable>
+        ) : null}
         {/* one button, three jobs: the microphone when there's nothing to send, stop while it's listening, Send once
             there are words. One question at a time, as before: while he's working it out it stays Send, and waits. */}
         <Pressable onPress={button === "send" ? () => ask() : dict.toggle} disabled={off} accessibilityRole="button" accessibilityLabel={MIC_BUTTON[button].label} accessibilityState={{disabled: off}} hitSlop={4}
           style={{width: 38, height: 38, borderRadius: 19, backgroundColor: sendBg, alignItems: "center", justifyContent: "center", opacity: off ? 0.35 : 1}}>
-          <Icon name={MIC_BUTTON[button].icon} color={sendInk} size={button === "stop" ? 14 : 16} />
+          <Icon name={icon} color={sendInk} size={button === "stop" ? 14 : icon === "wave" ? 22 : 16} />
         </Pressable>
-      </View>
-      </View>
+      </Bar>
     </Reanimated.View>
 
     {/* while the panel's open, the page dims a little and a tap on it closes the panel */}
@@ -1106,7 +1133,8 @@ function Tim() {
         backgroundColor: tone.box, borderRightWidth: 1, borderRightColor: edge}, slid]}>
       <ChatsPanel rows={chatRows} now={chatsAt} openIds={openIds}
         query={chatQuery} onQuery={setChatQuery} onOpen={id => void openChat(id)} onDelete={id => void removeChat(id)}
-        onNew={() => { newChat(who); setDrawer(false); }} tone={tone} bottom={16} faces={faces} />
+        onNew={() => { newChat(who); setDrawer(false); }} onGo={href => { setDrawer(false); router.navigate(href); }}
+        tone={tone} bottom={16 + foot} faces={faces} />
     </Reanimated.View>
     <ConsentSheet visible={waiting !== null} name={name}
       onYes={() => { const text = waiting ?? ""; setWaiting(null); useMoney.getState().setAiConsent(true); if (text) go(text); }}

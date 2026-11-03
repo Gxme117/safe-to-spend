@@ -2,6 +2,7 @@ import {Tabs} from "expo-router";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {Icon} from "@/components/Icon";
 import {hanken, home, timPage} from "@/theme/tokens";
+import {useChrome} from "@/store/chrome";
 import {useMoney} from "@/store/useMoney";
 import {useTheme} from "@/theme/useTheme";
 
@@ -17,6 +18,7 @@ export default function TabsLayout() {
   // the accountant's tab is his picture's background; dark, its rule is the tab's own line
   const tim = timPage[dark ? "dark" : "light"], timRule = dark ? tim.edge : look.line;
   const accountant = useMoney(st => st.accountant);
+  const bare = useChrome(st => st.bare); // in a conversation with him, no tab bar (a trial)
   return (
     <Tabs screenOptions={{
       headerShown: false, // each page shows its own big title
@@ -35,7 +37,7 @@ export default function TabsLayout() {
         tabBarIcon: ({color}) => <Icon name="pit" color={color} size={ICON} />}} />
       {/* Tim, your accountant, in the middle: his picture runs up under the status bar, in Today's look */}
       <Tabs.Screen name="tim" options={{title: accountant === "frank" ? "Frank" : "Tim", sceneStyle: {backgroundColor: tim.page, paddingTop: 0},
-        tabBarStyle: {...bar, backgroundColor: tim.page, borderTopColor: timRule}, tabBarActiveTintColor: look.ink, tabBarInactiveTintColor: look.muted,
+        tabBarStyle: bare ? {display: "none"} : {...bar, backgroundColor: tim.page, borderTopColor: timRule}, tabBarActiveTintColor: look.ink, tabBarInactiveTintColor: look.muted,
         tabBarIcon: ({color}) => <Icon name="glasses" color={color} size={ICON} />}} />
       <Tabs.Screen name="month" options={{title: "Coming up", tabBarIcon: ({color}) => <Icon name="month" color={color} size={ICON} />}} />
       <Tabs.Screen name="settings"options={{title: "Settings", tabBarIcon: ({color}) => <Icon name="sliders" color={color} size={ICON} />}} />

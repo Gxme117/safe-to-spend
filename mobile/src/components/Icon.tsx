@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
 import Svg, {Circle, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "stop" | "speaker" | "incognito";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "wave" | "stop" | "speaker" | "incognito";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -25,6 +25,8 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
       {name === "up" && <Path d="M12 19V5M6 11l6-6 6 6" {...p} />}
       {/* a capsule mic in its cradle, on a short stand */}
       {name === "mic" && <><Rect x={9} y={2.5} width={6} height={11.5} rx={3} {...p} /><Path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" {...p} /></>}
+      {/* a soundwave: four evenly spaced bars, the middle two tall (speak your question) */}
+      {name === "wave" && <Path d="M5 9.5v5M9.67 5v14M14.33 5v14M19 9.5v5" {...p} strokeWidth={2.4} />}
       {/* a speaker with two waves: hear it again */}
       {name === "speaker" && <><Path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" {...p} /><Path d="M15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" {...p} /></>}
       {/* stop: a filled rounded square (stroked, it reads too thin inside the button's circle) */}
