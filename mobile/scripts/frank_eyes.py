@@ -55,8 +55,12 @@ RIM_DARK = 105                   # a lid rim darker than this is in the shadow o
 # frame and pupils pass the same tests, only dimmer.
 DARK = "--dark" in sys.argv
 if DARK:
-    SRC = ROOT / "assets" / "frank-dark.jpg"
+    SRC = ROOT / "scripts" / "frank-dark-placed.jpg"  # before it was darkened (frank_dark.py); each piece is darkened as it's saved
 NAME = "frank-dark" if DARK else "frank"
+if DARK:
+    from frank_dark import darkened_piece
+    _save = save
+    save = lambda pieces, prefix, names: _save([darkened_piece(p) for p in pieces], prefix, names)  # noqa: E731
 
 
 def white(p):

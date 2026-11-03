@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
 import Svg, {Circle, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "stop" | "speaker";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "stop" | "speaker" | "incognito";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -29,6 +29,8 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
       {name === "speaker" && <><Path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" {...p} /><Path d="M15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" {...p} /></>}
       {/* stop: a filled rounded square (stroked, it reads too thin inside the button's circle) */}
       {name === "stop" && <Rect x={7} y={7} width={10} height={10} rx={2.5} {...p} strokeWidth={1.5} fill={color} />}
+      {/* a temporary chat: a hat over round glasses */}
+      {name === "incognito" && <><Path d="M2.5 11h19M5.5 11l1.8-5.6a1 1 0 0 1 1.3-.6L12 6l3.4-1.2a1 1 0 0 1 1.3.6L18.5 11" {...p} /><Circle cx={7.5} cy={16.5} r={3} {...p} /><Circle cx={16.5} cy={16.5} r={3} {...p} /><Path d="M10.5 16.2c1-.6 2-.6 3 0" {...p} /></>}
       {name === "list" &&<Path d="M4 6h16M4 12h16M4 18h16" {...p} />}
       {/* recent chats, as in the ChatGPT app: two lines, the lower one shorter */}
       {name === "menu" && <Path d="M4 9h16M4 15h10" {...p} />}

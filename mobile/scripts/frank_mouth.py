@@ -40,8 +40,12 @@ POSES = [(2.5, 0.8, 1.0, 2.5), (6.0, 0.9, 1.5, 4.5), (4.0, 0.6, 1.0, 3.0)]
 # His dark-mode picture is put where his face is in frank.jpg, so the same columns and rows find his moustache.
 DARK = "--dark" in sys.argv
 if DARK:
-    SRC = ROOT / "assets" / "frank-dark.jpg"
+    SRC = ROOT / "scripts" / "frank-dark-placed.jpg"  # before it was darkened (frank_dark.py); each piece is darkened as it's saved
 NAME = "frank-dark" if DARK else "frank"
+if DARK:
+    from frank_dark import darkened_piece
+    _save = save
+    save = lambda pieces, prefix, names: _save([darkened_piece(p) for p in pieces], prefix, names)  # noqa: E731
 
 
 def red(p):

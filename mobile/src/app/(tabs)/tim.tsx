@@ -1,4 +1,5 @@
 import {setAudioModeAsync, useAudioPlayer, type AudioSource} from "expo-audio";
+import {GlassView} from "expo-glass-effect";
 import {LinearGradient} from "expo-linear-gradient";
 import {useFocusEffect} from "expo-router";
 import {openBrowserAsync} from "expo-web-browser";
@@ -38,6 +39,7 @@ import {FRANK_WAIT_CLIPS} from "../../../assets/frankWait-voice";
 import {FRANK_CLIPS} from "../../../assets/frank-voice";
 import {TIM_CLIPS} from "../../../assets/tim-voice";
 import {useMoney, type Accountant} from "@/store/useMoney";
+import {GLASS} from "@/theme/glass";
 import {hanken, timPage} from "@/theme/tokens";
 import {HomeLook, useTheme} from "@/theme/useTheme";
 
@@ -94,6 +96,16 @@ type Said = {id: number; who: Accountant; mine: boolean; text: string; checked?:
 const ESTIMATE = "No shop's own page showed the price, so any price here is an estimate.";
 // a chat to keep, from your first question in it
 const newChatId = () => ({id: uid(), made: Date.now()});
+const Track = GLASS ? GlassView : View; // the Tim · Frank switch's track
+/** The round buttons at the top: Liquid Glass where the phone has it (tinted when `tint`), else a plain circle in `fill`. */
+function Round({fill, tint, children}: {fill: string; tint?: string; children: React.ReactNode}) {
+  const round = {flex: 1, borderRadius: 24, alignItems: "center" as const, justifyContent: "center" as const};
+  return GLASS
+    ? <GlassView glassEffectStyle="regular" isInteractive tintColor={tint} style={round}>{children}</GlassView>
+    : <View style={[round, {backgroundColor: fill}]}>{children}</View>;
+}
+// told to him on each question in a temporary chat, since his notes aren't given to him and remember saves nothing
+const TEMP_CHAT = "This is a temporary chat: the person turned on not keeping it. Nothing from it is kept, you can't see your notes from earlier conversations, and remember saves nothing, so don't offer to note anything.";
 const nowMs = () => Date.now(); // the time now, read outside drawing
 
 // the conversation in cards: each of your questions starts one, and what he says to it goes in with it
@@ -510,6 +522,10 @@ function Tim() {
     setOpenIds([chatId.current.tim, chatId.current.frank].filter((x): x is string => !!x));
   };
   const made = useRef<Record<Accountant, number>>({tim: 0, frank: 0});
+  // a temporary chat (the button at the top right): nothing in it is kept, not the chat and not his notes, and your notes
+  // aren't given to him. Turning it on or off starts both accountants afresh, so nothing said in one is kept by the other.
+  const [temp, setTemp] = useState(false);
+  const tempRef = useRef(false);
   // what you did with his cards since your last message, for him on your next one (inside <app_context>)
   const outcomes = useRef<Record<Accountant, string[]>>({tim: [], frank: []});
   // who's working out an answer, and what he's doing right now; one question at a time
@@ -578,10 +594,10 @@ function Tim() {
       send: async m => { const turn = await send(to, m); clock?.mark(roundOf(++round, turn)); return turn; },
       env: () => {
         const st = useMoney.getState();
-        return {ctx: {state: st.state!, txs: st.txs, today: st.today}, notes: st.notes, who: to, newId: () => "n_" + uid(),
+        return {ctx: {state: st.state!, txs: st.txs, today: st.today}, notes: tempRef.current ? [] : st.notes, who: to, newId: () => "n_" + uid(),
           regulars: {scan: st.scan, answers: st.answers}};
       },
-      apply: effect => note(effect, to),
+      apply: effect => { if (!tempRef.current) note(effect, to); },
       doing: doing => { if (current()) setWorking(w => w && {...w, doing}); },
       looked: hosts => { if (current()) setLooked(hosts); },
     };
@@ -685,7 +701,7 @@ function Tim() {
   useEffect(() => {
     for (const w of ["tim", "frank"] as const) {
       const id = chatId.current[w], mine = thread.filter(s => s.who === w), first = mine.find(s => s.mine);
-      if (!id || !first) continue;
+      if (!id || !first || tempRef.current) continue;
       const saved = toSaved(mine), sig = JSON.stringify(saved);
       if (sig === kept.current[w]) continue;
       kept.current[w] = sig;
@@ -708,11 +724,25 @@ function Tim() {
     if (!drawer) { setChatQuery(""); void readChats(); }
     setDrawer(!drawer);
   };
+  const setTempChat = (on: boolean) => {
+    if (tempRef.current === on) return;
+    tempRef.current = on;
+    setTemp(on);
+    clear(who === "tim" ? "frank" : "tim");
+    newChat(who);
+  };
+  const toggleTemp = () => {
+    Keyboard.dismiss();
+    setTempChat(!tempRef.current);
+    useMoney.getState().notify(tempRef.current ? "Temporary chat: it won't be kept, and nothing's noted" : "Temporary chat off");
+  };
   // an old chat back on screen, with whoever it was with, ready to carry on
   const openChat = async (id: string) => {
     const c = await loadChat<Said, Transcript>(id).catch(() => null);
     if (!c) { void readChats(); return; }
     const w = c.who, back = fromSaved(c.said, () => said.current++);
+    // a kept chat opened ends the temporary one; the other accountant's temporary chat goes too, so it's never kept
+    if (tempRef.current) { tempRef.current = false; setTemp(false); clear(w === "tim" ? "frank" : "tim"); }
     if (chatId.current[w] !== id) {
       chats.current[w]++; // an answer still coming to the chat on screen is dropped
       talks.current[w] = c.transcript;
@@ -804,7 +834,7 @@ function Tim() {
       setCard(s.id, i, {status: "unanswered"});
       if (st0.state) outcomes.current[to].push(outcomeLine({state: st0.state, txs: st0.txs, today: st0.today}, k.p, "unanswered"));
     }
-    const context = outcomes.current[to].splice(0);
+    const context = [...outcomes.current[to].splice(0), ...tempRef.current ? [TEMP_CHAT] : []];
     if (!chatId.current[to]) { const n = newChatId(); setChatId(to, n.id); made.current[to] = n.made; }
     say({who: to, mine: true, text});
     setSmallFor(sm => ({...sm, [to]: true}));
@@ -993,8 +1023,9 @@ function Tim() {
     {/* who your accountant is: a two-way switch, pinned just under the status bar, like a chat app's model picker. The page's
         colour behind it, so the conversation scrolls under it; at rest it only covers his picture's empty top, above his hair. */}
     <View style={{position: "absolute", left: 0, right: 0, top: 0, paddingTop: insets.top, paddingBottom: 4, alignItems: "center", backgroundColor: bg}}>
-      <View accessibilityRole="radiogroup" accessibilityLabel="Your accountant"
-        style={{flexDirection: "row", padding: 2, borderRadius: 999, backgroundColor: tone.track}}>
+      {/* Liquid Glass where the phone has it, as the round buttons either side are */}
+      <Track accessibilityRole="radiogroup" accessibilityLabel="Your accountant" {...GLASS ? {glassEffectStyle: "regular" as const} : {}}
+        style={{flexDirection: "row", padding: 2, borderRadius: 999, ...GLASS ? {} : {backgroundColor: tone.track}}}>
         {(Object.keys(PEOPLE) as Accountant[]).map(a => {
           const on = a === who;
           return (
@@ -1004,12 +1035,18 @@ function Tim() {
             </Pressable>
           );
         })}
-      </View>
+      </Track>
       {/* recent chats: opens the panel on the left */}
       <Pressable testID="recent-chats" onPress={toggleDrawer}
         accessibilityRole="button" accessibilityLabel="Recent chats" accessibilityState={{expanded: drawer}} hitSlop={12}
-        style={{position: "absolute", left: 16, top: insets.top - 4, width: 40, height: 40, borderRadius: 20, backgroundColor: tone.track, alignItems: "center", justifyContent: "center"}}>
-        <Icon name="menu" color={c.ink} size={22} />
+        style={{position: "absolute", left: 16, top: insets.top - 4, width: 48, height: 48}}>
+        <Round fill={tone.track}><Icon name="menu" color={c.ink} size={26} /></Round>
+      </Pressable>
+      {/* a temporary chat, on the right: on, it's filled in ink */}
+      <Pressable testID="temporary-chat" onPress={toggleTemp}
+        accessibilityRole="switch" accessibilityLabel="Temporary chat" accessibilityHint="Not kept, and nothing's noted" accessibilityState={{checked: temp}} hitSlop={12}
+        style={{position: "absolute", right: 16, top: insets.top - 4, width: 48, height: 48}}>
+        <Round fill={temp ? c.ink : tone.track} tint={temp ? c.ink : undefined}><Icon name="incognito" color={temp ? bg : c.ink} size={24} /></Round>
       </Pressable>
     </View>
 
@@ -1022,7 +1059,13 @@ function Tim() {
           {STARTERS.map(chip)}
         </ScrollView>
       ) : null}
-      <View style={{alignSelf: "stretch", flexDirection: "row", alignItems: "flex-end", gap: 8, minHeight: 52, paddingLeft: 20, paddingRight: 6, paddingVertical: 6, borderRadius: 26, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
+      <View style={{flexDirection: "row", alignItems: "flex-end", gap: 8}}>
+        {/* beside the box, the box's height and look; it does nothing yet */}
+        <Pressable accessibilityRole="button" accessibilityLabel="More" hitSlop={4}
+          style={{width: 52, height: 52, borderRadius: 26, backgroundColor: box, borderWidth: 1, borderColor: edge, alignItems: "center", justifyContent: "center"}}>
+          <Icon name="plus" color={c.ink} size={22} />
+        </Pressable>
+      <View style={{flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-end", gap: 8, minHeight: 52, paddingLeft: 20, paddingRight: 6, paddingVertical: 6, borderRadius: 26, backgroundColor: box, borderWidth: 1, borderColor: edge}}>
         <TextInput value={q} onChangeText={setQ} placeholder={dict.listening ? "Listening…" : `Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
           multiline autoComplete="off" onFocus={() => setBoxFocused(true)} onBlur={() => setBoxFocused(false)}
           style={{flex: 1, minWidth: 0, maxHeight: BOX_LINE * BOX_LINES + 16, fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink, paddingTop: 8, paddingBottom: 8}} />
@@ -1032,6 +1075,7 @@ function Tim() {
           style={{width: 38, height: 38, borderRadius: 19, backgroundColor: sendBg, alignItems: "center", justifyContent: "center", opacity: off ? 0.35 : 1}}>
           <Icon name={MIC_BUTTON[button].icon} color={sendInk} size={button === "stop" ? 14 : 16} />
         </Pressable>
+      </View>
       </View>
     </Reanimated.View>
 

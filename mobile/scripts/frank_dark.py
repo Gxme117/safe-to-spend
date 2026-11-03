@@ -7,6 +7,8 @@ his face exactly where it is in frank.jpg: the same 874x880, so the screen's lay
 bubble) is the same in both modes and only his picture and the pieces made from it change. The fit: SCALE and AT, measured off
 both pictures, then nudged a pixel or two (NUDGE) to whatever lines his glasses, eyes and moustache (FACE) up best. Scaled, he
 doesn't reach frank.jpg's sides, so each side is filled with the wall beside it, mirrored (its grain carries on, no streaks).
+The dark page is darker than the drawn wall now, so the wall is taken down to it last (`darkened`). His pieces are found in the
+picture from before that (scripts/frank-dark-placed.jpg, whose colours the scripts' tests were tuned on) and darkened the same way.
 
 His pieces are then made from it the same way as from frank.jpg: frank_eyes.py, frank_mouth.py and frank_hands.py with --dark.
 
@@ -20,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "scripts" / "frank-dark-source.jpg"
 LIGHT = ROOT / "assets" / "frank.jpg"
 OUT = ROOT / "assets" / "frank-dark.jpg"
+PLACED = ROOT / "scripts" / "frank-dark-placed.jpg"  # the same before it's darkened: his pieces are found in it
 
 SCALE = 0.7725                 # px of frank.jpg per px of the drawn picture: his glasses the same size
 AT = (7, -32)                  # where the drawn picture's top left lands in frank.jpg
@@ -28,6 +31,8 @@ NUDGE_SCALE = 0.005
 FACE = (340, 330, 540, 500)    # his glasses, eyes, nose and moustache in frank.jpg: what's fitted
 FIGURE_ROWS = (240, 511)       # rows his captions sit beside (FRANK_BOX in src/lib/timSpeech.ts): how wide he is there
 WALL_OFF = 40                  # further than this (summed over r, g, b) from the wall beside him is him
+WALL = (23, 23, 27)            # the wall's brightest grain (r, g, b; 99.9% of its top and sides are at or under it)
+PAGE = (14, 14, 16)            # the dark page (#0E0E10, `dark.bg` and `timPage.dark.page` in src/theme/tokens.ts): WALL becomes it
 
 
 def edges(im):
@@ -57,6 +62,18 @@ def placed(src, scale, at, size):
     return out
 
 
+def darkened(im):
+    """WALL and anything under it becomes PAGE, and everything above it is stretched from there up to white, so the wall is the
+    page's colour and he keeps his tones."""
+    level = lambda v, k, p: max(p, round(p + (v - k) * (255 - p) / (255 - k)))  # noqa: E731
+    return Image.merge("RGB", [im.getchannel(c).point(lambda v, c=c: level(v, WALL[c], PAGE[c])) for c in range(3)])
+
+
+def darkened_piece(im):
+    """A piece made from PLACED, darkened the same way (its see-through edges kept)."""
+    return Image.merge("RGBA", [*darkened(im.convert("RGB")).split(), im.getchannel("A")])
+
+
 def main() -> None:
     src = Image.open(SRC).convert("RGB")
     light = Image.open(LIGHT).convert("RGB")
@@ -73,7 +90,8 @@ def main() -> None:
                 fits.append((likeness(want, got.crop(box)), scale, (x, y)))
     best, scale, at = max(fits)
     out = placed(src, scale, at, light.size)
-    out.save(OUT, quality=95)
+    out.save(PLACED, quality=95)
+    darkened(out).save(OUT, quality=95)
 
     # how wide he is beside his captions, to check FRANK_BOX's figure still holds
     px = out.load()

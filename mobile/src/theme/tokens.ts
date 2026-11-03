@@ -13,13 +13,12 @@ const light = {
   figure: "#F5D77E",     // the Day page's big number: custard yellow in both modes (faint on paper white, by choice)
 };
 export type Palette = typeof light;
-// Dark mode is a near-black with a touch of cool blue (not pure black, so white text doesn't glow on it),
-// with the cards lifted just enough to stand off it, in the same cool tint.
+// Dark mode is a near-black (darker than it was, not ChatGPT's pure black, which was too dark), with the cards and fills iOS's
+// own greys a step up from it, and slightly dimmed white text (pure white glows on black and reads harsh).
 const dark: Palette = {
-  // a dark grey page and slightly dimmed white text, not near-black and pure white (that glows and reads harsh); each raised layer a step lighter
-  bg: "#16171A", surface: "#202125", ink: "#ECEDEF", muted: "#A3A6AD", line: "#3A3C42",
+  bg: "#0E0E10", surface: "#1C1C1E", ink: "#ECEDEF", muted: "#A3A6AD", line: "#38383A",
   good: "#FABD54", accent: "#FABD54", accentInk: "#000000", goodSoft: "#3A2A10",
-  soft: "#2B2D32", amber: "#8F9298",
+  soft: "#2C2C2E", amber: "#8F9298",
   splitBills: "#FF375F", splitEveryday: "#7CCBEB", splitSavings: "#FFA41C",
   incoming: "#00E05A",
   figure: "#F5D77E",   // a soft, buttery custard yellow, matched by eye (Hemway don't publish a code for theirs)
@@ -37,15 +36,15 @@ export const home = {
 };
 
 // The Tim tab's colours. `page`: his picture's own flat background, so he blends into it: light, as the "Accountant-Tim" frame;
-// dark, the wall of Frank's dark-mode picture, as the "Frank · your accountant (dark mode)" frame. Each role is chosen for each
+// dark, the rest of the app's near-black, Frank's dark-mode picture's wall taken down to it (scripts/frank_dark.py). Each role is chosen for each
 // mode, not inverted (the design's "Pinch colour roles"): `box` the question box and suggestions, `edge` their outline (and,
 // dark, the tab bar's rule), `track` the accountant switch, `thumb` the one picked in it. Ink and muted are the palette's.
 export const timPage = {
   // `mine`/`mineInk`: your bubbles; `send`/`sendInk`: the send/microphone button. Neutral for now, the same for Tim and Frank.
   light: {page: "#F5F5F5", box: "#FFFFFF", edge: "#E4E1DA", track: "#ECE9E3", thumb: "#FFFFFF",
     mine: "#E6E4E0", mineInk: "#1A1A1A", send: "#1A1A1A", sendInk: "#FFFFFF"},
-  dark: {page: "#141418", box: "#1C1C1E", edge: "#2C2C2E", track: "#1C1C1E", thumb: "#3A3A3C",
-    mine: "#2C2C2E", mineInk: "#F5F5F5", send: "#F5F5F5", sendInk: "#141418"},
+  dark: {page: "#0E0E10", box: "#1C1C1E", edge: "#2C2C2E", track: "#1C1C1E", thumb: "#3A3A3C",
+    mine: "#2C2C2E", mineInk: "#F5F5F5", send: "#F5F5F5", sendInk: "#0E0E10"},
 };
 
 // The Living tab's bubbles (design/LIVING_SPEC.md): a bubble and its icon, a paid one with its grey outline, and the dashed "+" outline.

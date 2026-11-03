@@ -22,6 +22,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from frank_dark import darkened_piece
 from tim_eyes import lum
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,7 +41,7 @@ LID = (5, 55, 140)               # the laptop's lid: at least this much bluer th
 # laptop's lid, lit less, is dimmer and only just bluer than red at its edges.
 DARK = "--dark" in sys.argv
 if DARK:
-    SRC = ROOT / "assets" / "frank-dark.jpg"
+    SRC = ROOT / "scripts" / "frank-dark-placed.jpg"  # before it was darkened (frank_dark.py); each piece is darkened as it's saved
     ROWS = (680, 790)
     LID = (2, 45, 140)
 NAME = "frank-dark" if DARK else "frank"
@@ -97,7 +98,7 @@ def main():
         pieces = [hand(im, edge, side, lift) for lift in LIFTS]
         box = pieces[-1].getchannel("A").getbbox()  # the bigger lift reaches furthest
         for i, p in enumerate(pieces, 1):
-            p.crop(box).save(ASSETS / f"{NAME}-hands-{side}-{i}.png", optimize=True)
+            (darkened_piece(p) if DARK else p).crop(box).save(ASSETS / f"{NAME}-hands-{side}-{i}.png", optimize=True)
         crops[side] = box
     print("HANDS_CROP = {" + ", ".join(f"{s}: {{x: {b[0]}, y: {b[1]}, w: {b[2] - b[0]}, h: {b[3] - b[1]}}}" for s, b in crops.items()) + "}")
     print(f"(in the {im.width}x{im.height} {SRC.name})")
