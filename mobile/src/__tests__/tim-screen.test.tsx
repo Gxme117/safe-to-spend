@@ -140,7 +140,7 @@ const metrics = {frame: {x: 0, y: 0, width: 390, height: 844}, insets: {top: 0, 
 // briefed: Frank's had today's briefing already, so his tab opens with his opening (his briefings have their own tests)
 const show = async (n = 3, aiConsent = true, briefed = true) => {
   const txs = Array.from({length: n}, (_, i) => tx({id: `t${i}`, amount: 5, date: TODAY}));
-  useMoney.setState({state: baseState(), txs, today: TODAY, loaded: true, toast: null, theme: "system", accountant: "tim", aiConsent, notes: [],
+  useMoney.setState({state: baseState(), txs, today: TODAY, loaded: true, toast: null, theme: "system", frankRoom: "plain", accountant: "tim", aiConsent, notes: [],
     briefLog: briefed ? {...NO_BRIEFS, lastDaily: TODAY} : NO_BRIEFS});
   await render(<SafeAreaProvider initialMetrics={metrics}><TimScreen /></SafeAreaProvider>);
 };
@@ -1006,16 +1006,26 @@ describe("dark mode", () => {
   const images = () => screen.container.queryAll(i => i.type === "Image").map(i => i.props.source);
   const dark = async () => await act(async () => { useMoney.setState({theme: "dark"}); });
 
-  test("Frank is in his dark office under its lights, his pieces made from it; Tim has only his own picture so far", async () => {
+  test("Frank is in his dark room, his pieces made from it; Tim has only his own picture so far", async () => {
     await show();
     await dark();
     await toFrank();
-    expect(images()).toEqual(expect.arrayContaining(["frank-dark.jpg", "frank-dark-room.png", "frank-dark-blink-2.png", "frank-dark-look-down.png", "frank-dark-hands-left-1.png", "frank-dark-mouth-1.png"]));
+    expect(images()).toEqual(expect.arrayContaining(["frank-dark.jpg", "frank-dark-blink-2.png", "frank-dark-look-down.png", "frank-dark-hands-left-1.png", "frank-dark-mouth-1.png"]));
     expect(images()).not.toContain("frank.jpg");
     expect(images()).not.toContain("frank-blink-2.png");
-    expect(screen.getByTestId("frank-picture").props.accessibilityLabel).toMatch(/in a dark office under hanging square lights$/);
+    expect(images()).not.toContain("frank-dark-room.png"); // plain black, until the office is chosen
+    expect(screen.getByTestId("frank-picture").props.accessibilityLabel).toMatch(/in a dark room$/);
     await fireEvent.press(screen.getByRole("radio", {name: "Tim"}));
     expect(images()).toContain("tim.jpg");
+  });
+
+  test("with the office chosen in Settings, its lights hang behind Frank, not Tim", async () => {
+    await show();
+    await dark();
+    await act(async () => { useMoney.getState().setFrankRoom("office"); });
+    await toFrank();
+    expect(images()).toEqual(expect.arrayContaining(["frank-dark.jpg", "frank-dark-room.png", "frank-dark-blink-2.png", "frank-dark-mouth-1.png"]));
+    await fireEvent.press(screen.getByRole("radio", {name: "Tim"}));
     expect(images()).not.toContain("frank-dark-room.png");
   });
 

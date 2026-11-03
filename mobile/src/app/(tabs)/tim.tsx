@@ -232,15 +232,15 @@ const MOUTHS: Record<Accountant, MouthKit> = {
 // in both modes, and his pieces are made from it as from frank.jpg (frank_eyes.py, frank_hands.py, frank_mouth.py with --dark,
 // which print these crops). Tim has no dark one yet: in dark mode his picture's light background still shows.
 // `room`: what's around him, on a layer of its own over his picture and under his pieces (Frank's dark office, its square
-// lights hanging behind him: scripts/frank_room.py, which cuts him out of it and keeps it out of every piece's crop). It goes
-// as he shrinks into his bubble, which is just his face.
+// lights hanging behind him: scripts/frank_room.py, which cuts him out of it and keeps it out of every piece's crop). Only
+// when it's chosen in Settings (`frankRoom`); it goes as he shrinks into his bubble, which is just his face.
 type Art = {pic: number; alt: string; eyes: EyeKit; mouth: MouthKit; room?: number};
 const ART: Record<Accountant, {light: Art; dark?: Art}> = {
   tim: {light: {pic: require("../../../assets/tim.jpg"), alt: "Tim, a clay-style accountant with grey hair and a blue scarf over a dark jumper", eyes: EYES.tim, mouth: MOUTHS.tim}},
   frank: {
     light: {pic: require("../../../assets/frank.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop", eyes: EYES.frank, mouth: MOUTHS.frank},
     dark: {
-      pic: require("../../../assets/frank-dark.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop in a dark office under hanging square lights",
+      pic: require("../../../assets/frank-dark.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop in a dark room",
       room: require("../../../assets/frank-dark-room.png"),
       eyes: {
         ...EYES.frank,
@@ -506,6 +506,8 @@ function Tim() {
   const {name} = PEOPLE[who];
   // his picture for this mode; `blends`: its background is the page's (light, and dark where he has a dark picture)
   const blends = !dark || !!ART[who].dark, art = (dark && ART[who].dark) || ART[who].light, {pic: src, alt} = art;
+  // the room around him, when it's chosen in Settings (plain black at first)
+  const office = useMoney(st => st.frankRoom) === "office" ? art.room : undefined;
   const isTim = who === "tim";
   const [q, setQ] = useState("");
   const [boxFocused, setBoxFocused] = useState(false);
@@ -933,9 +935,9 @@ function Tim() {
           <Reanimated.View style={[{width, height: pic, transformOrigin: "left top"}, face]}>
             <Image source={src} testID={`${who}-picture`} style={{width, height: pic}} resizeMode="cover" accessibilityLabel={alt} />
             {/* the room around him, over his picture and under everything that moves (he's cut out of it) */}
-            {art.room != null && (
+            {office != null && (
               <Reanimated.View {...hidden} style={[{position: "absolute", left: 0, top: 0, width, height: pic}, roomFade]}>
-                <Image source={art.room} style={{width, height: pic}} resizeMode="cover" />
+                <Image source={office} style={{width, height: pic}} resizeMode="cover" />
               </Reanimated.View>
             )}
             {/* tap him and he says who he is again (not once he's a bubble) */}

@@ -10,7 +10,7 @@ import {FREQ, lowAmt} from "@/lib/income";
 import {money, parseAmount} from "@/lib/money";
 import type {Ctx} from "@/lib/types";
 import {useCalc} from "@/store/useCalc";
-import {useMoney, type CardStyle, type ThemePref} from "@/store/useMoney";
+import {useMoney, type CardStyle, type FrankRoom, type ThemePref} from "@/store/useMoney";
 import {parseHex} from "@/theme/color";
 import {GLASS} from "@/theme/glass";
 import {palettes, radius, s} from "@/theme/tokens";
@@ -42,7 +42,7 @@ function SavingsCard({ctx}: {ctx: Ctx}) {
 
 export default function SettingsScreen() {
   const r = useCalc();
-  const theme = useMoney(st => st.theme), cardStyle = useMoney(st => st.cardStyle);
+  const theme = useMoney(st => st.theme), cardStyle = useMoney(st => st.cardStyle), frankRoom = useMoney(st => st.frankRoom);
   const [bal, setBal] = useState(r ? String(r.c.balance) : "");
   const [error, setError] = useState("");
   if (!r) return null;
@@ -101,6 +101,10 @@ export default function SettingsScreen() {
               value={cardStyle} onChange={v => useMoney.getState().setCardStyle(v)} />
           </Field>
         ) : null}
+        <Field label="Frank's background" hint="In dark mode. Office puts square lights hanging behind him.">
+          <Choice<FrankRoom> options={[{key: "plain", label: "Plain"}, {key: "office", label: "Office"}]}
+            value={frankRoom} onChange={v => useMoney.getState().setFrankRoom(v)} />
+        </Field>
         <AccentField />
       </Card>
 

@@ -23,6 +23,8 @@ import {fetchLink, fetchLinkHistory, linkBank, unlink} from "@/services/truelaye
 export type ThemePref = "system" | "light" | "dark";
 /** The Safe to Spend card: the accent colour, or glass (iOS 26). */
 export type CardStyle = "colour" | "glass";
+/** Frank's background in dark mode: plain black, or his office with square lights hanging behind him. */
+export type FrankRoom = "plain" | "office";
 /** The Living tab: the ball pit, or the same bills and everyday amounts as a list. */
 export type LivingView = "pit" | "list";
 /** Who your accountant is on his tab: Tim, or Frank (another version from the Home S20 canvas, being tried out). */
@@ -43,6 +45,7 @@ interface MoneyStore {
   theme: ThemePref;
   accent: string | null;      // your own accent colour (#RRGGBB), or null for the default
   cardStyle: CardStyle;
+  frankRoom: FrankRoom;
   livingView: LivingView;
   accountant: Accountant;
   aiConsent: boolean;         // you've agreed to Tim and Frank looking at your numbers (what leaves the phone, in ConsentSheet)
@@ -62,6 +65,7 @@ interface MoneyStore {
   setTheme(t: ThemePref): void;
   setAccent(hex: string | null): void;
   setCardStyle(v: CardStyle): void;
+  setFrankRoom(v: FrankRoom): void;
   setLivingView(v: LivingView): void;
   setAccountant(v: Accountant): void;
   setAiConsent(on: boolean): void;
@@ -208,7 +212,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", livingView: "pit", accountant: "tim", aiConsent: false, speaks: true, notes: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", livingView: "pit", accountant: "tim", aiConsent: false, speaks: true, notes: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -219,6 +223,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     setTheme(theme) { set({theme}); },
     setAccent(accent) { set({accent}); },
     setCardStyle(cardStyle) { set({cardStyle}); },
+    setFrankRoom(frankRoom) { set({frankRoom}); },
     setLivingView(livingView) { set({livingView}); },
     setAccountant(accountant) { set({accountant}); },
     setAiConsent(aiConsent) { set({aiConsent}); },
@@ -402,5 +407,5 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   version: 3,
   migrate: (saved, version) => migrateSaved(saved, version) as MoneyStore,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, livingView: s.livingView, accountant: s.accountant, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes, scan: s.scan, answers: s.answers, briefLog: s.briefLog}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, frankRoom: s.frankRoom, livingView: s.livingView, accountant: s.accountant, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes, scan: s.scan, answers: s.answers, briefLog: s.briefLog}),
 }));
