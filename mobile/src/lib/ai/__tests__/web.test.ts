@@ -1,5 +1,5 @@
 import type {Turn} from "../converse";
-import {answerBlocks, searchedIn, searchWaiting, sourcesOf} from "../web";
+import {answerBlocks, hostOf, joinerOf, resultHosts, searchedIn, searchWaiting, sourcesOf} from "../web";
 
 const blocks = (...b: object[]) => b as unknown as Turn["content"];
 const search = {type: "server_tool_use", id: "s1", name: "web_search", input: {query: "netflix uk price"}};
@@ -39,4 +39,34 @@ test("a search is waiting when it hasn't brought back its result", () => {
   expect(searchWaiting(blocks(search, {type: "tool_use", id: "t", name: "overview", input: {}}))).toBe(true);
   expect(searchWaiting(blocks(search, found))).toBe(false);
   expect(searchWaiting(blocks({type: "tool_use", id: "t", name: "overview", input: {}}))).toBe(false);
+});
+
+test("the sites a search brought back: each once, in order, only plain web pages, none from a search that failed", () => {
+  const results = (...urls: string[]) => ({type: "web_search_tool_result", tool_use_id: "s2", content: urls.map(url => ({type: "web_search_result", url, title: "x", encrypted_content: "x"}))});
+  expect(resultHosts(blocks(search, found, results("https://www.argos.co.uk/p", "https://netflix.com/x", "javascript:alert(1)", "https://www.apple.com/uk")))).toEqual(["netflix.com", "argos.co.uk", "apple.com"]);
+  expect(resultHosts(blocks({type: "web_search_tool_result", tool_use_id: "s3", content: {type: "web_search_tool_result_error", error_code: "unavailable"}}))).toEqual([]);
+  expect(resultHosts(blocks({type: "text", text: "No search."}))).toEqual([]);
+});
+
+test("a shop's page he opens counts like a search: his answer is after it, it's looked for, and it can be waiting", () => {
+  const opens = {type: "server_tool_use", id: "f1", name: "web_fetch", input: {url: "https://www.apple.com/uk"}};
+  const page = {type: "web_fetch_tool_result", tool_use_id: "f1", content: {type: "web_fetch_result", url: "https://www.apple.com/uk", retrieved_at: null, content: {type: "document", source: {type: "text", media_type: "text/plain", data: "£899"}}}};
+  const refused = {type: "web_fetch_tool_result", tool_use_id: "f1", content: {type: "web_fetch_tool_result_error", error_code: "url_not_accessible"}};
+  const text = (t: string) => ({type: "text", text: t});
+  expect(answerBlocks(blocks(text("I'll open it."), opens, page, text("It's £899.")))).toEqual([text("It's £899.")]);
+  expect(answerBlocks(blocks(search, found, text("Opening it."), opens, refused, text("It wouldn't open.")))).toEqual([text("It wouldn't open.")]);
+  for (const b of [opens, page, refused]) expect(searchedIn(blocks(b))).toBe(true);
+  // a finished page isn't waiting, nor one that refused; asked for beside a tool, it is, until it comes back
+  expect(searchWaiting(blocks(opens, page))).toBe(false);
+  expect(searchWaiting(blocks(opens, refused))).toBe(false);
+  expect(searchWaiting(blocks(search, found, opens, {type: "tool_use", id: "t", name: "check_purchase", input: {}}))).toBe(true);
+  expect(resultHosts(blocks(search, found, opens, page))).toEqual(["netflix.com", "apple.com"]);
+  expect(resultHosts(blocks(refused))).toEqual([]);
+});
+
+test("a page's host, and how his words go back together", () => {
+  expect(hostOf("https://www.Argos.co.uk/product/1")).toBe("argos.co.uk");
+  expect(hostOf("https://argos.co.uk@evil.example/")).toBeNull();
+  expect(joinerOf([{type: "text", text: "a", citations: null}, {type: "text", text: "b", citations: null}])).toBe("\n\n");
+  expect(joinerOf([{type: "text", text: "a", citations: null}, {type: "text", text: "£1", citations: [cite("https://x.example/")] as never}])).toBe("");
 });

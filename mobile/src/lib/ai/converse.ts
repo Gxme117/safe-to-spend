@@ -1,17 +1,20 @@
 // One question to Tim or Frank, start to finish. The conversation goes to the accountant function, which asks Claude; Claude
-// either answers or asks for tools, which run here and go back with their results, a few rounds at most. A web search runs on
-// Claude's side and comes back in his turn (lib/ai/web.ts). The answer's £ figures
+// either answers or asks for tools, which run here and go back with their results, a few rounds at most. A web search, or a shop's
+// page opened for a purchase, runs on Claude's side and comes back in his turn (lib/ai/web.ts). A price from the web only reaches
+// your money through check_purchase, which reads it on the page (lib/ai/research.ts). The answer's £ figures
 // are then checked (lib/ai/check.ts): one that doesn't trace back gets one more look, and is flagged if it still doesn't.
 // The conversation only ever grows: nothing sent is changed later, so Claude's earlier thinking stays valid. Pure: the
 // server, the tools' view of your money and where notes go are passed in.
 import type Anthropic from "@anthropic-ai/sdk";
 import {idOf, type Proposal} from "../billChange";
 import {mentionedOf} from "../briefing";
-import {checkNote, knownIn, unchecked, webFigures, withoutWeb} from "./check";
+import {r2} from "../money";
+import {checkNote, isKnown, knownIn, poundsIn, unchecked, unknownIn, webFigures, withoutWeb} from "./check";
 import {appContext, DOING, isTool, runTool, type ToolEffect, type ToolEnv, type ToolName} from "./tools";
 import {nextOf} from "./next";
+import {CHECKING_IT, notSubscription, pagesIn, pickOf, PRICES_DOING, pricesLikely, totalOf, type Research} from "./research";
 import {figuresOf, visualOf, type Visual} from "./visual";
-import {answerBlocks, searchedIn, searchWaiting, sourcesOf, type Source} from "./web";
+import {answerBlocks, joinerOf, resultHosts, SEARCHING, searchedIn, searchWaiting, sourcesOf, type Source} from "./web";
 
 type Message = Anthropic.Beta.Messages.BetaMessageParam;
 type Block = Anthropic.Beta.Messages.BetaContentBlock;
@@ -21,8 +24,8 @@ type ToolResult = Anthropic.Beta.Messages.BetaToolResultBlockParam;
 
 /** Everything said so far with one accountant, exactly as Claude saw it. */
 export type Transcript = Message[];
-/** What the function hands back: Claude's turn as it came. */
-export interface Turn { content: Block[]; stop_reason: Anthropic.Beta.Messages.BetaStopReason | null }
+/** What the function hands back: Claude's turn as it came, and what it cost in tokens. */
+export interface Turn { content: Block[]; stop_reason: Anthropic.Beta.Messages.BetaStopReason | null; usage?: Anthropic.Beta.Messages.BetaUsage }
 
 export interface Deps {
   send(messages: Transcript): Promise<Turn>;
@@ -32,6 +35,8 @@ export interface Deps {
   apply(effect: ToolEffect): void;
   /** What he's doing, for the line where the answer will go. */
   doing?(what: string): void;
+  /** The sites his searches brought back so far, once each, as they come. */
+  looked?(hosts: string[]): void;
 }
 
 /** How a question ended when it didn't end in an answer: declined, cut off, or still looking things up after every round. */
@@ -57,6 +62,10 @@ export interface Answer {
   searched?: true;
   /** The pages his answer cites. Only on an answer. */
   sources?: Source[];
+  /** Something to buy he looked up, as a card (lib/ai/research.ts): only the offers a shop's own page backs. Only on an answer. */
+  research?: Research;
+  /** He looked up something to buy, and no shop's own page backed a price to go by: any price in his words is an estimate. */
+  estimate?: true;
 }
 /** `whole`: a briefing, said in full. What's shown is what he says, audio tags taken out; he marks the facts he mentioned. */
 export interface Options { whole?: boolean }
@@ -72,12 +81,20 @@ export const MAX_ROUNDS = 6;
 const LAST_ROUND = "<app_context>That was the last lookup for this question: answer now with what you have.</app_context>";
 /** Times one question's search can be paused and carried on (Claude's side pauses a long one) before he's stopped. */
 export const MAX_PAUSES = 3;
+// the lookups that try something against your money, once he's found what it costs
+const TRYING: ToolName[] = ["check_purchase", "what_if", "overview", "upcoming", "forecast"];
+// A price from the web only reaches your money through check_purchase. No £ in what he's told: a tool's £ counts as known
+const NOT_BACKED = {error: "That price isn't one check_purchase confirmed on a shop's own page, nor a figure the app knows. Prices from the web go through check_purchase, once you've opened the shops' pages. If no page confirms it, it's an estimate: say so, with no yes or no on it, and don't try it again."};
+const SUM_NOT_BACKED = {error: "A number in that sum isn't from your tools, their words or a price check_purchase confirmed. Prices from the web go through check_purchase. A price no page confirmed is an estimate: don't work out what it would do to their money, and don't try this sum again."};
+const RUN_IT = "<app_check>You looked up what it costs but didn't run check_purchase, so the price hasn't been checked. Run it now with every shop's page you opened that shows the product and a price (a shop's own listing or category page counts), opening them with web_fetch first if you haven't; or say plainly you couldn't confirm a price, with no yes or no. Then give your whole answer again.</app_check>";
+// check_purchase first, so what_if can try what it backed in the same round, and what_if before a sum, whose refusal the sum goes by
+const rank = (name: string) => name === "check_purchase" ? 0 : name === "what_if" ? 1 : 2;
 
 // his words, for a phone screen: he's asked for plain text, but a stray **bold** or # heading shouldn't show its marks.
 // A citation splits a sentence into several text blocks, spaces and all, so those go back together as they came
 const plain = (blocks: Block[], words: (b: Anthropic.Beta.Messages.BetaTextBlock) => string = b => b.text) => {
   const texts = answerBlocks(blocks);
-  return texts.map(words).join(texts.some(b => b.citations?.length) ? "" : "\n\n").replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "").trim();
+  return texts.map(words).join(joinerOf(texts)).replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "").trim();
 };
 
 // Tim and Frank end their answers with the line they say out loud, as <say>…</say>: it's taken out of what's shown, and so is any
@@ -106,19 +123,30 @@ export async function converse(transcript: Transcript, question: string, deps: D
     {type: "text", text: appContext(now, transcript.length ? null : deps.env().notes, context)},
     {type: "text", text: question},
   ]}];
-  const used: ToolName[] = [], cards = new Map<string, Proposal>();
-  let searched = false;
+  const used: ToolName[] = [], cards = new Map<string, Proposal>(), hosts: string[] = [];
+  let searched = false, attempted = false, refused = false, research: Research | null = null;
   const done = (text: string, ended?: Ended, bad: string[] = []): Answer => ({transcript: msgs, text, used, unchecked: bad, ...ended ? {ended} : {}, ...searched ? {searched: true as const} : {}});
-  let rounds = 0, looked = false, pauses = 0, before: number | null = null;
+  let rounds = 0, looked = false, pauses = 0, before: number | null = null, checked = 0;
+  // a question for the shops: that's what the line says while he searches (no word comes back until he's done)
+  const shopping = !opts.whole && pricesLikely(question);
+  if (shopping) deps.doing?.(PRICES_DOING);
+  const checkedBefore = transcript.some(m => m.role === "assistant" && Array.isArray(m.content) && m.content.some(b => b.type === "tool_use" && b.name === "check_purchase"));
+  // whether a price has to come through check_purchase: for a purchase, or carrying one on ("And an Xbox?"), never a briefing or a subscription
+  const buying = () => !opts.whole && (shopping || attempted || refused || (searched && checkedBefore && notSubscription(question)));
+  const gated = () => !opts.whole && (shopping || searched || checkedBefore);
+  // the figures that can reach the engine or a sum: what's known, and what a page has backed this round
+  const trusted = () => [...knownIn(msgs), ...(research?.offers ?? []).flatMap(o => [o.price, totalOf(o)])];
   for (;;) {
     const turn = await deps.send(msgs);
     before ??= msgs.length;
     msgs.push({role: "assistant", content: turn.content as unknown as BlockParam[]});
     searched ||= searchedIn(turn.content);
+    const fresh = resultHosts(turn.content).filter(h => !hosts.includes(h));
+    if (fresh.length) { hosts.push(...fresh); deps.looked?.([...hosts]); }
     // a long search paused: his turn goes back as it came, and carries on. Paused too often and those turns all go, so the
     // conversation stays one Claude can carry on
     if (turn.stop_reason === "pause_turn") {
-      if (++pauses <= MAX_PAUSES) continue;
+      if (++pauses <= MAX_PAUSES) { deps.doing?.(SEARCHING); continue; }
       msgs.length = before;
       return done("", "went-round");
     }
@@ -135,9 +163,16 @@ export async function converse(transcript: Transcript, question: string, deps: D
     if (calls.length) {
       rounds++;
       const first = calls.find(call => isTool(call.name));
-      if (first) deps.doing?.(DOING[first.name as ToolName]);
-      const env = deps.env();
-      const results: BlockParam[] = calls.map(call => {
+      if (first) deps.doing?.(searched && TRYING.includes(first.name as ToolName) ? CHECKING_IT : DOING[first.name as ToolName]);
+      const env: ToolEnv = {now, ...deps.env(), ...calls.some(call => call.name === "check_purchase") ? {pages: pagesIn(msgs, transcript.length), checked} : {}};
+      const run = (call: ToolUse): BlockParam => {
+        const input = (call.input ?? {}) as {amount?: unknown; expression?: unknown};
+        // a price nothing has backed never reaches the engine, nor a sum about your money
+        if (call.name === "what_if" && gated() && typeof input.amount === "number" && !isKnown(r2(input.amount), trusted())) {
+          refused = true;
+          return result(call, NOT_BACKED, true);
+        }
+        if (call.name === "calculate" && buying() && typeof input.expression === "string" && unknownIn(input.expression, trusted()).length) return result(call, SUM_NOT_BACKED, true);
         const out = runTool(call.name, call.input, env);
         if (out.effect && "propose" in out.effect) {
           const p = out.effect.propose, key = target(p);
@@ -146,10 +181,17 @@ export async function converse(transcript: Transcript, question: string, deps: D
           cards.set(key, p);
         } else if (out.effect) deps.apply(out.effect);
         if (!out.error && isTool(call.name)) used.push(call.name);
+        if (call.name === "check_purchase" && !out.error && !out.waiting) { attempted = true; checked++; }
+        // the card he's backed: a later try that does worse doesn't take it away
+        if (out.research && (pickOf(out.research) || !pickOf(research))) research = out.research;
+        if (out.ran) used.push("what_if");
         return result(call, out.result, out.error);
-      });
+      };
+      const ran = new Map([...calls].sort((a, b) => rank(a.name) - rank(b.name)).map(call => [call.id, run(call)]));
+      const results = calls.map(call => ran.get(call.id)!);
       // with a search waiting, only the results may go: it runs on this next request, and the note would end his turn before it could
       msgs.push({role: "user", content: rounds === MAX_ROUNDS && !waiting ? [...results, {type: "text", text: LAST_ROUND}] : results});
+      if (waiting) deps.doing?.(SEARCHING);
       continue;
     }
     // only the written answer gets a second look; a figure in what he'd say out loud that doesn't trace back and he just
@@ -160,18 +202,23 @@ export async function converse(transcript: Transcript, question: string, deps: D
     if (marks?.nothing && !marks.text) return {...done(""), mentioned: [], nothing: true};
     const said = marks ? wholeOf(marks.text) : spokenOf(plain(turn.content)), {text: asked, next} = nextOf(said.text), {text, visual} = visualOf(asked), known = knownIn(msgs);
     // a price he cites answers for itself, in the words that cite it; everything else, a picture's figures included, has to trace
-    // back as ever. A briefing has only the app's facts to go on
+    // back as ever, a price check_purchase backed being a tool's figure like any other. A briefing has only the app's facts to go on
     const rest = marks ? text : visualOf(nextOf(spokenOf(plain(turn.content, withoutWeb)).text).text).text;
     const bad = unchecked(visual ? `${rest}\n${figuresOf(visual)}` : rest, known);
-    if (bad.length && !looked) {
+    // looked up what something costs, never had it checked and gives figures anyway: one more look, for that too
+    const unasked = buying() && searched && !attempted && poundsIn(text).length > 0;
+    if ((bad.length || unasked) && !looked) {
       looked = true;
-      msgs.push({role: "user", content: [{type: "text", text: checkNote(bad)}]});
+      msgs.push({role: "user", content: [...bad.length ? [{type: "text" as const, text: checkNote(bad)}] : [], ...unasked ? [{type: "text" as const, text: RUN_IT}] : []]});
       continue;
     }
     // what he says out loud repeats his answer, so a price it cited can be said too
     const web = marks ? [] : answerBlocks(turn.content).flatMap(webFigures), sources = sourcesOf(turn.content);
     const sayIt = said.spoken && !bad.length && !unchecked(said.spoken, known, web).length;
-    return {...done(text, undefined, bad), ...sayIt ? {spoken: said.spoken} : {}, ...visual && !bad.length ? {visual} : {}, ...next ? {next} : {},
-      ...cards.size ? {proposals: [...cards.values()]} : {}, ...marks ? {mentioned: marks.mentioned} : {}, ...sources.length ? {sources} : {}};
+    // the card takes the picture's place: one thing leads an answer. No price backed: what he says is only an estimate, and it says so
+    const estimate = buying() && searched && !pickOf(research) && (attempted || poundsIn(text).length > 0);
+    return {...done(text, undefined, bad), ...sayIt ? {spoken: said.spoken} : {}, ...visual && !bad.length && !research ? {visual} : {}, ...next ? {next} : {},
+      ...cards.size ? {proposals: [...cards.values()]} : {}, ...marks ? {mentioned: marks.mentioned} : {}, ...sources.length ? {sources} : {},
+      ...research ? {research} : {}, ...estimate ? {estimate: true as const} : {}};
   }
 }

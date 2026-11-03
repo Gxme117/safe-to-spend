@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
 import Svg, {Circle, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "glasses" | "up" | "mic" | "stop" | "speaker";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "stop" | "speaker";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -30,6 +30,11 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
       {/* stop: a filled rounded square (stroked, it reads too thin inside the button's circle) */}
       {name === "stop" && <Rect x={7} y={7} width={10} height={10} rx={2.5} {...p} strokeWidth={1.5} fill={color} />}
       {name === "list" &&<Path d="M4 6h16M4 12h16M4 18h16" {...p} />}
+      {/* recent chats, as in the ChatGPT app: two lines, the lower one shorter */}
+      {name === "menu" && <Path d="M4 9h16M4 15h10" {...p} />}
+      {/* a new chat: a pencil over a line */}
+      {name === "pencil" && <Path d="M13 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7.5 18.5 3.5 19.5l1-4z" {...p} />}
+      {name === "search" && <><Circle cx={11} cy={11} r={6.5} {...p} /><Path d="M16 16l4.5 4.5" {...p} /></>}
       {name === "plus" && <Path d="M12 5v14M5 12h14" {...p} />}
       {name === "close" && <Path d="M6 6l12 12M18 6L6 18" {...p} />}
       {name === "check" && <Path d="M5 12.5l4.5 4.5L19 7.5" {...p} />}

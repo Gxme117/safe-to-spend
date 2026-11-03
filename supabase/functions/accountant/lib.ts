@@ -1,14 +1,15 @@
 // The pure parts of the accountant function: no network, so they can be tested with `deno test`.
 // The Anthropic API key is only ever used in index.ts, read from Supabase secrets.
 import type Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
-import {RULES, TOOLS, VOICES, WEB_SEARCH, type Who} from "./prompt.ts";
+import {BUYING, CHECK_PURCHASE, RULES, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH, type Who} from "./prompt.ts";
 
 type Message = Anthropic.Beta.Messages.BetaMessageParam;
 export type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 
 /** A conversation as the phone sends it: whose it is, and every message so far, ending with the person's (or a tool result), or
- *  with a web search Claude's side paused, which goes back as it came to carry on. */
-export interface Ask { who: Who; messages: Message[] }
+ *  with a web search Claude's side paused, which goes back as it came to carry on. `research`: the phone can check a purchase's
+ *  prices and show them as a card (an app from before it can't, so it's never offered the tools for it). */
+export interface Ask { who: Who; messages: Message[]; research?: true }
 
 // A long conversation is still well under these; anything bigger isn't from the app. Web results come back encrypted and have
 // to go back whole on every request, so they're most of what a conversation weighs.
@@ -16,7 +17,7 @@ export const MAX_BYTES = 2_000_000, MAX_MESSAGES = 160;
 
 // a turn of his with a web search in it: the only one the phone may end a conversation on
 const searched = (m: Message) => m.role === "assistant" && Array.isArray(m.content) &&
-  m.content.some(b => b.type === "server_tool_use" || b.type === "web_search_tool_result");
+  m.content.some(b => b.type === "server_tool_use" || b.type === "web_search_tool_result" || b.type === "web_fetch_tool_result");
 
 /**
  * Reads the phone's request. Only Tim or Frank, only the person's and the accountant's own messages (no system messages:
@@ -26,7 +27,7 @@ export function readAsk(raw: string): Ask | {error: string} {
   if (new TextEncoder().encode(raw).length > MAX_BYTES) return {error: "too_big"};
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return {error: "bad_request"}; }
-  const {who, messages} = (body ?? {}) as {who?: unknown; messages?: unknown};
+  const {who, messages, research} = (body ?? {}) as {who?: unknown; messages?: unknown; research?: unknown};
   if (who !== "tim" && who !== "frank") return {error: "bad_request"};
   if (!Array.isArray(messages) || !messages.length || messages.length > MAX_MESSAGES) return {error: "bad_request"};
   for (const m of messages) {
@@ -37,7 +38,7 @@ export function readAsk(raw: string): Ask | {error: string} {
   }
   const last = messages[messages.length - 1] as Message;
   if ((messages[0] as Message).role !== "user" || (last.role !== "user" && !searched(last))) return {error: "bad_request"};
-  return {who, messages: messages as Message[]};
+  return {who, messages: messages as Message[], ...research === true ? {research: true as const} : {}};
 }
 
 /** Who's asking, from Supabase Auth's answer about their token: a signed-in user (anonymous counts), or no one. */
@@ -87,6 +88,8 @@ export function signedInCache(max = 500) {
  * The request to Claude. Tools and system first and always the same, cached; the conversation after. Adaptive thinking at
  * medium effort. A request a safety filter wrongly declines is retried on the model's default fallback. If the rulebook
  * changes mid-conversation (a new deploy), old thinking is dropped rather than failing the question.
+ * Buying something (BUYING, and the tools for it) only for a phone that can show its card: two cached versions, and a
+ * conversation keeps to one, so a paused or waiting search or page always finds its tool on the next request.
  */
 export function params(ask: Ask, model: string): Params {
   return {
@@ -96,8 +99,9 @@ export function params(ask: Ask, model: string): Params {
     output_config: {effort: "medium"},
     betas: ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"],
     fallbacks: "default",
-    tools: [...TOOLS, WEB_SEARCH],
-    system: [{type: "text", text: RULES}, {type: "text", text: VOICES[ask.who], cache_control: {type: "ephemeral"}}],
+    tools: ask.research ? [...TOOLS, CHECK_PURCHASE, WEB_SEARCH, WEB_FETCH] : [...TOOLS, WEB_SEARCH],
+    system: [{type: "text", text: RULES}, ...ask.research ? [{type: "text" as const, text: BUYING}] : [],
+      {type: "text", text: VOICES[ask.who], cache_control: {type: "ephemeral"}}],
     // and the conversation so far, so each tool round reads the earlier ones from the cache
     cache_control: {type: "ephemeral"},
     messages: ask.messages,
@@ -171,16 +175,17 @@ export function failure(status: number | undefined): {status: number; error: str
 }
 
 /** One log line per request: who, what model, how long (Claude's turn, and the sign-in check before it, or "cached"), the
- *  tokens, why it stopped, which tools it asked for and how many web searches it ran. Never what was said or searched for. */
+ *  tokens, why it stopped, which tools it asked for, and how many web searches it ran and pages it opened. Never what was said,
+ *  searched for or opened. */
 export function logLine(x: {
   who: Who; model: string; ms: number; auth: number | "cached"; stop: string | null;
-  usage?: {input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null; server_tool_use?: {web_search_requests?: number | null} | null};
+  usage?: {input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null; server_tool_use?: {web_search_requests?: number | null; web_fetch_requests?: number | null} | null};
   tools: string[];
 }) {
   const u = x.usage ?? {};
   return JSON.stringify({
     who: x.who, model: x.model, ms: x.ms, auth: x.auth, stop: x.stop, tools: x.tools,
     in: u.input_tokens ?? 0, out: u.output_tokens ?? 0, cache_read: u.cache_read_input_tokens ?? 0, cache_write: u.cache_creation_input_tokens ?? 0,
-    searches: u.server_tool_use?.web_search_requests ?? 0,
+    searches: u.server_tool_use?.web_search_requests ?? 0, fetches: u.server_tool_use?.web_fetch_requests ?? 0,
   });
 }

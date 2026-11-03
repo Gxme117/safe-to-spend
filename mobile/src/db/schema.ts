@@ -1,6 +1,6 @@
 import type {SQLiteDatabase} from "expo-sqlite";
 
-const VERSION = 5;
+const VERSION = 6;
 
 /** Brings the database up to VERSION, one step at a time (pattern from the expo-sqlite docs). */
 export async function migrate(db: SQLiteDatabase) {
@@ -51,6 +51,24 @@ export async function migrate(db: SQLiteDatabase) {
     await db.execAsync("ALTER TABLE tx ADD COLUMN refund_of TEXT");
     v = 5;
   }
-  // if (v === 5) { next migration; v = 6; }
+  if (v === 5) {
+    // Tim and Frank's chats, kept 30 days: `body` is the words, for search; `said` (what's on screen) and `transcript` (what
+    // Claude saw, so a chat can be carried on) are JSON.
+    await db.execAsync(`
+      CREATE TABLE chat (
+        id         TEXT PRIMARY KEY NOT NULL,
+        who        TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        created    INTEGER NOT NULL,
+        updated    INTEGER NOT NULL,
+        body       TEXT NOT NULL,
+        said       TEXT NOT NULL,
+        transcript TEXT NOT NULL
+      );
+      CREATE INDEX chat_updated ON chat (updated);
+    `);
+    v = 6;
+  }
+  // if (v === 6) { next migration; v = 7; }
   await db.execAsync(`PRAGMA user_version = ${VERSION}`);
 }

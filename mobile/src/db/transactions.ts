@@ -1,12 +1,7 @@
-import {openDatabaseAsync, type SQLiteDatabase} from "expo-sqlite";
 import {fromPence, toPence} from "@/lib/money";
 import type {FilingPatch} from "@/lib/payments";
 import type {IsoDate, Tx, TxType} from "@/lib/types";
-import {migrate} from "./schema";
-
-let opening: Promise<SQLiteDatabase> | null = null;
-/** Opens money.db once and migrates it before anything reads it. */
-const db = () => (opening ??= openDatabaseAsync("money.db").then(async d => { await migrate(d); return d; }));
+import {db} from "./open";
 
 interface Row {
   id: string; type: TxType; amount_p: number; cat: string; note: string; date: string; created: number;

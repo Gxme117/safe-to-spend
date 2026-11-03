@@ -41,8 +41,11 @@ export const home = {
 // mode, not inverted (the design's "Pinch colour roles"): `box` the question box and suggestions, `edge` their outline (and,
 // dark, the tab bar's rule), `track` the accountant switch, `thumb` the one picked in it. Ink and muted are the palette's.
 export const timPage = {
-  light: {page: "#F5F5F5", box: "#FFFFFF", edge: "#E4E1DA", track: "#ECE9E3", thumb: "#FFFFFF"},
-  dark: {page: "#141418", box: "#1C1C1E", edge: "#2C2C2E", track: "#1C1C1E", thumb: "#3A3A3C"},
+  // `mine`/`mineInk`: your bubbles; `send`/`sendInk`: the send/microphone button. Neutral for now, the same for Tim and Frank.
+  light: {page: "#F5F5F5", box: "#FFFFFF", edge: "#E4E1DA", track: "#ECE9E3", thumb: "#FFFFFF",
+    mine: "#E6E4E0", mineInk: "#1A1A1A", send: "#1A1A1A", sendInk: "#FFFFFF"},
+  dark: {page: "#141418", box: "#1C1C1E", edge: "#2C2C2E", track: "#1C1C1E", thumb: "#3A3A3C",
+    mine: "#2C2C2E", mineInk: "#F5F5F5", send: "#F5F5F5", sendInk: "#141418"},
 };
 
 // The Living tab's bubbles (design/LIVING_SPEC.md): a bubble and its icon, a paid one with its grey outline, and the dashed "+" outline.

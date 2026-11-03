@@ -64,6 +64,15 @@ const same = (said: number, k: number) => {
   return Math.abs(said - a) < 0.005 || (Number.isInteger(said) && Math.round(a) === said);
 };
 
+/** Whether a figure is one that's known: to the penny, or rounded when it's in whole pounds. */
+export const isKnown = (x: number, known: readonly number[]) => known.some(k => same(x, k));
+
+// numbers a sum can use for what they are, not as money: a count of days, weeks or months, and a percent
+const PLAIN = /^(?:[0-9]|[1-5][0-9]|60|100|365|366)$/;
+/** The numbers in a sum that aren't known and aren't plain counts: figures from nowhere the app can vouch for. */
+export const unknownIn = (expression: string, known: readonly number[]) =>
+  [...expression.matchAll(ANY)].map(m => m[0]).filter(s => !PLAIN.test(s) && !isKnown(num(s), known));
+
 /**
  * The £ figures in a reply that don't match anything known, as they'd be written (£1,234.56). Empty when it all checks out.
  * `exact`: figures that only count to the penny, never rounded (a price on the web, lib/ai/web.ts).

@@ -11,10 +11,15 @@ import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useReducedMotion} from "@/components/BigMoney";
 import {ConsentSheet} from "@/components/ConsentSheet";
 import {Icon} from "@/components/Icon";
+import {ChatsPanel} from "@/components/ChatsPanel";
+import {deleteChat, listChats, loadChat, pruneChats, saveChat} from "@/db/chats";
+import {bodyOf, cutoff, fromSaved, titleOf, toSaved, type ChatRow} from "@/lib/chats";
 import {keyboardCover} from "@/components/Setup";
 import {AnswerFigure} from "@/components/AnswerFigure";
 import {BillCard, type CardStatus} from "@/components/BillCard";
+import {ResearchCard} from "@/components/ResearchCard";
 import {doneLine, leftLine, outcomeLine, proposalView, type Proposal, type ProposalView} from "@/lib/billChange";
+import {researchView, type ResearchView} from "@/lib/ai/research";
 import {yesNo} from "@/lib/ai/yesNo";
 import {converse, type Answer, type Deps, type Ended, type Transcript} from "@/lib/ai/converse";
 import {briefingAsk, briefingDue, briefingFacts, logBrief} from "@/lib/briefing";
@@ -49,7 +54,7 @@ const W = 440, PIC = 443, FADE = 40, DROP = 64;
 // frame, 874×880 like tim.jpg, so the layout is the same) blinks, now and then looks down at his laptop and types, and says his
 // own hello with his mouth moving under his moustache. Their pictures are in ART.
 // `fails`: what he says, in his own voice, when he can't answer (never a scold, never the error itself).
-// `button`: his send/microphone button's and your bubbles' colour, so you can tell whose chat you're in at a glance.
+// `button`: his colour (on his bill cards). Your bubbles and the send button are neutral for now (`timPage`).
 type Fail = AccountantError | Ended;
 const PEOPLE: Record<Accountant, {name: string; button: string; fails: Record<Fail, string>}> = {
   tim: {name: "Tim", button: "#2F6FEB",
@@ -82,8 +87,14 @@ const PEOPLE: Record<Accountant, {name: string; button: string; fails: Record<Fa
 // `next`, what you might ask him next (shown under his latest answer only).
 // `cards`, changes to your bills he proposed, each waiting for your yes (its view worked out when it was shown).
 // `web`, the pages he cites, when he searched the web for it (none: he looked and has nothing to cite).
+// `research`, something to buy he looked up, as a card leading the answer (worked out when it was shown); `estimate`, no shop's
+// own page backed a price to go by, so any price in his words is an estimate, and this says so under them.
 type Card = {p: Proposal; view: ProposalView; status: CardStatus; note?: string};
-type Said = {id: number; who: Accountant; mine: boolean; text: string; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; web?: Source[]};
+type Said = {id: number; who: Accountant; mine: boolean; text: string; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; web?: Source[]; research?: ResearchView; estimate?: string};
+const ESTIMATE = "No shop's own page showed the price, so any price here is an estimate.";
+// a chat to keep, from your first question in it
+const newChatId = () => ({id: uid(), made: Date.now()});
+const nowMs = () => Date.now(); // the time now, read outside drawing
 
 // the conversation in cards: each of your questions starts one, and what he says to it goes in with it
 const exchanges = (said: Said[]) => said.reduce<Said[][]>((cards, s) => {
@@ -94,15 +105,37 @@ const exchanges = (said: Said[]) => said.reduce<Said[][]>((cards, s) => {
 function saidOf(who: Accountant, a: Answer, now: Date): Omit<Said, "id"> {
   if (a.ended || !a.text) return {who, mine: false, text: PEOPLE[who].fails[a.ended ?? "went-round"], quiet: true};
   const st = useMoney.getState(), state = st.state, ctx = state && {state, txs: st.txs, today: st.today};
+  const research = a.research && ctx ? researchView(ctx, a.research, now) : null;
+  // the pages the card already links aren't listed again; with a card, nothing to list is nothing to say
+  const onCard = new Set(research?.rows.map(r => r.url)), web = (a.sources ?? []).filter(w => !onCard.has(w.url));
   return {
-    who, mine: false, text: a.text, checked: state && receipt(a.used, state, now, a.searched),
+    who, mine: false, text: a.text, checked: state && receipt(a.used, state, now, a.searched || !!research),
     ...a.unchecked.length ? {flag: `I couldn't check ${a.unchecked.join(", ")} against your numbers${a.searched ? " or a source" : ""}.`} : {},
-    ...a.searched ? {web: a.sources ?? []} : {},
+    ...a.searched && !(research && !web.length) ? {web} : {},
+    ...research ? {research} : {},
+    ...a.estimate ? {estimate: ESTIMATE} : {},
     ...a.visual ? {visual: a.visual} : {},
     ...a.next ? {next: a.next} : {},
     ...a.proposals && ctx ? {cards: a.proposals.map(p => ({p, view: proposalView(ctx, p), status: "open" as const}))} : {},
   };
 }
+// The sites his searches brought back while he works, under what he's doing: a few, then how many more. They fade in once
+// (straight away with reduced motion), and are said with what he's doing rather than read out on their own.
+const LOOKED_SHOWN = 3;
+function Looked({hosts, color, reduced}: {hosts: string[]; color: string; reduced: boolean}) {
+  const shown = useSharedValue(reduced ? 1 : 0);
+  useEffect(() => { shown.value = reduced ? 1 : withTiming(1, {duration: 300}); }, [reduced, shown]);
+  const fade = useAnimatedStyle(() => ({opacity: shown.value}));
+  const more = hosts.length - LOOKED_SHOWN;
+  return (
+    <Reanimated.View style={fade} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Text testID="looked" numberOfLines={1} style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color}}>
+        {hosts.slice(0, LOOKED_SHOWN).join(" · ")}{more > 0 ? ` +${more}` : ""}
+      </Text>
+    </Reanimated.View>
+  );
+}
+
 // what a toast says once a card's change is made
 const toastOf = (p: Proposal) => p.kind === "add" ? `${p.bill.name} added` : p.kind === "change" ? `${p.after.name} updated` : `${p.bill.name} removed`;
 const waits = (k: Card) => k.status === "open" || k.status === "failed";
@@ -468,16 +501,37 @@ function Tim() {
   // each accountant's chat, counted up when you start a new one, so an answer still on its way to the old one is dropped
   const chats = useRef<Record<Accountant, number>>({tim: 0, frank: 0});
   const said = useRef(0); // ids for what's said, never reused when a chat is cleared
+  // each accountant's chat as it's kept (lib/chats.ts): its id from your first question, and when it started
+  // (`openIds` is the same for the panel to draw, since a ref can't be read while drawing)
+  const chatId = useRef<Record<Accountant, string | null>>({tim: null, frank: null});
+  const [openIds, setOpenIds] = useState<string[]>([]);
+  const setChatId = (w: Accountant, id: string | null) => {
+    chatId.current[w] = id;
+    setOpenIds([chatId.current.tim, chatId.current.frank].filter((x): x is string => !!x));
+  };
+  const made = useRef<Record<Accountant, number>>({tim: 0, frank: 0});
   // what you did with his cards since your last message, for him on your next one (inside <app_context>)
   const outcomes = useRef<Record<Accountant, string[]>>({tim: [], frank: []});
   // who's working out an answer, and what he's doing right now; one question at a time
   const [working, setWorking] = useState<{who: Accountant; doing: string} | null>(null);
+  // the sites his searches brought back while he works, under that line (apart, so the line isn't read out again as they come)
+  const [looked, setLooked] = useState<string[]>([]);
   // a question waiting for you to say he can look at your numbers
   const [waiting, setWaiting] = useState<string | null>(null);
   const follow = useRef(false); // something was just said: scroll to it once it's laid out
   const say = (s: Omit<Said, "id">) => { const id = said.current++; follow.current = true; setThread(th => [...th, {...s, id}]); return id; };
   const thinking = working?.who === who;
   const reduced = useReducedMotion();
+
+  // Recent chats: the burger button slides a panel in from the left and pushes the page right to make room, as in the
+  // ChatGPT app. A tap on the page (or the button) slides it back. Reduced motion: it's just there.
+  const [drawer, setDrawer] = useState(false);
+  const drawerW = Math.min(Math.round(width * .8), 320);
+  const opened = useSharedValue(0);
+  useEffect(() => { opened.value = reduced ? (drawer ? 1 : 0) : withTiming(drawer ? 1 : 0, {duration: 280, easing: Easing.out(Easing.cubic)}); }, [drawer, reduced, opened]);
+  const pushed = useAnimatedStyle(() => ({transform: [{translateX: opened.value * drawerW}]}));
+  const slid = useAnimatedStyle(() => ({transform: [{translateX: (opened.value - 1) * drawerW}]}));
+  const shade = useAnimatedStyle(() => ({opacity: opened.value * .2}));
 
   // The box stays at the bottom, above the tab bar, and rides up with the keyboard frame for frame (keyboard-controller reports
   // where the keys are on the UI thread, so it starts, eases and stops with them, and follows a drag that puts them away).
@@ -529,6 +583,7 @@ function Tim() {
       },
       apply: effect => note(effect, to),
       doing: doing => { if (current()) setWorking(w => w && {...w, doing}); },
+      looked: hosts => { if (current()) setLooked(hosts); },
     };
   };
   const briefed = useRef(false);
@@ -578,7 +633,7 @@ function Tim() {
     ? {left: CAPTION.edge, width: room.left, textAlign: "right" as const}
     : {left: figure.right * k + CAPTION.gap, width: room.right, textAlign: "left" as const};
   const size = wordsFit(speech.lines, room, CAPTION.size);
-  const tone = timPage[dark ? "dark" : "light"], {box, edge} = tone;
+  const tone = timPage[dark ? "dark" : "light"], {box, edge, mine, mineInk, send: sendBg, sendInk} = tone;
   const bg = tone.page; // his picture's own background
 
   // Asked something, he's a bubble (0: his picture, 1: the bubble), pinned at the top as the conversation scrolls, his name
@@ -602,15 +657,77 @@ function Tim() {
   useEffect(() => { closeMic(); }, [who, closeMic]); // switching accountant closes it; the box keeps its words
   // his eyes: down at the box while you type or dictate (he's watching it fill), up and away while he works it out
   const mood: Mood = thinking ? "thinking" : dict.listening || boxFocused || q.trim() ? "typing" : "idle";
+  // an accountant's chat put away (it's already kept, from the last time it changed): a new one starts empty
+  const clear = (w: Accountant) => {
+    chats.current[w]++;
+    talks.current[w] = [];
+    outcomes.current[w] = [];
+    setChatId(w, null);
+    setThread(th => th.filter(s => s.who !== w));
+    setWorking(x => x?.who === w ? null : x);
+    setSmallFor(sm => ({...sm, [w]: false}));
+  };
   const grow = () => {
-    chats.current[who]++;
-    talks.current[who] = [];
-    outcomes.current[who] = [];
-    setThread(th => th.filter(s => s.who !== who));
-    setWorking(w => w?.who === who ? null : w);
-    setSmallFor(sm => ({...sm, [who]: false}));
+    clear(who);
     scroll.current?.scrollTo({y: 0, animated: !reduced});
     speech.replay();
+  };
+  const newChat = (w: Accountant) => { if (w === who) grow(); else clear(w); };
+
+  // Recent chats (lib/chats.ts, db/chats.ts): each chat is kept on the phone, what's on screen and what Claude saw, every time
+  // it changes, so it can be opened again from the panel and carried on. Only once you've asked something; kept 30 days.
+  const kept = useRef<Record<Accountant, string>>({tim: "", frank: ""}); // what was last kept of each, so nothing's kept twice
+  useEffect(() => {
+    for (const w of ["tim", "frank"] as const) {
+      const id = chatId.current[w], mine = thread.filter(s => s.who === w), first = mine.find(s => s.mine);
+      if (!id || !first) continue;
+      const saved = toSaved(mine), sig = JSON.stringify(saved);
+      if (sig === kept.current[w]) continue;
+      kept.current[w] = sig;
+      const now = nowMs();
+      saveChat({id, who: w, title: titleOf(first.text), created: made.current[w] || now, updated: now, body: bodyOf(saved), said: saved, transcript: talks.current[w]})
+        .catch(e => console.warn("Couldn't keep the chat:", e instanceof Error ? e.message : e));
+    }
+  }, [thread]);
+  const [chatRows, setChatRows] = useState<ChatRow[]>([]);
+  const [chatQuery, setChatQuery] = useState("");
+  const [chatsAt, setChatsAt] = useState(0); // when they were read, for their groups (Today, Yesterday…)
+  const readChats = async () => {
+    const now = nowMs();
+    try { await pruneChats(cutoff(now)); setChatRows(await listChats(cutoff(now))); setChatsAt(now); }
+    catch (e) { console.warn("Couldn't read the chats:", e instanceof Error ? e.message : e); }
+  };
+  // the burger button: the chats are read again each time the panel opens, with the search empty
+  const toggleDrawer = () => {
+    Keyboard.dismiss();
+    if (!drawer) { setChatQuery(""); void readChats(); }
+    setDrawer(!drawer);
+  };
+  // an old chat back on screen, with whoever it was with, ready to carry on
+  const openChat = async (id: string) => {
+    const c = await loadChat<Said, Transcript>(id).catch(() => null);
+    if (!c) { void readChats(); return; }
+    const w = c.who, back = fromSaved(c.said, () => said.current++);
+    if (chatId.current[w] !== id) {
+      chats.current[w]++; // an answer still coming to the chat on screen is dropped
+      talks.current[w] = c.transcript;
+      outcomes.current[w] = [];
+      setChatId(w, id);
+      made.current[w] = c.created;
+      kept.current[w] = JSON.stringify(toSaved(back));
+      speech.hush();
+      setWorking(x => x?.who === w ? null : x);
+      setThread(th => [...th.filter(s => s.who !== w), ...back]);
+      setSmallFor(sm => ({...sm, [w]: true}));
+      follow.current = true;
+    }
+    if (w !== who) useMoney.getState().setAccountant(w);
+    setDrawer(false);
+  };
+  const removeChat = async (id: string) => {
+    await deleteChat(id).catch(e => console.warn("Couldn't delete the chat:", e instanceof Error ? e.message : e));
+    setChatRows(rows => rows.filter(r => r.id !== id));
+    for (const w of ["tim", "frank"] as const) if (chatId.current[w] === id) newChat(w);
   };
   const bubbleTop = insets.top + SWITCH_H + TOP_ROOM, {scale: bs, x: bx, y: by} = BUBBLE[who], fit = bs / k;
   // the clip goes from his whole picture to the round bubble, and his picture shrinks inside it to his face
@@ -683,9 +800,11 @@ function Tim() {
       if (st0.state) outcomes.current[to].push(outcomeLine({state: st0.state, txs: st0.txs, today: st0.today}, k.p, "unanswered"));
     }
     const context = outcomes.current[to].splice(0);
+    if (!chatId.current[to]) { const n = newChatId(); setChatId(to, n.id); made.current[to] = n.made; }
     say({who: to, mine: true, text});
     setSmallFor(sm => ({...sm, [to]: true}));
     setWorking({who: to, doing: "Thinking…"});
+    setLooked([]);
     converse(talks.current[to], text, depsOf(to, still, clock), new Date(), context)
       .then(a => {
         if (!still()) return;
@@ -733,7 +852,8 @@ function Tim() {
   useEffect(() => { if (last && !last.mine) AccessibilityInfo.announceForAccessibility(`${PEOPLE[last.who].name} says: ${last.text}`); }, [last]);
 
   return (
-    <View ref={page} onLayout={measure} style={{flex: 1}}>
+    <View ref={page} onLayout={measure} style={{flex: 1, overflow: "hidden"}}>
+    <Reanimated.View style={[{flex: 1}, pushed]}>
     {/* a drag on the conversation puts the keyboard away, and the box comes down with it */}
     {/* while he's a bubble, it and his name stay at the top (the first child sticks) as the conversation scrolls under them */}
     <ScrollView ref={scroll} testID="conversation" style={{flex: 1}} contentContainerStyle={{alignItems: "center", paddingHorizontal: 32, paddingBottom: 24}}
@@ -800,13 +920,14 @@ function Tim() {
           {exchanges(thread.filter(s => s.who === who)).map(group => (
           <View key={group[0].id} style={{gap: 20}}>
           {group.map(s => s.mine ? (
-            <View key={s.id} style={{alignSelf: "flex-end", maxWidth: "80%", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, backgroundColor: PEOPLE[who].button}}>
-              <Text accessibilityLabel={`You asked: ${s.text}`} style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: "#FFFFFF"}}>{s.text}</Text>
+            <View key={s.id} style={{alignSelf: "flex-end", maxWidth: "80%", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, backgroundColor: mine}}>
+              <Text accessibilityLabel={`You asked: ${s.text}`} style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: mineInk}}>{s.text}</Text>
             </View>
           ) : (
             <View key={s.id} style={{alignSelf: "stretch", gap: 32}}>
-            {/* the picture he leads with, the whole width; his words under it say what it doesn't */}
-            {s.visual ? <AnswerFigure visual={s.visual} /> : null}
+            {/* the picture he leads with, or what he found to buy, the whole width; his words under it say what it doesn't */}
+            {s.visual ? <AnswerFigure visual={s.visual} />
+              : s.research ? <ResearchCard view={s.research} box={box} edge={edge} onOpen={url => { openBrowserAsync(url).catch(() => {}); }} /> : null}
             <View style={{alignSelf: "flex-start", maxWidth: "90%", gap: 8}}>
               {/* what he said out loud: tap it to hear it again (the take's on the phone, so it costs nothing) */}
               <Pressable disabled={!s.voiced} onPress={() => s.voiced && speech.speak(s.who, s.voiced.line, s.voiced.take, fits)}
@@ -817,6 +938,7 @@ function Tim() {
               {/* where the figures came from, and any he couldn't check */}
               {s.checked ? <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>{s.checked}</Text> : null}
               {s.flag ? <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>{s.flag}</Text> : null}
+              {s.estimate ? <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>{s.estimate}</Text> : null}
               {/* what he found on the web: never your bank's word for it, and each page a tap away */}
               {s.web ? (
                 <View style={{flexDirection: "row", flexWrap: "wrap", columnGap: 8}}>
@@ -852,8 +974,13 @@ function Tim() {
           ))}
           </View>
           ))}
-          {/* what he's doing while he works it out, where his answer will go */}
-          {thinking ? <Text style={{alignSelf: "flex-start", fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.muted}}>{working?.doing}</Text> : null}
+          {/* what he's doing while he works it out, where his answer will go, and the sites he's looking at */}
+          {thinking ? (
+            <View style={{alignSelf: "flex-start", gap: 4}}>
+              <Text style={{fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.muted}}>{working?.doing}</Text>
+              {looked.length ? <Looked hosts={looked} color={c.muted} reduced={reduced} /> : null}
+            </View>
+          ) : null}
         </View>
       )}
     </ScrollView>
@@ -873,6 +1000,12 @@ function Tim() {
           );
         })}
       </View>
+      {/* recent chats: opens the panel on the left */}
+      <Pressable testID="recent-chats" onPress={toggleDrawer}
+        accessibilityRole="button" accessibilityLabel="Recent chats" accessibilityState={{expanded: drawer}} hitSlop={12}
+        style={{position: "absolute", left: 16, top: insets.top - 4, width: 40, height: 40, borderRadius: 20, backgroundColor: tone.track, alignItems: "center", justifyContent: "center"}}>
+        <Icon name="menu" color={c.ink} size={22} />
+      </Pressable>
     </View>
 
     {/* the question box, at the bottom as in the OpenAI app; it grows as you write (return makes a new line), Send sends */}
@@ -891,10 +1024,27 @@ function Tim() {
         {/* one button, three jobs: the microphone when there's nothing to send, stop while it's listening, Send once
             there are words. One question at a time, as before: while he's working it out it stays Send, and waits. */}
         <Pressable onPress={button === "send" ? () => ask() : dict.toggle} disabled={off} accessibilityRole="button" accessibilityLabel={MIC_BUTTON[button].label} accessibilityState={{disabled: off}} hitSlop={4}
-          style={{width: 38, height: 38, borderRadius: 19, backgroundColor: PEOPLE[who].button, alignItems: "center", justifyContent: "center", opacity: off ? 0.35 : 1}}>
-          <Icon name={MIC_BUTTON[button].icon} color="#FFFFFF" size={button === "stop" ? 14 : 16} />
+          style={{width: 38, height: 38, borderRadius: 19, backgroundColor: sendBg, alignItems: "center", justifyContent: "center", opacity: off ? 0.35 : 1}}>
+          <Icon name={MIC_BUTTON[button].icon} color={sendInk} size={button === "stop" ? 14 : 16} />
         </Pressable>
       </View>
+    </Reanimated.View>
+
+    {/* while the panel's open, the page dims a little and a tap on it closes the panel */}
+    <Pressable testID="close-recent-chats" onPress={() => setDrawer(false)} pointerEvents={drawer ? "auto" : "none"}
+      accessibilityRole="button" accessibilityLabel="Close recent chats" accessibilityElementsHidden={!drawer} importantForAccessibility={drawer ? "auto" : "no-hide-descendants"}
+      style={{position: "absolute", left: 0, right: 0, top: 0, bottom: 0}}>
+      <Reanimated.View style={[{flex: 1, backgroundColor: "#000000"}, shade]} />
+    </Pressable>
+    </Reanimated.View>
+
+    {/* the recent chats panel (components/ChatsPanel.tsx) */}
+    <Reanimated.View testID="recent-chats-panel" pointerEvents={drawer ? "auto" : "none"} accessibilityElementsHidden={!drawer} importantForAccessibility={drawer ? "auto" : "no-hide-descendants"}
+      style={[{position: "absolute", left: 0, top: 0, bottom: 0, width: drawerW, paddingTop: insets.top + 8, paddingHorizontal: 24,
+        backgroundColor: tone.box, borderRightWidth: 1, borderRightColor: edge}, slid]}>
+      <ChatsPanel rows={chatRows} now={chatsAt} openIds={openIds}
+        query={chatQuery} onQuery={setChatQuery} onOpen={id => void openChat(id)} onDelete={id => void removeChat(id)}
+        onNew={() => { newChat(who); setDrawer(false); }} tone={tone} bottom={16} />
     </Reanimated.View>
     <ConsentSheet visible={waiting !== null} name={name}
       onYes={() => { const text = waiting ?? ""; setWaiting(null); useMoney.getState().setAiConsent(true); if (text) go(text); }}

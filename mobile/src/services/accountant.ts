@@ -31,14 +31,16 @@ async function post(door: "chat" | "say", body: unknown, token: string, wait = W
   } finally { clearTimeout(t); }
 }
 
-/** Sends the conversation and returns Claude's turn: an answer, or the tools it wants run. */
+/** Sends the conversation and returns Claude's turn: an answer, or the tools it wants run. `research`: this app can check what
+ *  something costs on the shops' own pages and show it as a card (lib/ai/research.ts), so he's given the tools for it. */
 export async function send(who: Who, messages: Transcript): Promise<Turn> {
+  const body = {who, messages, research: true};
   try {
-    let r = await post("chat", {who, messages}, await accessToken());
+    let r = await post("chat", body, await accessToken());
     // the server didn't know the token (it ran out, or the sign-in went): one more go with a new one
-    if (r.status === 401) r = await post("chat", {who, messages}, await accessToken(true));
+    if (r.status === 401) r = await post("chat", body, await accessToken(true));
     const j = await r.json().catch(() => ({})) as Partial<Turn> & {error?: string};
-    if (r.ok && Array.isArray(j.content)) return {content: j.content, stop_reason: j.stop_reason ?? null};
+    if (r.ok && Array.isArray(j.content)) return {content: j.content, stop_reason: j.stop_reason ?? null, ...j.usage ? {usage: j.usage} : {}};
     if (r.status === 429) throw new AccountantFail("busy");
     if (j.error === "not_configured") throw new AccountantFail("not-set-up", "the function has no key");
     throw new AccountantFail("unavailable", `${r.status} ${j.error ?? ""}`.trim());

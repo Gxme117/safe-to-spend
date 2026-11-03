@@ -1,5 +1,5 @@
 import {failure, logLine, MAX_BRIEF, MAX_BYTES, MAX_SAY, params, readAsk, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
-import {RULES, TOOLS, VOICES, WEB_SEARCH} from "./prompt.ts";
+import {BUYING, CHECK_PURCHASE, RULES, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH} from "./prompt.ts";
 
 const eq = (a: unknown, b: unknown) => {
   if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${JSON.stringify(a)} !== ${JSON.stringify(b)}`);
@@ -19,6 +19,8 @@ Deno.test("a web search Claude's side paused can go back as it came; no other tu
   eq(ask({who: "tim", messages: paused}), {who: "tim", messages: paused});
   const carried = [q, {role: "assistant", content: [{type: "web_search_tool_result", tool_use_id: "s1", content: []}]}];
   eq(ask({who: "frank", messages: carried}), {who: "frank", messages: carried});
+  const opened = [q, {role: "assistant", content: [{type: "web_fetch_tool_result", tool_use_id: "s2", content: {type: "web_fetch_tool_result_error", error_code: "url_not_accessible"}}]}];
+  eq(ask({who: "frank", messages: opened}), {who: "frank", messages: opened});
   eq(ask({who: "tim", messages: [q, {role: "assistant", content: [{type: "text", text: "Yes"}]}]}), {error: "bad_request"});
   // it has to be his turn, and it still can't start one
   eq(ask({who: "tim", messages: [paused[1]]}), {error: "bad_request"});
@@ -85,6 +87,58 @@ Deno.test("the request: the same rulebook and tools for both, each in his own vo
   eq(tim.messages, [q]);
 });
 
+Deno.test("a phone that can show a purchase as a card says so, and only then is he given the way to research one: a version of its own, cached", () => {
+  eq(ask({who: "frank", messages: [q], research: true}), {who: "frank", messages: [q], research: true});
+  // anything but true is an app from before
+  eq(ask({who: "frank", messages: [q], research: "yes"}), {who: "frank", messages: [q]});
+  const card = params({who: "frank", messages: [q], research: true}, "claude-opus-5-5"), old = params({who: "frank", messages: [q]}, "claude-opus-5-5");
+  eq(card.system, [{type: "text", text: RULES}, {type: "text", text: BUYING}, {type: "text", text: VOICES.frank, cache_control: {type: "ephemeral"}}]);
+  eq(card.tools, [...TOOLS, CHECK_PURCHASE, WEB_SEARCH, WEB_FETCH]);
+  // an app from before gets just what it always has: it couldn't run the tool or read what a page gives back
+  eq(old.system, [{type: "text", text: RULES}, {type: "text", text: VOICES.frank, cache_control: {type: "ephemeral"}}]);
+  eq(old.tools, [...TOOLS, WEB_SEARCH]);
+});
+
+Deno.test("buying something: he finds the price himself, opens the shops' own pages, and checks it through the app", () => {
+  for (const s of ["Never ask them for the price", "web_search", "web_fetch", "check_purchase", "the shop's own listing or category page", "never a blog",
+    "don't try it again", "with an offer from every shop's page you opened", "even if that's one offer", "do_next", "Never search again on a second look", "no picture",
+    "write it as \"from £X\" too", "Never say a spec", "never about how the app checks them", "is an estimate", "Never give a yes or no on it",
+    "This replaces the rulebook's \"Trying a listed price against their money with what_if is fine\""]) {
+    if (!BUYING.includes(s)) throw new Error(`no "${s}"`);
+  }
+  // the app's own words for its checking never reach him as his to use, except in the rule that bans them
+  if (BUYING.replace(/no "check_purchase", "backed"[^.]*\./, "").match(/\bbacked\b/)) throw new Error("BUYING still says backed");
+  // what it overrides really is in the rulebook, and neither the tool nor the markup of an earlier card is in what every app gets
+  if (!RULES.includes("Trying a listed price against their money with what_if is fine")) throw new Error("BUYING overrides a rule that's gone");
+  for (const gone of ["check_purchase", "web_fetch", "<research"]) if (RULES.includes(gone)) throw new Error(`${gone} is in the rulebook every app gets`);
+});
+
+Deno.test("a shop's page: Anthropic's own tool, called directly, a few a request, only from search results or a link you paste", () => {
+  eq(WEB_FETCH.type, "web_fetch_20260318");
+  eq(WEB_FETCH.allowed_callers, ["direct"]);
+  eq(WEB_FETCH.max_uses, 4);
+  eq(WEB_FETCH.max_content_tokens, 8000);
+  // never a page named in a payee's name, nor one a page it opened links to; user_input left out, so it stays allowed
+  eq(WEB_FETCH.url_sources, {client_tool_results: {type: "none"}, server_tool_results: {type: "only", tools: [{type: "tool_reference", name: "web_search"}]}});
+  for (const host of ["amazon.co.uk", "ebay.co.uk", "gumtree.com", "pricespy.co.uk", "techradar.com"]) eq(WEB_FETCH.blocked_domains?.includes(host), true);
+  // plain hosts only (a path never matches a fetch), and the API takes up to 64
+  eq(WEB_FETCH.blocked_domains?.every(d => /^[a-z0-9.-]+$/.test(d)), true);
+  eq((WEB_FETCH.blocked_domains?.length ?? 0) <= 64, true);
+});
+
+Deno.test("check_purchase: strict, every field required at each level, objects closed, no limits only the phone can check", () => {
+  eq(CHECK_PURCHASE.strict, true);
+  const s = CHECK_PURCHASE.input_schema as {additionalProperties?: boolean; properties: Record<string, {items?: {additionalProperties?: boolean; properties: object; required: string[]}}>; required: string[]};
+  eq(s.additionalProperties, false);
+  eq([...s.required].sort(), Object.keys(s.properties).sort());
+  const offer = s.properties.offers.items!;
+  eq(offer.additionalProperties, false);
+  eq([...offer.required].sort(), Object.keys(offer.properties).sort());
+  eq(/"(minimum|maximum|minLength|maxLength|minItems|maxItems)"/.test(JSON.stringify(s)), false);
+  // the only way to try a web price, and it says so where he reads it
+  eq(CHECK_PURCHASE.description?.startsWith("The only way to try a price from the web against their money."), true);
+});
+
 // the phone reads these exact tags (mobile/src/lib/ai/visual.ts), so a rewrite of the rulebook can't quietly lose them
 Deno.test("the rulebook says how to lead with a picture, in the tags the phone draws", () => {
   for (const tag of ['<figure label="', "</figure>", "<split>", " | ", "</split>"]) {
@@ -93,7 +147,7 @@ Deno.test("the rulebook says how to lead with a picture, in the tags the phone d
 });
 
 Deno.test("the strict tools stay within Claude's limit on nullable fields, or every question comes back a 400", () => {
-  const unions = TOOLS.filter(t => t.strict).flatMap(t => JSON.stringify(t.input_schema).match(/"anyOf"/g) ?? []);
+  const unions = [...TOOLS, CHECK_PURCHASE].filter(t => t.strict).flatMap(t => JSON.stringify(t.input_schema).match(/"anyOf"/g) ?? []);
   eq(unions.length <= 16, true);
 });
 
@@ -170,5 +224,5 @@ Deno.test("when each word is said: tags left out, from its first character to it
 
 Deno.test("a log line has the numbers, never the words", () => {
   const line = logLine({who: "frank", model: "claude-opus-5-5", ms: 1200, auth: 140, stop: "tool_use", usage: {input_tokens: 10, output_tokens: 5, server_tool_use: {web_search_requests: 2}}, tools: ["what_if"]});
-  eq(JSON.parse(line), {who: "frank", model: "claude-opus-5-5", ms: 1200, auth: 140, stop: "tool_use", tools: ["what_if"], in: 10, out: 5, cache_read: 0, cache_write: 0, searches: 2});
+  eq(JSON.parse(line), {who: "frank", model: "claude-opus-5-5", ms: 1200, auth: 140, stop: "tool_use", tools: ["what_if"], in: 10, out: 5, cache_read: 0, cache_write: 0, searches: 2, fetches: 0});
 });

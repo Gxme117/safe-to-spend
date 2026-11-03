@@ -20,7 +20,71 @@ const monzo: Bank = {source: "Monzo", accountId: "acc_00009XYZ", main: 1000, asO
 
 test("the same tools as the server offers", () => {
   expect([...TOOL_NAMES]).toEqual(["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
-    "add_bill", "change_bill", "remove_bill"]);
+    "add_bill", "change_bill", "remove_bill", "check_purchase"]);
+});
+
+describe("check_purchase: a price from the web reaches your money only through here", () => {
+  const APPLE = "https://www.apple.com/uk/iphone-17";
+  const opened = {open: new Map([["apple.com/uk/iphone-17", {url: APPLE, host: "apple.com", title: "iPhone 17", text: "iPhone 17 256GB £899.00 Delivery £4.99", read: "2026-10-05T09:00:00Z"}]]), waiting: new Set<string>()};
+  const onPages: ToolEnv = {...env(), pages: opened, now: new Date(2026, 9, 5, 10, 0)};
+  const offer = {seller: "Apple", url: APPLE, price: 899, condition: "new", delivery: 4.99, pick: true};
+  const input = {product: "iPhone 17, 256GB", assumed: "", identifies: ["iPhone 17"], offers: [offer]};
+
+  test("the engine runs on what the page backs, delivery and all: the same as what_if and Today's What if", () => {
+    const out = run("check_purchase", input, onPages), r = out.result as Record<string, any>;
+    expect(out.ran).toBe(true);
+    expect(r.what_if).toEqual(res("what_if", {amount: 903.99}));
+    expect(r.what_if.in_the_app).toBe(whatIf(ctx(), 903.99)!.line);
+    expect(r.went_by).toEqual({seller: "Apple", price: 899, with_delivery: 903.99});
+    expect(r.overview).toEqual(res("overview"));
+    expect(out.research?.offers[0]).toMatchObject({price: 899, delivery: 4.99, pick: true});
+    expect(r.do_next).toMatch(/Answer now/);
+  });
+
+  test("what the page doesn't back never goes back as a figure, nor his £ in anything he named", () => {
+    const out = run("check_purchase", {...input, offers: [{...offer, price: 1234, seller: "Apple £777"}]}, onPages), text = JSON.stringify(out.result);
+    expect(out.ran).toBeUndefined();
+    expect(out.research).toBeUndefined();
+    expect(text).not.toMatch(/£|1234/);
+    expect(knownIn([{role: "user", content: [{type: "tool_result", tool_use_id: "t", content: text}]}])).toEqual([]);
+  });
+
+  test("no pages, and arguments that make no sense, say so", () => {
+    expect((run("check_purchase", input).result as Record<string, any>).not_confirmed[0].why).toBe("you haven't opened that page");
+    expect(run("check_purchase", {...input, offers: []}, onPages).error).toBe(true);
+    expect(run("check_purchase", {...input, offers: "lots"}, onPages).error).toBe(true);
+    expect(run("check_purchase", {...input, identifies: "iPhone"}, onPages).error).toBe(true);
+    expect(run("check_purchase", {...input, offers: [{...offer, price: "lots"}]}, onPages).error).toBe(true);
+  });
+
+  test("a starting price, or a spec the page doesn't show with it, is said to him so he says it too; no talk of backing", () => {
+    const from = {...opened, open: new Map([["apple.com/uk/iphone-17", {...opened.open.get("apple.com/uk/iphone-17")!, text: "iPhone 17 from £899.00"}]])};
+    const out = run("check_purchase", {...input, offers: [{...offer, delivery: null}]}, {...onPages, pages: from}), r = out.result as Record<string, any>;
+    expect(r.went_by).toEqual({seller: "Apple", price: 899, with_delivery: 899, starting_price: true, not_shown_with_price: ["256GB"]});
+    expect(r.confirmed[0]).toMatchObject({starting_price: true, not_shown_with_price: ["256GB"]});
+    expect(r.do_next).toMatch(/starting price: write "from"/);
+    expect(r.do_next).toMatch(/doesn't show 256GB with that price/);
+    expect(JSON.stringify(run("check_purchase", input, onPages).result)).not.toMatch(/backed|turned_away/i);
+  });
+
+  test("shops he opened for this question and left out are named; with nothing to go by he's asked once more for them, not twice", () => {
+    const argos = {url: "https://www.argos.co.uk/iphone-17", host: "argos.co.uk", title: "iPhone 17", text: "iPhone 17 256GB £879.00", read: "2026-10-05T09:00:00Z"};
+    const both = {open: new Map([...opened.open, ["argos.co.uk/iphone-17", argos]]), waiting: new Set<string>(), recent: new Set(["apple.com/uk/iphone-17", "argos.co.uk/iphone-17"])};
+    const kept = run("check_purchase", input, {...onPages, pages: both}).result as Record<string, any>;
+    expect(kept.opened_not_passed).toEqual(["argos.co.uk"]);
+    expect(kept.do_next).toMatch(/^Answer now/);
+    const none = {...input, offers: [{...offer, price: 1}]};
+    expect((run("check_purchase", none, {...onPages, pages: both}).result as Record<string, any>).do_next).toMatch(/Call check_purchase once more/);
+    expect((run("check_purchase", none, {...onPages, pages: both, checked: 1}).result as Record<string, any>).do_next).toMatch(/Don't call this again/);
+    // pages from an earlier question aren't this one's
+    expect((run("check_purchase", none, {...onPages, pages: {...both, recent: new Set(["apple.com/uk/iphone-17"])}}).result as Record<string, any>).opened_not_passed).toBeUndefined();
+  });
+
+  test("the line under an answer says a what if only when the engine really ran", () => {
+    const s = baseState();
+    expect(receipt(["check_purchase"], s, new Date(2026, 9, 5, 10, 0), true)).toBeNull();
+    expect(receipt(["check_purchase", "what_if"], s, new Date(2026, 9, 5, 10, 0), true)).toBe("Your figures checked against a what if (your balance from Thu 1 Oct)");
+  });
 });
 
 test("overview: the engine's own figures for today and until payday, and where they come from", () => {

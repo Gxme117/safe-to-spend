@@ -45,7 +45,8 @@ test("sends the conversation with the token, and brings back Claude's turn", asy
   expect(url(1)).toBe("https://sgchailpcwkffckwnazp.supabase.co/functions/v1/accountant/chat");
   const init = fetchMock.mock.calls[1][1];
   expect(init.headers.Authorization).toBe("Bearer a1");
-  expect(JSON.parse(init.body)).toEqual({who: "frank", messages: q});
+  // this app shows something to buy as a card, so he's told how to write one
+  expect(JSON.parse(init.body)).toEqual({who: "frank", messages: q, research: true});
 });
 
 test("a token the server doesn't know gets one more go with a new one", async () => {

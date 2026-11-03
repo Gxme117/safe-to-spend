@@ -1,4 +1,15 @@
-import {checkNote, knownIn, poundsIn, unchecked, webFigures, withoutWeb} from "../check";
+import {checkNote, isKnown, knownIn, poundsIn, unchecked, unknownIn, webFigures, withoutWeb} from "../check";
+
+test("the numbers in a sum nothing vouches for: not known, and not plain counts", () => {
+  const known = [346.51, 879, 1800];
+  expect(unknownIn("32640 - 346.51", known)).toEqual(["32640"]);
+  expect(unknownIn("(879 - 346.51) / 4", known)).toEqual([]);
+  expect(unknownIn("1,800 * 12 / 52 + 365", known)).toEqual([]);
+  expect(unknownIn("347 + 880 / 100", known)).toEqual(["880"]); // whole pounds, rounded, count as the figure; a different figure doesn't
+  expect(unknownIn("349.99 * 2", known)).toEqual(["349.99"]);
+  expect(isKnown(347, known)).toBe(true);
+  expect(isKnown(346.5, known)).toBe(false);
+});
 
 test("the £ amounts in a reply, however they're written", () => {
   expect(poundsIn("You've £1,234.56 now, £30 left today and £ 7.5 on snacks.")).toEqual([1234.56, 30, 7.5]);

@@ -1,8 +1,8 @@
 // The accountant function: the only place the Anthropic and ElevenLabs API keys are used. It keeps nothing: the phone sends
 // the conversation so far, this adds the rulebook, the accountant's voice and the tools, asks Claude, and hands back what
-// Claude said, either an answer or the tools it wants run. The tools run on the phone, where the money is; a web search runs on
-// Anthropic's side, and comes back as part of what Claude said.
-//   POST /chat {who, messages} → {content, stop_reason}
+// Claude said, either an answer or the tools it wants run. The tools run on the phone, where the money is; a web search, or a
+// shop's page opened for a purchase, runs on Anthropic's side, and comes back as part of what Claude said.
+//   POST /chat {who, messages, research?} → {content, stop_reason, usage}: usage is only token counts, for what a question costs
 //   POST /say {who, text} → {audio (mp3, base64), ms, words}: Tim's or Frank's short spoken line, in his voice
 // Only signed-in users of the app (anonymous sign-in counts). Nothing said is logged.
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
@@ -71,7 +71,7 @@ Deno.serve(async req => {
     const msg = await client.beta.messages.create(params(ask, model));
     const tools = msg.content.flatMap(b => b.type === "tool_use" ? [b.name] : []);
     console.log(logLine({who: ask.who, model: msg.model, ms: Date.now() - started, auth, stop: msg.stop_reason, usage: msg.usage, tools}), PROMPT_VERSION);
-    return json({content: msg.content, stop_reason: msg.stop_reason});
+    return json({content: msg.content, stop_reason: msg.stop_reason, usage: msg.usage});
   } catch (e) {
     const status = e instanceof Anthropic.APIError ? e.status : undefined;
     console.warn(logLine({who: ask.who, model, ms: Date.now() - started, auth, stop: `error ${status ?? (e instanceof Error ? e.name : "unknown")}`, tools: []}));

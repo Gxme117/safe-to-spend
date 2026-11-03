@@ -1,10 +1,11 @@
 import {act, fireEvent, render, screen, waitFor} from "@testing-library/react-native";
 import {openBrowserAsync} from "expo-web-browser";
-import {Dimensions, StyleSheet} from "react-native";
+import {Alert, Dimensions, StyleSheet} from "react-native";
 import {SafeAreaProvider} from "react-native-safe-area-context";
 import TimScreen from "@/app/(tabs)/tim";
 import {baseState, TODAY, tx} from "@/lib/__tests__/fixtures";
 import {NO_BRIEFS} from "@/lib/briefing";
+import {whatIf} from "@/lib/today";
 import {ON_TWOS} from "@/lib/timEyes";
 import {frankFrames, introFrames, linesOf, speechMs, TIM_OPENING, timFrames, untagged} from "@/lib/timSpeech";
 import {AccountantFail, say, send} from "@/services/accountant";
@@ -27,6 +28,20 @@ jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSyn
 jest.mock("expo-router", () => ({router: {push: jest.fn()}, useFocusEffect: (f: () => void | (() => void)) => jest.requireActual("react").useEffect(f, [f])}));
 jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {}), updateFiling: jest.fn(async () => {}), fileBills: jest.fn(async () => {})}));
 jest.mock("expo-web-browser", () => ({openBrowserAsync: jest.fn(async () => ({type: "opened"}))}));
+// the kept chats, in memory: copied in and out, as the database would
+jest.mock("@/db/chats", () => {
+  const kept = new Map<string, {id: string; updated: number; said: unknown; transcript: unknown}>();
+  const copy = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+  return {
+    kept,
+    listChats: jest.fn(async (since: number) => [...kept.values()].filter(c => c.updated >= since).sort((a, b) => b.updated - a.updated)
+      .map(({said: _s, transcript: _t, ...row}) => copy(row))),
+    loadChat: jest.fn(async (id: string) => kept.has(id) ? copy(kept.get(id)) : null),
+    saveChat: jest.fn(async (c: {id: string; updated: number; said: unknown; transcript: unknown}) => { kept.set(c.id, copy(c)); }),
+    deleteChat: jest.fn(async (id: string) => { kept.delete(id); }),
+    pruneChats: jest.fn(async () => {}),
+  };
+});
 // his brain is on a server; here, each test says what Claude hands back
 jest.mock("@/services/accountant", () => {
   class MockFail extends Error {
@@ -303,6 +318,86 @@ describe("what he found on the web", () => {
     expect(await screen.findByText("I couldn't check £12.99 against your numbers or a source.")).toBeOnTheScreen();
     expect(screen.getByText("Looked on the web, nothing to cite.")).toBeOnTheScreen();
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  describe("something to buy he looked up", () => {
+    const ARGOS = "https://www.argos.co.uk/product/iphone-17-128gb", APPLE = "https://www.apple.com/uk/shop/buy-iphone/iphone-17";
+    const iphones = {type: "server_tool_use", id: "s9", name: "web_search", input: {query: "buy iphone 17 128gb uk"}};
+    const shops = {type: "web_search_tool_result", tool_use_id: "s9",
+      content: [ARGOS, APPLE, "https://www.currys.co.uk/x", "https://www.johnlewis.com/x"].map(url => ({type: "web_search_result", url, title: "iPhone 17", encrypted_content: "x"}))};
+    const opened = (id: string, url: string, data: string) => [{type: "server_tool_use", id, name: "web_fetch", input: {url}},
+      {type: "web_fetch_tool_result", tool_use_id: id, content: {type: "web_fetch_result", url, retrieved_at: new Date().toISOString(), content: {type: "document", title: "iPhone 17 128GB", source: {type: "text", media_type: "text/plain", data}}}}];
+    const offer = (seller: string, url: string, price: number, pick: boolean, delivery: number | null = null) => ({seller, url, price, condition: "new", delivery, pick});
+    const check = (...offers: object[]) => ({type: "tool_use", id: "tu_c", name: "check_purchase", input: {product: "iPhone 17, 128GB", assumed: "The newest standard model", identifies: ["iPhone 17", "128GB"], offers}});
+    const pages = [...opened("f1", ARGOS, "Apple iPhone 17 128GB £799.00 Free delivery"), ...opened("f2", APPLE, "iPhone 17 128GB £829.00")];
+    const round1 = {stop_reason: "tool_use", content: [iphones, shops, ...pages, check(offer("Argos", ARGOS, 799, true, 0), offer("Apple", APPLE, 829, false))]};
+    const answer = says("Not today: it'd come out of what rent needs.");
+
+    test("a card leads his answer: the price he went by, each shop a tap from its page, and what buying it today does, as Today says it", async () => {
+      sendMock.mockResolvedValueOnce(round1).mockResolvedValueOnce(answer);
+      await show();
+      await ask("Can I afford a new iPhone?");
+      expect(await screen.findByLabelText("Tim says: Not today: it'd come out of what rent needs.")).toBeOnTheScreen();
+      expect(screen.getByTestId("research-card")).toBeOnTheScreen();
+      expect(screen.queryByText(/estimate|Only one shop/)).toBeNull();
+      expect(screen.getByRole("header", {name: "iPhone 17, 128GB"})).toBeOnTheScreen();
+      expect(screen.getByText("The newest standard model")).toBeOnTheScreen();
+      expect(screen.getByLabelText("Best price: £799.00, at Argos · New · Free delivery")).toBeOnTheScreen();
+      const st = useMoney.getState();
+      expect(screen.getByText(whatIf({state: st.state!, txs: st.txs, today: st.today}, 799)!.line)).toBeOnTheScreen();
+      expect(screen.getByText(/^Prices as listed, checked \d\d:\d\d$/)).toBeOnTheScreen();
+      await fireEvent.press(screen.getByRole("link", {name: "Open Apple's listing, £829.00, New, on apple.com"}));
+      expect(openBrowserAsync).toHaveBeenCalledWith(APPLE);
+      // the card holds the pages, so there's no list of them under his words; your figures are still what was checked
+      expect(screen.queryByText(/From the web|nothing to cite/)).toBeNull();
+      expect(screen.getByText("Your figures checked against a what if (your balance from Thu 1 Oct)")).toBeOnTheScreen();
+    });
+
+    test("one shop's page is one shop: the card says so rather than padding it out", async () => {
+      sendMock.mockResolvedValueOnce({stop_reason: "tool_use", content: [iphones, shops, ...opened("f1", ARGOS, "Apple iPhone 17 128GB £799.00"), check(offer("Argos", ARGOS, 799, true))]}).mockResolvedValueOnce(answer);
+      await show();
+      await ask("Can I afford a new iPhone?");
+      expect(await screen.findByTestId("research-card")).toBeOnTheScreen();
+      expect(screen.getByText("Only one shop's own page could be checked.")).toBeOnTheScreen();
+    });
+
+    test("a starting price reads \"From\", and the spec the page doesn't show with it is said under it", async () => {
+      const big = {...check(offer("Argos", ARGOS, 799, true))};
+      big.input = {...big.input, product: "iPhone 17, 128GB, 1TB"};
+      sendMock.mockResolvedValueOnce({stop_reason: "tool_use", content: [iphones, shops, ...opened("f1", ARGOS, "Apple iPhone 17 from £799.00"), big]})
+        .mockResolvedValueOnce(answer);
+      await show();
+      await ask("Can I afford a new iPhone?");
+      expect(await screen.findByTestId("research-card")).toBeOnTheScreen();
+      expect(screen.getByLabelText("Best price: From £799.00, at Argos · New. The page doesn't show 1TB at this price, so that spec may cost more.")).toBeOnTheScreen();
+      expect(screen.getByRole("link", {name: "Open Argos's listing, From £799.00, New · Starting price, on argos.co.uk"})).toBeOnTheScreen();
+      expect(screen.getByText("If you paid the starting price today")).toBeOnTheScreen();
+    });
+
+    test("no shop's own page backed a price: no card, and his words are marked as an estimate", async () => {
+      sendMock.mockResolvedValueOnce({stop_reason: "tool_use", content: [iphones, shops, check(offer("Currys", "https://www.currys.co.uk/x", 789, true))]})
+        .mockResolvedValueOnce(says("I couldn't confirm a shop's price, so no verdict yet."));
+      await show();
+      await ask("Can I afford a new iPhone?");
+      expect(await screen.findByLabelText("Tim says: I couldn't confirm a shop's price, so no verdict yet.")).toBeOnTheScreen();
+      expect(screen.queryByTestId("research-card")).toBeNull();
+      expect(screen.getByText("No shop's own page showed the price, so any price here is an estimate.")).toBeOnTheScreen();
+    });
+
+    test("while he works: he's looking up prices, then the sites he found, then trying it against your money", async () => {
+      await show();
+      await ask("Can I afford a new iPhone?");
+      expect(await screen.findByText("Looking up prices…")).toBeOnTheScreen();
+      expect(screen.queryByTestId("looked", {includeHiddenElements: true})).toBeNull();
+      await screen.unmount();
+
+      sendMock.mockReset();
+      sendMock.mockResolvedValueOnce(round1).mockImplementationOnce(() => new Promise(() => {}));
+      await show();
+      await ask("Can I afford a new iPhone?");
+      expect(await screen.findByText("Checking it against your money…")).toBeOnTheScreen();
+      expect(screen.getByTestId("looked", {includeHiddenElements: true})).toHaveTextContent("argos.co.uk · apple.com · currys.co.uk +1");
+    });
   });
 
   test("an answer that never searched has nothing about the web under it", async () => {
@@ -1082,4 +1177,94 @@ test("if he can't, or there's nothing worth saying, it's his opening; only a bri
   await waitFor(() => expect(clipOf(100)).toBe(true));
   expect(useMoney.getState().briefLog.lastDaily).toBe(TODAY);
 });
+});
+
+test("the burger button opens recent chats, and a tap on the page closes it", async () => {
+  await show();
+  const burger = screen.getByRole("button", {name: "Recent chats"});
+  expect(burger).toBeCollapsed();
+  await fireEvent.press(burger);
+  expect(burger).toBeExpanded();
+  expect(screen.getByRole("header", {name: "Pinch"})).toBeOnTheScreen();
+  await fireEvent.press(screen.getByTestId("close-recent-chats"));
+  expect(burger).toBeCollapsed();
+});
+
+describe("recent chats", () => {
+  const kept = (jest.requireMock("@/db/chats") as {kept: Map<string, unknown>}).kept;
+  beforeEach(() => kept.clear());
+  const openPanel = async () => {
+    await fireEvent.press(screen.getByRole("button", {name: "Recent chats"}));
+    await waitFor(() => expect(screen.queryByText("No chats yet")).toBeNull());
+  };
+
+  test("a chat is kept, listed under Today with your first question, and opened again to carry on", async () => {
+    sendMock.mockResolvedValueOnce(says("Have a look at your Living tab first.")).mockResolvedValueOnce(says("Rent's your biggest one."));
+    await show();
+    await ask("What are my bills?");
+    expect(await screen.findByLabelText("Tim says: Have a look at your Living tab first.")).toBeOnTheScreen();
+
+    // a new chat from the panel's Chat button: the conversation goes, and the next question is a chat of its own
+    await openPanel();
+    expect(screen.getByRole("header", {name: "Today"})).toBeOnTheScreen();
+    expect(screen.getByRole("button", {name: "What are my bills?, with Tim"})).toBeSelected();
+    await fireEvent.press(screen.getByRole("button", {name: "New chat"}));
+    expect(screen.queryByLabelText("You asked: What are my bills?")).toBeNull();
+    await ask("What's my biggest bill?");
+    expect(await screen.findByLabelText("Tim says: Rent's your biggest one.")).toBeOnTheScreen();
+    await waitFor(() => expect(kept.size).toBe(2));
+
+    // the first one, back as it was, and asking again carries on its conversation
+    await openPanel();
+    expect(screen.getByRole("button", {name: "What's my biggest bill?, with Tim"})).toBeSelected();
+    await fireEvent.press(screen.getByRole("button", {name: "What are my bills?, with Tim"}));
+    expect(await screen.findByLabelText("You asked: What are my bills?")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Tim says: Have a look at your Living tab first.")).toBeOnTheScreen();
+    expect(screen.queryByLabelText("You asked: What's my biggest bill?")).toBeNull();
+    sendMock.mockClear();
+    sendMock.mockResolvedValueOnce(says("Done."));
+    await ask("And the smallest?");
+    await waitFor(() => expect(sendMock).toHaveBeenCalled());
+    // what Claude sees is that chat's conversation, then this question; nothing from the other chat
+    const seen = JSON.stringify(sendMock.mock.calls[0][1]);
+    expect(seen).toContain("What are my bills?");
+    expect(seen).toContain("Have a look at your Living tab first.");
+    expect(seen).toContain("And the smallest?");
+    expect(seen).not.toContain("biggest");
+  });
+
+  test("search finds a chat by what was said, and a chat with Frank opens with Frank", async () => {
+    sendMock.mockResolvedValueOnce(says("It's Netflix, and it's going up."));
+    await show();
+    await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
+    await ask("Any subscriptions?", "Frank");
+    expect(await screen.findByLabelText("Frank says: It's Netflix, and it's going up.")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("radio", {name: "Tim"}));
+
+    await openPanel();
+    await fireEvent.changeText(screen.getByLabelText("Search chats"), "netflix");
+    expect(screen.getByRole("button", {name: "Any subscriptions?, with Frank"})).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText("Search chats"), "rent");
+    expect(screen.getByText("No chats match that")).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText("Search chats"), "");
+    await fireEvent.press(screen.getByRole("button", {name: "Any subscriptions?, with Frank"}));
+    await waitFor(() => expect(useMoney.getState().accountant).toBe("frank"));
+    expect(screen.getByLabelText("You asked: Any subscriptions?")).toBeOnTheScreen();
+  });
+
+  test("press and hold to delete a chat, after asking", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation((_t, _m, buttons) => buttons?.find(b => b.text === "Delete")?.onPress?.());
+    sendMock.mockResolvedValueOnce(says("Have a look at your Living tab first."));
+    await show();
+    await ask("What are my bills?");
+    expect(await screen.findByLabelText("Tim says: Have a look at your Living tab first.")).toBeOnTheScreen();
+    await openPanel();
+    await fireEvent(screen.getByRole("button", {name: "What are my bills?, with Tim"}), "longPress");
+    expect(alert).toHaveBeenCalledWith("Delete this chat?", "What are my bills?", expect.anything());
+    await waitFor(() => expect(screen.getByText("No chats yet")).toBeOnTheScreen());
+    expect(kept.size).toBe(0);
+    // it was the chat on screen, so a new one starts
+    expect(screen.queryByLabelText("You asked: What are my bills?")).toBeNull();
+    alert.mockRestore();
+  });
 });
