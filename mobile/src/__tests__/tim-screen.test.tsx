@@ -69,6 +69,7 @@ jest.mock("../../assets/frank.jpg", () => "frank.jpg");
 jest.mock("../../assets/frank-blink-2.png", () => "frank-blink-2.png");
 jest.mock("../../assets/frank-mouth-1.png", () => "frank-mouth-1.png");
 jest.mock("../../assets/frank-dark.jpg", () => "frank-dark.jpg");
+jest.mock("../../assets/frank-dark-room.png", () => "frank-dark-room.png");
 jest.mock("../../assets/frank-dark-blink-2.png", () => "frank-dark-blink-2.png");
 jest.mock("../../assets/frank-dark-look-down.png", () => "frank-dark-look-down.png");
 jest.mock("../../assets/frank-dark-hands-left-1.png", () => "frank-dark-hands-left-1.png");
@@ -1005,16 +1006,17 @@ describe("dark mode", () => {
   const images = () => screen.container.queryAll(i => i.type === "Image").map(i => i.props.source);
   const dark = async () => await act(async () => { useMoney.setState({theme: "dark"}); });
 
-  test("Frank is in his dark room, his pieces made from it; Tim has only his own picture so far", async () => {
+  test("Frank is in his dark office under its lights, his pieces made from it; Tim has only his own picture so far", async () => {
     await show();
     await dark();
     await toFrank();
-    expect(images()).toEqual(expect.arrayContaining(["frank-dark.jpg", "frank-dark-blink-2.png", "frank-dark-look-down.png", "frank-dark-hands-left-1.png", "frank-dark-mouth-1.png"]));
+    expect(images()).toEqual(expect.arrayContaining(["frank-dark.jpg", "frank-dark-room.png", "frank-dark-blink-2.png", "frank-dark-look-down.png", "frank-dark-hands-left-1.png", "frank-dark-mouth-1.png"]));
     expect(images()).not.toContain("frank.jpg");
     expect(images()).not.toContain("frank-blink-2.png");
-    expect(screen.getByTestId("frank-picture").props.accessibilityLabel).toMatch(/in a dark room$/);
+    expect(screen.getByTestId("frank-picture").props.accessibilityLabel).toMatch(/in a dark office under hanging square lights$/);
     await fireEvent.press(screen.getByRole("radio", {name: "Tim"}));
     expect(images()).toContain("tim.jpg");
+    expect(images()).not.toContain("frank-dark-room.png");
   });
 
   test("in light mode he's at his light desk, as before", async () => {

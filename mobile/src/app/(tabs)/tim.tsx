@@ -231,13 +231,17 @@ const MOUTHS: Record<Accountant, MouthKit> = {
 // in as he does in light. scripts/frank_dark.py puts his face where it is in frank.jpg, so his captions and bubble are the same
 // in both modes, and his pieces are made from it as from frank.jpg (frank_eyes.py, frank_hands.py, frank_mouth.py with --dark,
 // which print these crops). Tim has no dark one yet: in dark mode his picture's light background still shows.
-type Art = {pic: number; alt: string; eyes: EyeKit; mouth: MouthKit};
+// `room`: what's around him, on a layer of its own over his picture and under his pieces (Frank's dark office, its square
+// lights hanging behind him: scripts/frank_room.py, which cuts him out of it and keeps it out of every piece's crop). It goes
+// as he shrinks into his bubble, which is just his face.
+type Art = {pic: number; alt: string; eyes: EyeKit; mouth: MouthKit; room?: number};
 const ART: Record<Accountant, {light: Art; dark?: Art}> = {
   tim: {light: {pic: require("../../../assets/tim.jpg"), alt: "Tim, a clay-style accountant with grey hair and a blue scarf over a dark jumper", eyes: EYES.tim, mouth: MOUTHS.tim}},
   frank: {
     light: {pic: require("../../../assets/frank.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop", eyes: EYES.frank, mouth: MOUTHS.frank},
     dark: {
-      pic: require("../../../assets/frank-dark.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop in a dark room",
+      pic: require("../../../assets/frank-dark.jpg"), alt: "Frank, a clay-style accountant with red hair, a moustache and glasses, in a knitted jumper at his laptop in a dark office under hanging square lights",
+      room: require("../../../assets/frank-dark-room.png"),
       eyes: {
         ...EYES.frank,
         looks: {crop: {x: 363, y: 372, w: 154, h: 36}, pieces: {down: require("../../../assets/frank-dark-look-down.png")}},
@@ -775,6 +779,7 @@ function Tim() {
     return {transform: [{translateX: at(0, -bx * bs)}, {translateY: at(0, -by * bs)}, {scale: at(1, fit)}]};
   });
   const ring = useAnimatedStyle(() => ({borderRadius: shrunk.value * BUBBLE_D / 2, opacity: shrunk.value}));
+  const roomFade = useAnimatedStyle(() => ({opacity: 1 - shrunk.value})); // the room around him goes as he shrinks
   const space = useAnimatedStyle(() => ({minHeight: DROP + pic + (bubbleTop + BUBBLE_D - DROP - pic) * shrunk.value}));
   const after = useAnimatedStyle(() => ({opacity: Math.max(0, shrunk.value - .8) / .2})); // the words and his hair, as he lands
 
@@ -927,6 +932,12 @@ function Tim() {
         <Reanimated.View style={[{position: "absolute", overflow: "hidden"}, clip]}>
           <Reanimated.View style={[{width, height: pic, transformOrigin: "left top"}, face]}>
             <Image source={src} testID={`${who}-picture`} style={{width, height: pic}} resizeMode="cover" accessibilityLabel={alt} />
+            {/* the room around him, over his picture and under everything that moves (he's cut out of it) */}
+            {art.room != null && (
+              <Reanimated.View {...hidden} style={[{position: "absolute", left: 0, top: 0, width, height: pic}, roomFade]}>
+                <Image source={art.room} style={{width, height: pic}} resizeMode="cover" />
+              </Reanimated.View>
+            )}
             {/* tap him and he says who he is again (not once he's a bubble) */}
             {!small && <Pressable onPress={speech.replay} style={{position: "absolute", left: 0, top: 0, right: 0, bottom: 0}}
               accessibilityRole="button" accessibilityLabel={`Hear ${name} say who he is`} />}
