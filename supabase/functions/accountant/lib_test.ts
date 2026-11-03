@@ -1,4 +1,4 @@
-import {failure, logLine, MAX_BRIEF, MAX_BYTES, MAX_SAY, params, readAsk, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
+import {failure, logLine, MAX_BRIEF, MAX_BYTES, MAX_PHOTO_Q, MAX_SAY, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
 import {BUYING, CHECK_PURCHASE, RULES, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH} from "./prompt.ts";
 
 const eq = (a: unknown, b: unknown) => {
@@ -118,6 +118,8 @@ Deno.test("a shop's page: Anthropic's own tool, called directly, a few a request
   eq(WEB_FETCH.allowed_callers, ["direct"]);
   eq(WEB_FETCH.max_uses, 4);
   eq(WEB_FETCH.max_content_tokens, 8000);
+  // read fresh: a saved copy weeks old is refused on the phone, so it's a price lost
+  eq(WEB_FETCH.use_cache, false);
   // never a page named in a payee's name, nor one a page it opened links to; user_input left out, so it stays allowed
   eq(WEB_FETCH.url_sources, {client_tool_results: {type: "none"}, server_tool_results: {type: "only", tools: [{type: "tool_reference", name: "web_search"}]}});
   for (const host of ["amazon.co.uk", "ebay.co.uk", "gumtree.com", "pricespy.co.uk", "techradar.com"]) eq(WEB_FETCH.blocked_domains?.includes(host), true);
@@ -220,6 +222,30 @@ Deno.test("when each word is said: tags left out, from its first character to it
   eq(sayReply({audio_base64: "AAA", alignment: align}), {audio: "AAA", ms: 1900, words: [{start: 800, end: 1100}, {start: 1500, end: 1800}]});
   eq(sayReply({audio_base64: "AAA", alignment: null}), null);
   eq(sayReply({alignment: align}), null);
+});
+
+Deno.test("a photo is asked for by the product's name only, 1 to 100 characters", () => {
+  eq(readPhoto(JSON.stringify({q: "  iPhone 17 "})), {q: "iPhone 17"});
+  eq(readPhoto(JSON.stringify({q: " "})), {error: "bad_request"});
+  eq(readPhoto(JSON.stringify({q: "x".repeat(MAX_PHOTO_Q + 1)})), {error: "bad_request"});
+  eq(readPhoto(JSON.stringify({q: 5})), {error: "bad_request"});
+  eq(readPhoto("not json"), {error: "bad_request"});
+  eq(photoUrl("55\" TV & stand"), "https://api.search.brave.com/res/v1/images/search?q=55%22%20TV%20%26%20stand&country=GB&safesearch=strict&count=10");
+});
+
+Deno.test("the photo is the first result's picture as Brave keeps it, not one of a different model", () => {
+  const thumb = (src: unknown, title = "", url = "") => ({title, url, thumbnail: {src}, properties: {url: "https://shop.example/big.jpg"}});
+  eq(photoOf({results: [thumb("http://plain.example/a.jpg"), {}, thumb("https://imgs.search.brave.com/a"), thumb("https://imgs.search.brave.com/b")]}), "https://imgs.search.brave.com/a");
+  // the live run's first iPhone 17 photo was a 17 Pro review's
+  const iphones = {results: [thumb("https://imgs.search.brave.com/pro", "iPhone 17 Pro review", "https://www.gsmarena.com/apple_iphone_17_pro-review.php"),
+    thumb("https://imgs.search.brave.com/max", "Apple iPhone 17 Pro Max"), thumb("https://imgs.search.brave.com/17", "Apple iPhone 17 256GB Black")]};
+  eq(photoOf(iphones, "iPhone 17"), "https://imgs.search.brave.com/17");
+  eq(photoOf(iphones, "iPhone 17 Pro"), "https://imgs.search.brave.com/pro");
+  eq(photoOf({results: [thumb("https://imgs.search.brave.com/tv", "Samsung 55 inch Mini LED 4K Ultra HD TV")]}, "55 inch 4K smart TV"), "https://imgs.search.brave.com/tv");
+  eq(photoOf({results: [thumb("https://imgs.search.brave.com/pro", "iPhone 17 Pro")]}, "iPhone 17"), "https://imgs.search.brave.com/pro");
+  eq(photoOf({results: []}), null);
+  eq(photoOf({error: "nope"}), null);
+  eq(photoOf(null), null);
 });
 
 Deno.test("a log line has the numbers, never the words", () => {

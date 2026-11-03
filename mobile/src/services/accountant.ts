@@ -18,7 +18,7 @@ export class AccountantFail extends Error {
   constructor(public kind: AccountantError, detail?: string) { super(detail ?? kind); }
 }
 
-async function post(door: "chat" | "say", body: unknown, token: string, wait = WAIT_MS) {
+async function post(door: "chat" | "say" | "photo", body: unknown, token: string, wait = WAIT_MS) {
   const stop = new AbortController(), t = setTimeout(() => stop.abort(), wait);
   try {
     return await fetch(`${FN}/${door}`, {
@@ -71,4 +71,28 @@ export async function say(who: Who, text: string, kind?: "brief"): Promise<Take 
     console.warn(`${who} couldn't say it:`, e instanceof Error ? e.message : e);
     return null;
   }
+}
+
+const PHOTO_MS = 8_000;
+// each product's photo, asked for once while the app's open; one that didn't come is asked for again next time
+const photos = new Map<string, Promise<string | null>>();
+
+/** A photo of something he priced, for its card: the function looks its name up (Brave's image search) and hands back the
+ *  picture's address. Anything going wrong is null, and the card goes without. */
+export function photo(q: string): Promise<string | null> {
+  const known = photos.get(q);
+  if (known) return known;
+  const got = (async () => {
+    try {
+      let r = await post("photo", {q}, await accessToken(), PHOTO_MS);
+      if (r.status === 401) r = await post("photo", {q}, await accessToken(true), PHOTO_MS);
+      const j = await r.json().catch(() => ({})) as {url?: unknown};
+      return r.ok && typeof j.url === "string" && j.url.startsWith("https://") ? j.url : null;
+    } catch {
+      return null;
+    }
+  })();
+  photos.set(q, got);
+  got.then(url => { if (!url) photos.delete(q); });
+  return got;
 }

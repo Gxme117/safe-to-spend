@@ -1,4 +1,5 @@
-import {Alert, Pressable, ScrollView, Text, TextInput, View} from "react-native";
+import {Alert, Image, Pressable, ScrollView, Text, TextInput, View} from "react-native";
+import type {Who} from "@/lib/ai/tools";
 import {Icon} from "@/components/Icon";
 import {Logo} from "@/components/Logo";
 import {groupsOf, matches, type ChatRow} from "@/lib/chats";
@@ -7,13 +8,29 @@ import {useTheme} from "@/theme/useTheme";
 
 const NAME = {tim: "Tim", frank: "Frank"} as const;
 
+/** His face, cropped as his bubble is: his picture (w × h px), the bubble's scale (pt per px) and the px at its top left,
+ *  for a bubble `size` pt across. */
+export type Face = {pic: number; scale: number; x: number; y: number; size: number; w: number; h: number};
+const DOT = 32;
+
+/** A small round picture of who the chat was with: his bubble's crop, scaled down. */
+function FaceDot({who, face, bg}: {who: Who; face: Face; bg: string}) {
+  const s = face.scale * DOT / face.size;
+  return (
+    <View testID={`chat-face-${who}`} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+      style={{width: DOT, height: DOT, borderRadius: DOT / 2, overflow: "hidden", backgroundColor: bg}}>
+      <Image source={face.pic} style={{position: "absolute", left: -face.x * s, top: -face.y * s, width: face.w * s, height: face.h * s}} />
+    </View>
+  );
+}
+
 /** What's inside the recent chats panel on Tim and Frank's tab, as in the ChatGPT app: the app's name, a search box, the chats
- *  of the last 30 days in their groups (Tim's and Frank's together, each tagged), and "Chat" for a new one at the bottom left.
- *  Tap a chat to open it; press and hold to delete it, after asking. */
-export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete, onNew, tone, bottom}: {
+ *  of the last 30 days in their groups (Tim's and Frank's together, each with his face on the left), and "Chat" for a new one at
+ *  the bottom left. Tap a chat to open it; press and hold to delete it, after asking. */
+export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete, onNew, tone, bottom, faces}: {
   rows: ChatRow[]; now: number; openIds: string[]; query: string; onQuery: (q: string) => void;
   onOpen: (id: string) => void; onDelete: (id: string) => void; onNew: () => void;
-  tone: (typeof timPage)["light"]; bottom: number;
+  tone: (typeof timPage)["light"]; bottom: number; faces: Record<Who, Face>;
 }) {
   const {c} = useTheme();
   const groups = groupsOf(rows.filter(r => matches(r, query)), now);
@@ -50,9 +67,9 @@ export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete
                 <Pressable key={r.id} onPress={() => onOpen(r.id)} onLongPress={() => askDelete(r)}
                   accessibilityRole="button" accessibilityLabel={`${r.title}, with ${NAME[r.who]}`} accessibilityHint="Opens the chat. Press and hold to delete it."
                   accessibilityState={{selected: on}}
-                  style={{flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: on ? tone.track : "transparent"}}>
+                  style={{flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: on ? tone.track : "transparent"}}>
+                  <FaceDot who={r.who} face={faces[r.who]} bg={tone.track} />
                   <Text numberOfLines={1} style={{flex: 1, minWidth: 0, fontFamily: hanken.medium, fontSize: 16, lineHeight: 21, color: c.ink}}>{r.title}</Text>
-                  <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>{NAME[r.who]}</Text>
                 </Pressable>
               );
             })}

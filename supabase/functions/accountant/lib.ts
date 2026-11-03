@@ -166,6 +166,36 @@ export function sayReply(got: {audio_base64?: unknown; alignment?: Alignment | n
   return words.length ? {audio: got.audio_base64, ms: Math.round(ends[ends.length - 1] * 1000), words} : null;
 }
 
+// A photo of something he priced, for its card (POST /photo): Brave's image search on its name. Only the name goes, nothing about
+// the person, and the key stays here. Brave's own copy of the picture comes back, so a shop that blocks hotlinking can't stop it.
+export const MAX_PHOTO_Q = 100;
+/** The product's name the phone wants a photo of: 1 to MAX_PHOTO_Q characters. */
+export function readPhoto(raw: string): {q: string} | {error: string} {
+  let body: unknown;
+  try { body = JSON.parse(raw); } catch { return {error: "bad_request"}; }
+  const {q} = (body ?? {}) as {q?: unknown};
+  if (typeof q !== "string" || !q.trim() || q.trim().length > MAX_PHOTO_Q) return {error: "bad_request"};
+  return {q: q.trim()};
+}
+export const photoUrl = (q: string) =>
+  `https://api.search.brave.com/res/v1/images/search?q=${encodeURIComponent(q)}&country=GB&safesearch=strict&count=10`;
+// a different model: a Pro, Max and so on the name didn't ask for (a 4K "Ultra HD" or "Mini LED" TV isn't one)
+const VARIANT = /\b(pro|max|ultra(?!\s*-?hd)|ti|plus|mini(?!\s*-?led))\b/gi;
+/** The picture, as Brave keeps it: the first result that isn't of a different model (`q`: the name it was looked up by), else
+ *  the first; null when there's none. */
+export function photoOf(got: unknown, q = ""): string | null {
+  const results = (got as {results?: unknown} | null)?.results;
+  if (!Array.isArray(results)) return null;
+  const asked = q.toLowerCase(), pics: {src: string; other: boolean}[] = [];
+  for (const r of results) {
+    const {thumbnail, title, url} = (r ?? {}) as {thumbnail?: {src?: unknown}; title?: unknown; url?: unknown};
+    if (typeof thumbnail?.src !== "string" || !thumbnail.src.startsWith("https://")) continue;
+    const says = `${typeof title === "string" ? title : ""} ${typeof url === "string" ? url : ""}`;
+    pics.push({src: thumbnail.src, other: [...says.matchAll(VARIANT)].some(m => !new RegExp(`\\b${m[1].toLowerCase()}\\b`).test(asked))});
+  }
+  return (pics.find(p => !p.other) ?? pics[0])?.src ?? null;
+}
+
 /** What the phone is told when Claude can't be reached: a kind it can say calmly, never the provider's own message. */
 export function failure(status: number | undefined): {status: number; error: string} {
   if (status === 429 || status === 529) return {status: 429, error: "busy"};

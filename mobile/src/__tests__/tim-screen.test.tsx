@@ -8,7 +8,7 @@ import {NO_BRIEFS} from "@/lib/briefing";
 import {whatIf} from "@/lib/today";
 import {ON_TWOS} from "@/lib/timEyes";
 import {frankFrames, introFrames, linesOf, speechMs, TIM_OPENING, timFrames, untagged} from "@/lib/timSpeech";
-import {AccountantFail, say, send} from "@/services/accountant";
+import {AccountantFail, photo, say, send} from "@/services/accountant";
 import {useMoney} from "@/store/useMoney";
 
 // a dev build, not Expo Go, so the native modules the shims look for (the keyboard, the microphone) are there
@@ -48,7 +48,7 @@ jest.mock("@/services/accountant", () => {
     kind: string;
     constructor(why: string) { super(why); this.kind = why; }
   }
-  return {AccountantFail: MockFail, send: jest.fn(), say: jest.fn()};
+  return {AccountantFail: MockFail, send: jest.fn(), say: jest.fn(), photo: jest.fn(async () => null)};
 });
 // Frank's voice: his first opening recorded (each word 300ms, 50ms between), played by a player the test can see. Its sound
 // starts `late` ms after play(), or never if it's `stuck` (the ringer's off), and it says how far in it is.
@@ -351,6 +351,20 @@ describe("what he found on the web", () => {
       // the card holds the pages, so there's no list of them under his words; your figures are still what was checked
       expect(screen.queryByText(/From the web|nothing to cite/)).toBeNull();
       expect(screen.getByText("Your figures checked against a what if (your balance from Thu 1 Oct)")).toBeOnTheScreen();
+    });
+
+    test("each shop is a tile with its own photo of it; one whose page had none shows one looked up by its name", async () => {
+      const OWN = "https://www.argos.co.uk/i/iphone-17-128gb-black.jpg", PIC = "https://imgs.search.brave.com/iphone-17.jpg";
+      (photo as jest.Mock).mockClear().mockResolvedValueOnce(PIC);
+      const withPhoto = [...opened("f1", ARGOS, `![Apple iPhone 17 Pro](https://www.argos.co.uk/i/iphone-17-pro.jpg)\n![Apple iPhone 17 128GB Black](${OWN})\nApple iPhone 17 128GB £799.00 Free delivery`),
+        ...opened("f2", APPLE, "iPhone 17 128GB £829.00")];
+      sendMock.mockResolvedValueOnce({...round1, content: [iphones, shops, ...withPhoto, round1.content[round1.content.length - 1]]}).mockResolvedValueOnce(answer);
+      await show();
+      await ask("Can I afford a new iPhone?");
+      await screen.findByTestId("research-card");
+      await waitFor(() => expect(screen.getAllByTestId("research-photo").map(p => p.props.source.uri)).toEqual([OWN, PIC]));
+      expect(photo).toHaveBeenCalledTimes(1);
+      expect(photo).toHaveBeenCalledWith("iPhone 17");
     });
 
     test("one shop's page is one shop: the card says so rather than padding it out", async () => {
@@ -1244,6 +1258,9 @@ describe("recent chats", () => {
     await openPanel();
     await fireEvent.changeText(screen.getByLabelText("Search chats"), "netflix");
     expect(screen.getByRole("button", {name: "Any subscriptions?, with Frank"})).toBeOnTheScreen();
+    // his face is on the row, not Tim's
+    expect(screen.getByTestId("chat-face-frank", {includeHiddenElements: true})).toBeOnTheScreen();
+    expect(screen.queryByTestId("chat-face-tim", {includeHiddenElements: true})).toBeNull();
     await fireEvent.changeText(screen.getByLabelText("Search chats"), "rent");
     expect(screen.getByText("No chats match that")).toBeOnTheScreen();
     await fireEvent.changeText(screen.getByLabelText("Search chats"), "");

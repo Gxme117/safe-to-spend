@@ -7,7 +7,7 @@ import type Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 export type Who = "tim" | "frank";
 
 /** Bumped whenever the rulebook, a voice or a tool changes, so a log line says which one answered. */
-export const PROMPT_VERSION = "2026-11-03.1";
+export const PROMPT_VERSION = "2026-11-03.2";
 
 export const RULES = `You are a personal accountant inside Pinch, a UK money app whose first job is answering "what can I spend today?". You talk with one person about their own money, in pounds. Your job is to help them understand where they stand, make good decisions about spending and saving, and see problems coming before they arrive.
 
@@ -141,9 +141,10 @@ export const WEB_SEARCH: Anthropic.Beta.Messages.BetaWebSearchTool20260318 = {
  *  read (a search's pages it can't), so the phone checks the price on the page itself. Only for a phone that does (lib.ts). Called
  *  directly, as the search is. Only from search results, or a link you paste: never an address in a payee's name or on a page it
  *  opened. Per request; a refused page counts. Amazon's robots.txt refuses it, and the rest are never a shop's own price, so they
- *  don't waste a go. */
+ *  don't waste a go. Always read fresh (`use_cache: false`): prices change, and Anthropic's saved copies (weeks or months old,
+ *  which the phone refuses) were the main reason a shop's price wasn't found. */
 export const WEB_FETCH: Anthropic.Beta.Messages.BetaWebFetchTool20260318 = {
-  type: "web_fetch_20260318", name: "web_fetch", allowed_callers: ["direct"], max_uses: 4, max_content_tokens: 8000,
+  type: "web_fetch_20260318", name: "web_fetch", allowed_callers: ["direct"], max_uses: 4, max_content_tokens: 8000, use_cache: false,
   url_sources: {client_tool_results: {type: "none"}, server_tool_results: {type: "only", tools: [{type: "tool_reference", name: "web_search"}]}},
   blocked_domains: ["amazon.co.uk", "amazon.com", "ebay.co.uk", "ebay.com", "gumtree.com", "facebook.com", "vinted.co.uk", "etsy.com", "depop.com", "preloved.co.uk",
     "alibaba.com", "aliexpress.com", "temu.com", "pricespy.co.uk", "pricerunner.com", "idealo.co.uk", "hotukdeals.com", "latestdeals.co.uk", "moneysavingexpert.com",

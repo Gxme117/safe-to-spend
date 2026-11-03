@@ -2,7 +2,7 @@ import {setAudioModeAsync, useAudioPlayer, type AudioSource} from "expo-audio";
 import {LinearGradient} from "expo-linear-gradient";
 import {useFocusEffect} from "expo-router";
 import {openBrowserAsync} from "expo-web-browser";
-import {useCallback, useEffect, useRef, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type HostInstance, type ScrollViewInstance} from "react-native";
 import {canDictate, mic, micLang, useMicEvent} from "@/services/dictation";
 import {useKeyboardHeight} from "@/services/keyboard";
@@ -11,7 +11,7 @@ import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useReducedMotion} from "@/components/BigMoney";
 import {ConsentSheet} from "@/components/ConsentSheet";
 import {Icon} from "@/components/Icon";
-import {ChatsPanel} from "@/components/ChatsPanel";
+import {ChatsPanel, type Face} from "@/components/ChatsPanel";
 import {deleteChat, listChats, loadChat, pruneChats, saveChat} from "@/db/chats";
 import {bodyOf, cutoff, fromSaved, titleOf, toSaved, type ChatRow} from "@/lib/chats";
 import {keyboardCover} from "@/components/Setup";
@@ -634,6 +634,11 @@ function Tim() {
     : {left: figure.right * k + CAPTION.gap, width: room.right, textAlign: "left" as const};
   const size = wordsFit(speech.lines, room, CAPTION.size);
   const tone = timPage[dark ? "dark" : "light"], {box, edge, mine, mineInk, send: sendBg, sendInk} = tone;
+  // each chat's face in the recent chats panel: his picture for this mode, cropped as his bubble is
+  const faces = useMemo(() => {
+    const face = (w: Accountant): Face => ({pic: ((dark && ART[w].dark) || ART[w].light).pic, ...BUBBLE[w], size: BUBBLE_D, w: SRC_W, h: SRC_W * PIC / W});
+    return {tim: face("tim"), frank: face("frank")};
+  }, [dark]);
   const bg = tone.page; // his picture's own background
 
   // Asked something, he's a bubble (0: his picture, 1: the bubble), pinned at the top as the conversation scrolls, his name
@@ -1044,7 +1049,7 @@ function Tim() {
         backgroundColor: tone.box, borderRightWidth: 1, borderRightColor: edge}, slid]}>
       <ChatsPanel rows={chatRows} now={chatsAt} openIds={openIds}
         query={chatQuery} onQuery={setChatQuery} onOpen={id => void openChat(id)} onDelete={id => void removeChat(id)}
-        onNew={() => { newChat(who); setDrawer(false); }} tone={tone} bottom={16} />
+        onNew={() => { newChat(who); setDrawer(false); }} tone={tone} bottom={16} faces={faces} />
     </Reanimated.View>
     <ConsentSheet visible={waiting !== null} name={name}
       onYes={() => { const text = waiting ?? ""; setWaiting(null); useMoney.getState().setAiConsent(true); if (text) go(text); }}

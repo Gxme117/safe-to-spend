@@ -5,12 +5,12 @@
 // £1,800 on Fri 30 Oct, rent £400 on the 15th). It costs real money (pennies a question), so it never runs with the other
 // tests: `npm run accountant:smoke`, once the function is deployed with its key. It prints each answer to read through.
 import {writeFileSync} from "fs";
-import {send} from "@/services/accountant";
+import {photo, send} from "@/services/accountant";
 import {baseState, ctx, tx} from "../../__tests__/fixtures";
 import type {Scan} from "../../regulars";
 import type {Bank, Bill} from "../../types";
 import {converse, type Transcript} from "../converse";
-import {isExact, totalOf} from "../research";
+import {isExact, photoQuery, totalOf} from "../research";
 import {roundOf, stopwatch} from "../timings";
 import type {Note, ToolEffect, Who} from "../tools";
 
@@ -137,12 +137,29 @@ test("the web: he searches for what's out in the world, cites it, and leaves you
 
 // Something to buy, the way people ask it: he works out what it is, opens the shops' own pages, the app reads the prices on them
 // and shows the ones they back as a card, and the engine runs on the one he went by, all in the one question.
-const PURCHASE_QUESTIONS: [Who, string][] = [
+// a card's photo for each kind of thing he's priced in live runs (4 image searches, no Claude): `-t photo` runs only this
+test("photo: every card gets one, looked up by its name", async () => {
+  for (const product of ["iPhone 17, 256GB", "BMW 1 Series, new, from price", "55 inch 4K smart TV", "RTX 5060 Ti gaming PC"]) {
+    const url = await photo(photoQuery(product));
+    console.log(`${product}: ${url}`);
+    expect([product, url]).toEqual([product, expect.stringMatching(/^https:\/\//)]);
+  }
+});
+
+const FIRST_FOUR: [Who, string][] = [
   ["frank", "Can I afford a new iPhone?"],
   ["tim", "Could I buy a BMW?"],
   ["tim", "Is it worth getting a new TV?"],
   ["frank", "How much would a decent gaming PC cost?"],
 ];
+// more kinds of shop, for measuring how often a price is found: SMOKE_MORE=1 adds them, SMOKE_MORE=only asks just these
+const MORE: [Who, string][] = [
+  ["frank", "Can I afford a Samsung 55 inch TV?"],
+  ["frank", "Could I get a PS5?"],
+  ["tim", "Can I afford a Dyson cordless vacuum?"],
+  ["frank", "Should I buy AirPods Pro?"],
+];
+const PURCHASE_QUESTIONS = process.env.SMOKE_MORE === "only" ? MORE : process.env.SMOKE_MORE ? [...FIRST_FOUR, ...MORE] : FIRST_FOUR;
 // what tokens and searches cost on the accountant's model, in dollars (claude-opus-5-5: a million tokens in, read from the cache,
 // written to it, and out; a search)
 const PRICE = {in: 4, read: 0.2, write: 5, out: 20, search: 0.01};

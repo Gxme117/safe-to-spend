@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import {whatIf} from "../../today";
 import {baseState, ctx as makeCtx} from "../../__tests__/fixtures";
-import {checkOffers, notPassed, notSubscription, ownSite, pagesIn, pickOf, pricesLikely, researchView, totalOf, type Offer, type OfferClaim, type Page, type Pages, type PurchaseClaim, type Research} from "../research";
+import {checkOffers, notPassed, notSubscription, ownSite, pagesIn, photoOn, photoQuery, pickOf, pricesLikely, researchView, totalOf, type Offer, type OfferClaim, type Page, type Pages, type PurchaseClaim, type Research} from "../research";
 
 type Message = Anthropic.Beta.Messages.BetaMessageParam;
 const NOW = new Date(2026, 9, 5, 9, 12), READ = new Date(2026, 9, 5, 9, 10).toISOString();
@@ -347,4 +347,27 @@ test("a question for the shops: the first thing the line says, and whether a pri
   }
   expect(notSubscription("And an Xbox Series X?")).toBe(true);
   expect(notSubscription("And what about Netflix?")).toBe(false);
+});
+
+test("a shop's own photo of it, from its page: its words or address name his model, never its logo, a badge, a video or a Pro", () => {
+  const iphone: PurchaseClaim = {product: "iPhone 17, 256GB", assumed: "", identifies: ["iPhone 17", "256GB"], offers: []};
+  // as Mobile Phones Direct's and Lebara's pages read on 2 Nov 2026
+  const MPD = "https://www.mobilephonesdirect.co.uk/apple/iphone-17-256gb-white", LEBARA = "https://phones.lebara.co.uk/apple/iphone-17-256gb-white";
+  const mpd = page(MPD, "![MobilePhonesDirect.co.uk](https://www.mobilephonesdirect.co.uk/themes/mpd/img/logo/mpd-logo-mobile.svg)\n![iPhone 17 Pro 256GB top deal](https://www.mobilephonesdirect.co.uk/files/images/thumbnail/handsets/apple/01_iphone17pro_orange_pm.png)\n![iPhone 17 256GB top deal](https://www.mobilephonesdirect.co.uk/files/images/thumbnail/handsets/apple/01_iphone17_black_pm.png)\n![iPhone 16 128GB top deal](https://www.mobilephonesdirect.co.uk/files/images/thumbnail/handsets/apple/01_iphone16_black_pm.png)\niPhone 17 256GB £889.00");
+  expect(photoOn(mpd, iphone)).toBe("https://www.mobilephonesdirect.co.uk/files/images/thumbnail/handsets/apple/01_iphone17_black_pm.png");
+  const lebara = page(LEBARA, "![Logo](https://phones.lebara.co.uk/themes/lebara/img/logo/lebara-ao.svg)\n![iPhone 17 256GB White - Image 2](https://img.youtube.com/vi/6RacMBJCZcw/0.jpg)\n![iPhone 17 256GB White - Image 3](https://phones.lebara.co.uk/files/images/thumbnail/handsets/apple/02_iphone17_white_pm.png)");
+  expect(photoOn(lebara, iphone)).toBe("https://phones.lebara.co.uk/files/images/thumbnail/handsets/apple/02_iphone17_white_pm.png");
+  expect(photoOn(page(SCAN, GLADIATOR_TEXT), iphone)).toBeNull();
+  expect(photoOn(mpd, {...iphone, identifies: ["256GB"]})).toBeNull();
+  // and it rides on the offer, and the card's tile
+  const r = checkOffers({...iphone, offers: [{seller: "Mobile Phones Direct", url: MPD, price: 889, condition: "new", delivery: null, pick: true}]}, pages(mpd), NOW).research!;
+  expect(researchView(makeCtx({state: baseState()}), r, NOW).rows[0].photo).toBe("https://www.mobilephonesdirect.co.uk/files/images/thumbnail/handsets/apple/01_iphone17_black_pm.png");
+});
+
+test("a card's photo is looked up by its name without his asides, as live runs named them", () => {
+  expect(photoQuery("iPhone 17, 256GB")).toBe("iPhone 17");
+  expect(photoQuery("BMW iX1 (new, cheapest BMW listed)")).toBe("BMW iX1");
+  expect(photoQuery("BMW 1 Series, new, from price")).toBe("BMW 1 Series");
+  expect(photoQuery("Hisense 55E6QTUK 55 inch Smart 4K UHD HDR LED Freely TV")).toBe("Hisense 55E6QTUK 55 inch Smart 4K UHD HDR LED Freely TV");
+  expect(photoQuery("(refurbished) ")).toBe("(refurbished)");
 });

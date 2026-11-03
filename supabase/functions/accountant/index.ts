@@ -4,9 +4,10 @@
 // shop's page opened for a purchase, runs on Anthropic's side, and comes back as part of what Claude said.
 //   POST /chat {who, messages, research?} → {content, stop_reason, usage}: usage is only token counts, for what a question costs
 //   POST /say {who, text} → {audio (mp3, base64), ms, words}: Tim's or Frank's short spoken line, in his voice
+//   POST /photo {q} → {url}: a photo of something he priced, for its card (Brave's image search on its name)
 // Only signed-in users of the app (anonymous sign-in counts). Nothing said is logged.
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
-import {failure, logLine, params, readAsk, readSay, sayBody, sayReply, sayUrl, signedInCache, userOf} from "./lib.ts";
+import {failure, logLine, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, signedInCache, userOf} from "./lib.ts";
 import {PROMPT_VERSION} from "./prompt.ts";
 
 const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
@@ -14,6 +15,7 @@ const model = Deno.env.get("ACCOUNTANT_MODEL") || "claude-opus-5-5";
 const supabase = Deno.env.get("SUPABASE_URL") ?? "";
 const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const voiceKey = Deno.env.get("ELEVENLABS_API_KEY") ?? ""; // their voices, for /say
+const photoKey = Deno.env.get("BRAVE_API_KEY") ?? ""; // product photos, for /photo
 // one try per request: the phone says "busy, ask again" rather than keeping you waiting twice as long. Long enough for a few web
 // searches, and short of the 150s Supabase gives a function to answer
 const client = new Anthropic({apiKey: key, timeout: 120_000, maxRetries: 0});
@@ -54,14 +56,33 @@ async function say(req: Request, auth: number | "cached") {
   return json({error: f.error}, f.status);
 }
 
+/** A photo of something he priced: the first picture Brave's image search finds for its name. The name isn't logged. */
+async function photo(req: Request, auth: number | "cached") {
+  if (!photoKey) return json({error: "not_configured"}, 500);
+  const ask = readPhoto(await req.text());
+  if ("error" in ask) return json(ask, 400);
+  const started = Date.now();
+  const r = await fetch(photoUrl(ask.q), {
+    signal: AbortSignal.timeout(8_000),
+    headers: {"X-Subscription-Token": photoKey, accept: "application/json"},
+  }).catch(() => null);
+  const url = r?.ok ? photoOf(await r.json().catch(() => null), ask.q) : null;
+  console.log(JSON.stringify({door: "photo", ms: Date.now() - started, auth, status: r?.status ?? "error", found: !!url}));
+  if (url) return json({url});
+  if (r?.ok) return json({error: "not_found"}, 404);
+  const f = failure(r?.status);
+  return json({error: f.error}, f.status);
+}
+
 Deno.serve(async req => {
   const door = new URL(req.url).pathname.split("/").filter(Boolean).pop();
   if (!supabase || !anon || (door === "chat" && !key)) return json({error: "not_configured"}, 500);
-  if (req.method !== "POST" || (door !== "chat" && door !== "say")) return json({error: "not_found"}, 404);
+  if (req.method !== "POST" || (door !== "chat" && door !== "say" && door !== "photo")) return json({error: "not_found"}, 404);
   const checking = Date.now(), who = await signedIn(req);
   if (!who.user) return json({error: "signed_out"}, 401);
   const auth = who.cached ? "cached" : Date.now() - checking;
   if (door === "say") return say(req, auth);
+  if (door === "photo") return photo(req, auth);
 
   const ask = readAsk(await req.text());
   if ("error" in ask) return json(ask, ask.error === "too_big" ? 413 : 400);

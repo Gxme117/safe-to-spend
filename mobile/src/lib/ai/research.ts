@@ -23,6 +23,8 @@ export const CONDITIONS: Condition[] = ["new", "refurbished", "used"];
 export interface Offer {
   seller: string; condition: Condition; price: number; delivery?: number | "free";
   url: string; title: string; host: string; checked: string; pick?: true; from?: true; unshown?: string[];
+  /** the shop's own picture of it, from its page (`photoOn`) */
+  photo?: string;
 }
 /** The card. */
 export interface Research { product: string; note?: string; offers: Offer[] }
@@ -208,6 +210,23 @@ function pageSays(page: Page, claim: PurchaseClaim, price: number): {why: string
   return {why: other ?? whys[whys.length - 1]};
 }
 
+// a picture on a page that isn't of the thing: the shop's logo, icons, badges, payment and social links, banners, videos
+const NOT_PHOTO = /logo|icon|badge|sprite|flag|payment|klarna|trustpilot|banner|placeholder|youtube|facebook|twitter|instagram|rating|\.svg\b|\.gif\b/i;
+const PICTURE = /!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g;
+
+/** The shop's own picture of it on its page: the first whose words or address name his model, and not a Pro, Max and so on he
+ *  didn't price. A page with none (a listing of other things, a page drawn by script) has none. */
+export function photoOn(page: Page, claim: PurchaseClaim): string | null {
+  const model = [...new Set(claim.identifies.map(squash).filter(n => n && !isSize(n)))], product = claim.product.toLowerCase();
+  if (!model.length) return null;
+  for (const [, alt, url] of page.text.matchAll(PICTURE)) {
+    const says = `${alt} ${url}`;
+    if (NOT_PHOTO.test(says) || variantsIn(says, product).length) continue;
+    if (model.every(n => squash(says).includes(n))) return url;
+  }
+  return null;
+}
+
 /** Reads what he found against the pages he opened: what they back, and what they don't and why. `waiting`: a page he named hasn't
  *  opened yet (asked for beside this call, it opens on the next request). */
 export function checkOffers(claim: PurchaseClaim, pages: Pages, now: Date): {research: Research | null; rejected: Rejected[]; waiting: boolean} {
@@ -236,8 +255,9 @@ export function checkOffers(claim: PurchaseClaim, pages: Pages, now: Date): {res
       : USED.test(called) || SECOND_HAND.test(called) || SECOND_HAND.test(by) ? "used" : "new";
     // delivery, only as the page says it
     const delivery = o.delivery === 0 ? (FREE.test(page.text) ? "free" as const : null) : o.delivery !== null && quotesDelivery(page.text, o.delivery) ? o.delivery : null;
+    const photo = photoOn(page, claim);
     const offer: Offer = {seller, condition, price: o.price, ...delivery !== null ? {delivery} : {}, url: page.url, title: page.title || page.host, host: page.host,
-      checked: page.read || now.toISOString(), ...pick, ...says.from ? {from: true as const} : {}, ...says.unshown.length ? {unshown: says.unshown} : {}};
+      checked: page.read || now.toISOString(), ...pick, ...says.from ? {from: true as const} : {}, ...says.unshown.length ? {unshown: says.unshown} : {}, ...photo ? {photo} : {}};
     if (!offers.some(x => x.url === offer.url && x.price === offer.price)) offers.push(offer);
   }
   if (!offers.length) return {research: null, rejected, waiting};
@@ -288,10 +308,14 @@ const NOT_SHOPS = /£|\d\s?(?:quid|pounds?)\b|\b(?:left|spend|spent|spending|due
  *  price has to come through check_purchase. */
 export const pricesLikely = (question: string) => SHOPS.test(question) && !NOT_SHOPS.test(question) && notSubscription(question);
 
+/** What to look a card's photo up by: its name without his asides, "iPhone 17, 256GB" → "iPhone 17", "BMW iX1 (new, cheapest
+ *  BMW listed)" → "BMW iX1". */
+export const photoQuery = (product: string) => product.replace(/\([^)]*\)/g, "").split(",")[0].replace(/\s+/g, " ").trim() || product.trim();
+
 /** What it costs to have: the price, and delivery when the page gives one. */
 export const totalOf = (o: Offer) => r2(o.price + (typeof o.delivery === "number" ? o.delivery : 0));
 
-export interface OfferRow { seller: string; meta: string; price: string; url: string; host: string; pick: boolean; label: string }
+export interface OfferRow { seller: string; meta: string; price: string; url: string; host: string; pick: boolean; label: string; photo?: string }
 /** The card as shown. `best`: the price he went by (none when no offer of that kind was backed). `ifToday`: what buying it today
  *  would do, in the engine's own words, as Today's "What if I spend…" says them. `limited`: only one shop's page backed a price. */
 export interface ResearchView {
@@ -319,7 +343,7 @@ export function researchView(ctx: Ctx, r: Research, now: Date): ResearchView {
   const rows = [...r.offers].sort((a, b) => Number(!!b.pick) - Number(!!a.pick) || totalOf(a) - totalOf(b)).map(o => {
     const meta = [CONDITION[o.condition], o.from ? "Starting price" : o.unshown?.length ? "Spec not shown at this price" : null, deliveryOf(o)].filter(Boolean).join(" · ");
     const price = priceOf(o);
-    return {seller: o.seller, meta, price, url: o.url, host: o.host, pick: !!o.pick, label: `Open ${o.seller}'s listing, ${price}, ${meta}, on ${o.host}`};
+    return {seller: o.seller, meta, price, url: o.url, host: o.host, pick: !!o.pick, label: `Open ${o.seller}'s listing, ${price}, ${meta}, on ${o.host}`, ...o.photo ? {photo: o.photo} : {}};
   });
   const oldest = r.offers.reduce((a, o) => o.checked < a ? o.checked : a, r.offers[0].checked), spec = pick && unshownLine(pick);
   return {
