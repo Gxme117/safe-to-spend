@@ -41,7 +41,7 @@ const fromText = (t: string) => {
 };
 
 /**
- * Every figure a reply may use: each tool result in the conversation, and everything you said (and your notes).
+ * Every figure a reply may use: each tool result in the conversation, and everything you said (and your notes, and text files you added).
  * His own earlier words don't count: a figure is only as good as where it came from.
  */
 export function knownIn(messages: Message[]): number[] {
@@ -52,6 +52,8 @@ export function knownIn(messages: Message[]): number[] {
     for (const b of m.content) {
       if (b.type === "tool_result") fromResult(b.content, out);
       else if (b.type === "text") out.push(...fromText(b.text));
+      // a text file you added (lib/ai/attach.ts): the phone read it, so it counts as your words. A photo or PDF it couldn't read never counts
+      else if (b.type === "document" && b.source.type === "text") out.push(...[...b.source.data.matchAll(ANY)].map(x => num(x[0])));
     }
   }
   return out;

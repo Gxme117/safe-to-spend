@@ -12,6 +12,9 @@ import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useChrome} from "@/store/chrome";
 import {useReducedMotion} from "@/components/BigMoney";
 import {ConsentSheet} from "@/components/ConsentSheet";
+import {Attachments, PlusCard} from "@/components/PlusCard";
+import {MAX_ATTACH, readFrom, shownOf, tooMuch, type Attachment, type Shown} from "@/lib/ai/attach";
+import {fromCamera, fromFiles, fromPhotos, type Picked} from "@/services/attach";
 import {Icon} from "@/components/Icon";
 import {ChatsPanel, type Face} from "@/components/ChatsPanel";
 import {deleteChat, listChats, loadChat, pruneChats, saveChat} from "@/db/chats";
@@ -67,6 +70,7 @@ const PEOPLE: Record<Accountant, {name: string; button: string; fails: Record<Fa
       busy: "I'm busy for a moment. Ask me again in a minute.",
       unavailable: "Something's gone wrong on my side. Try again in a bit.",
       "not-set-up": "I'm not switched on yet. The app needs setting up first.",
+      "too-big": "That's more than I can look at in one go. Try fewer photos, or start a new chat.",
       refused: "I can't help with that one. Ask me something about your money?",
       "cut-off": "I lost my thread there. Could you ask that again, a bit narrower?",
       "went-round": "I went round in circles on that one. Could you ask it another way?",
@@ -78,6 +82,7 @@ const PEOPLE: Record<Accountant, {name: string; button: string; fails: Record<Fa
       busy: "Busy. Ask again in a minute.",
       unavailable: "Something's broken on my end. Try again later.",
       "not-set-up": "Not switched on yet. Someone has to set me up first.",
+      "too-big": "Too much to look at. Fewer photos, or a new chat.",
       refused: "Not something I can help with. Money questions, please.",
       "cut-off": "Lost my thread. Ask again, smaller.",
       "went-round": "Went round in circles. Ask it another way.",
@@ -92,8 +97,9 @@ const PEOPLE: Record<Accountant, {name: string; button: string; fails: Record<Fa
 // `web`, the pages he cites, when he searched the web for it (none: he looked and has nothing to cite).
 // `research`, something to buy he looked up, as a card leading the answer (worked out when it was shown); `estimate`, no shop's
 // own page backed a price to go by, so any price in his words is an estimate, and this says so under them.
+// `attached`, on yours: the photos and files you sent with it (a small picture of each photo; the things themselves are in the transcript).
 type Card = {p: Proposal; view: ProposalView; status: CardStatus; note?: string};
-type Said = {id: number; who: Accountant; mine: boolean; text: string; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; web?: Source[]; research?: ResearchView; estimate?: string};
+type Said = {id: number; who: Accountant; mine: boolean; text: string; attached?: Shown[]; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; web?: Source[]; research?: ResearchView; estimate?: string};
 const ESTIMATE = "No shop's own page showed the price, so any price here is an estimate.";
 // a chat to keep, from your first question in it
 const newChatId = () => ({id: uid(), made: Date.now()});
@@ -110,6 +116,7 @@ function Round({fill, tint, children}: {fill: string; tint?: string; children: R
 // told to him on each question in a temporary chat, since his notes aren't given to him and remember saves nothing
 const TEMP_CHAT = "This is a temporary chat: the person turned on not keeping it. Nothing from it is kept, you can't see your notes from earlier conversations, and remember saves nothing, so don't offer to note anything.";
 const nowMs = () => Date.now(); // the time now, read outside drawing
+const PLUS_X = 32 + 6 + 38 / 2; // the middle of the box's "+": the foot's padding, the box's, half the button
 
 // the conversation in cards: each of your questions starts one, and what he says to it goes in with it
 const exchanges = (said: Said[]) => said.reduce<Said[][]>((cards, s) => {
@@ -125,7 +132,7 @@ function saidOf(who: Accountant, a: Answer, now: Date): Omit<Said, "id"> {
   const onCard = new Set(research?.rows.map(r => r.url)), web = (a.sources ?? []).filter(w => !onCard.has(w.url));
   return {
     who, mine: false, text: a.text, checked: state && receipt(a.used, state, now, a.searched || !!research),
-    ...a.unchecked.length ? {flag: `I couldn't check ${a.unchecked.join(", ")} against your numbers${a.searched ? " or a source" : ""}.`} : {},
+    ...a.unchecked.length ? {flag: a.readFrom ? readFrom(a.unchecked, a.readFrom) : `I couldn't check ${a.unchecked.join(", ")} against your numbers${a.searched ? " or a source" : ""}.`} : {},
     ...a.searched && !(research && !web.length) ? {web} : {},
     ...research ? {research} : {},
     ...a.estimate ? {estimate: ESTIMATE} : {},
@@ -548,6 +555,30 @@ function Tim() {
   const say = (s: Omit<Said, "id">) => { const id = said.current++; follow.current = true; setThread(th => [...th, {...s, id}]); return id; };
   const thinking = working?.who === who;
   const reduced = useReducedMotion();
+  // The "+" card (components/PlusCard.tsx): photos and files for your next question, in a tray in the box until you send, and
+  // which Claude each accountant thinks with
+  const [plus, setPlus] = useState(false);
+  // where the "+" menu stops: just above the question box (its foot's height less where the box starts in it)
+  const [footH, setFootH] = useState(0), [barY, setBarY] = useState(0);
+  const [attach, setAttach] = useState<Attachment[]>([]);
+  const model = useMoney(st => st.models[who]);
+  const openPlus = () => { Keyboard.dismiss(); setPlus(true); };
+  // what you picked goes in the tray, as many as fit; the first that doesn't says why on the toast
+  const pick = async (from: (room: number) => Promise<Picked>) => {
+    setPlus(false);
+    if (attach.length >= MAX_ATTACH) { useMoney.getState().notify(`Up to ${MAX_ATTACH} at a time.`); return; }
+    const r = await from(MAX_ATTACH - attach.length);
+    if ("reason" in r) { useMoney.getState().notify(r.reason); return; }
+    setAttach(have => {
+      const out = [...have];
+      for (const a of r.add) {
+        const why = tooMuch(out, a);
+        if (why) { useMoney.getState().notify(why); break; }
+        out.push(a);
+      }
+      return out;
+    });
+  };
 
   // Recent chats: the burger button slides a panel in from the left and pushes the page right to make room, as in the
   // ChatGPT app. A tap on the page (or the button) slides it back. Reduced motion: it's just there.
@@ -603,7 +634,7 @@ function Tim() {
   const depsOf = (to: Accountant, current: () => boolean, clock: Stopwatch | null): Deps => {
     let round = 0;
     return {
-      send: async m => { const turn = await send(to, m); clock?.mark(roundOf(++round, turn)); return turn; },
+      send: async m => { const turn = await send(to, m, useMoney.getState().models[to]); clock?.mark(roundOf(++round, turn)); return turn; },
       env: () => {
         const st = useMoney.getState();
         return {ctx: {state: st.state!, txs: st.txs, today: st.today}, notes: tempRef.current ? [] : st.notes, who: to, newId: () => "n_" + uid(),
@@ -722,7 +753,7 @@ function Tim() {
       if (sig === kept.current[w]) continue;
       kept.current[w] = sig;
       const now = nowMs();
-      saveChat({id, who: w, title: titleOf(first.text), created: made.current[w] || now, updated: now, body: bodyOf(saved), said: saved, transcript: talks.current[w]})
+      saveChat({id, who: w, title: titleOf(first.text, 80, first.attached), created: made.current[w] || now, updated: now, body: bodyOf(saved), said: saved, transcript: talks.current[w]})
         .catch(e => console.warn("Couldn't keep the chat:", e instanceof Error ? e.message : e));
     }
   }, [thread]);
@@ -844,6 +875,8 @@ function Tim() {
   const openCards = (w: Accountant) => thread.filter(s => s.who === w && s.cards).flatMap(s => s.cards!.map((k, i) => ({s, i, k}))).filter(x => waits(x.k));
   const go = (text: string) => {
     const to = who, chat = chats.current[to], still = () => chats.current[to] === chat;
+    const files = attach; // the tray goes with this question
+    setAttach([]);
     const clock = __DEV__ ? stopwatch() : null;
     // a card you answered with words instead: it closes, nothing changed, and he reads what you said
     const st0 = useMoney.getState();
@@ -853,11 +886,11 @@ function Tim() {
     }
     const context = [...outcomes.current[to].splice(0), ...tempRef.current ? [TEMP_CHAT] : []];
     if (!chatId.current[to]) { const n = newChatId(); setChatId(to, n.id); made.current[to] = n.made; }
-    say({who: to, mine: true, text});
+    say({who: to, mine: true, text, ...files.length ? {attached: shownOf(files)} : {}});
     setSmallFor(sm => ({...sm, [to]: true}));
     setWorking({who: to, doing: "Thinking…"});
     setLooked([]);
-    converse(talks.current[to], text, depsOf(to, still, clock), new Date(), context)
+    converse(talks.current[to], text, depsOf(to, still, clock), new Date(), context, files.length ? {attach: files} : {})
       .then(a => {
         if (!still()) return;
         talks.current[to] = a.transcript;
@@ -878,25 +911,29 @@ function Tim() {
   // what's in the box, or a suggestion you tapped (sent as it is, the box left alone)
   const ask = (tapped?: string) => {
     const text = tapped ?? q.trim();
-    if (!text || working || dict.listening || !useMoney.getState().state) return;
+    // a photo or file can go on its own, with no words
+    if ((!text && !attach.length) || working || dict.listening || !useMoney.getState().state) return;
     if (!tapped) setQ("");
     Keyboard.dismiss(); // sent: the keyboard goes down so his answer has the room
-    // a plain yes or no to the one card he's showing is the same as tapping it: no need to ask him
-    const open = openCards(who), reply = !tapped && open.length === 1 ? yesNo(text) : "reply";
+    // a plain yes or no to the one card he's showing is the same as tapping it: no need to ask him (never with a photo or file)
+    const open = openCards(who), reply = !tapped && !attach.length && open.length === 1 ? yesNo(text) : "reply";
     if (reply !== "reply") { say({who, mine: true, text}); void decide(open[0].s, open[0].i, reply === "yes"); return; }
     // the first time, he asks before looking at your numbers
     if (!useMoney.getState().aiConsent) setWaiting(text);
     else go(text);
   };
-  const button = micState({listening: dict.listening, text: q, working: !!working, canDictate: dict.able});
+  // a photo or file in the tray is something to send, words or not
+  const sendable = !!q.trim() || attach.length > 0;
+  const button = micState({listening: dict.listening, text: sendable ? q || "attached" : "", working: !!working, canDictate: dict.able});
   const off = button === "send" && !!working; // only Send ever waits; stop and the microphone are always yours to tap
   // an empty box shows the soundwave, even where the phone can't listen (there it's still Send, with nothing to send)
-  const icon = button === "send" && !working && !q.trim() ? "wave" : MIC_BUTTON[button].icon;
+  const icon = button === "send" && !working && !sendable ? "wave" : MIC_BUTTON[button].icon;
   // read out what he's doing, and what he says when he's done
   const last = thread[thread.length - 1];
-  // suggestions: starters on an empty chat while the box is empty; after that, under his latest answer, while he isn't working
+  // suggestions: starters on an empty chat while the box is empty (not while the "+" menu is out); after that, under his
+  // latest answer, while he isn't working
   const latest = thread.filter(s => s.who === who).at(-1);
-  const starters = !talked && !q && !dict.listening && !working;
+  const starters = !talked && !q && !dict.listening && !working && !plus;
   const chip = (text: string) => (
     <Pressable key={text} onPress={() => ask(text)} accessibilityRole="button" accessibilityHint={`Asks ${name}`}
       style={{paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: edge, backgroundColor: box}}>
@@ -985,8 +1022,14 @@ function Tim() {
           {exchanges(thread.filter(s => s.who === who)).map(group => (
           <View key={group[0].id} style={{gap: 20}}>
           {group.map(s => s.mine ? (
-            <View key={s.id} style={{alignSelf: "flex-end", maxWidth: "80%", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, backgroundColor: mine}}>
-              <Text accessibilityLabel={`You asked: ${s.text}`} style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: mineInk}}>{s.text}</Text>
+            <View key={s.id} style={{alignSelf: "flex-end", alignItems: "flex-end", maxWidth: "80%", gap: 8}}>
+              {/* the photos and files you sent with it, above your words */}
+              {s.attached ? <Attachments items={s.attached} tone={tone} ink={c.ink} /> : null}
+              {s.text ? (
+                <View style={{paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, backgroundColor: mine}}>
+                  <Text accessibilityLabel={`You asked: ${s.text}`} style={{fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: mineInk}}>{s.text}</Text>
+                </View>
+              ) : null}
             </View>
           ) : (
             <View key={s.id} style={{alignSelf: "stretch", gap: 32}}>
@@ -1081,7 +1124,7 @@ function Tim() {
     </View>
 
     {/* the question box, at the bottom as in the OpenAI app; it grows as you write (return makes a new line), Send sends */}
-    <Reanimated.View style={[{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12 + foot, backgroundColor: bg}, lift]}>
+    <Reanimated.View onLayout={e => setFootH(e.nativeEvent.layout.height)} style={[{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12 + foot, backgroundColor: bg}, lift]}>
       {/* on an empty chat, a few questions to start with, one tap to ask */}
       {starters ? (
         <ScrollView testID="starters" horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
@@ -1091,10 +1134,17 @@ function Tim() {
       ) : null}
       {/* Liquid Glass where the phone has it, as the top buttons are, tinted in the box's colour so it reads solid on
           the flat page (untinted, with nothing behind it to frost, it looked faded); else the box in its own colour */}
-      <Bar {...GLASS ? {glassEffectStyle: "regular" as const, tintColor: box} : {}} style={[{flexDirection: "row", alignItems: "flex-end", gap: 4, minHeight: 52, paddingHorizontal: 6, paddingVertical: 6, borderRadius: 26},
+      <Bar onLayout={e => setBarY(e.nativeEvent.layout.y)} {...GLASS ? {glassEffectStyle: "regular" as const, tintColor: box} : {}} style={[{gap: 4, minHeight: 52, paddingHorizontal: 6, paddingVertical: 6, borderRadius: 26},
         GLASS ? null : {backgroundColor: box, borderWidth: 1, borderColor: edge}]}>
-        {/* in the box, on the left, the send button's size; it does nothing yet */}
-        <Pressable accessibilityRole="button" accessibilityLabel="More" hitSlop={4}
+        {/* the photos and files for this question, above the words, each with a × */}
+        {attach.length ? (
+          <View testID="attach-tray" style={{paddingHorizontal: 6, paddingTop: 6}}>
+            <Attachments items={shownOf(attach)} onRemove={i => setAttach(have => have.filter((_a, j) => j !== i))} tone={tone} ink={c.ink} />
+          </View>
+        ) : null}
+        <View style={{flexDirection: "row", alignItems: "flex-end", gap: 4}}>
+        {/* in the box, on the left, the send button's size: the "+" card (photos, camera, files, and his model) */}
+        <Pressable testID="plus" onPress={openPlus} accessibilityRole="button" accessibilityLabel="Add photos or files, or change model" accessibilityState={{expanded: plus}} hitSlop={4}
           style={{width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center"}}>
           <Icon name="plus" color={c.ink} size={28} />
         </Pressable>
@@ -1116,6 +1166,7 @@ function Tim() {
           style={{width: 38, height: 38, borderRadius: 19, backgroundColor: sendBg, alignItems: "center", justifyContent: "center", opacity: off ? 0.35 : 1}}>
           <Icon name={icon} color={sendInk} size={button === "stop" ? 14 : icon === "wave" ? 22 : 16} />
         </Pressable>
+        </View>
       </Bar>
     </Reanimated.View>
 
@@ -1136,8 +1187,12 @@ function Tim() {
         onNew={() => { newChat(who); setDrawer(false); }} onGo={href => { setDrawer(false); router.navigate(href); }}
         tone={tone} bottom={16 + foot} faces={faces} />
     </Reanimated.View>
+    {/* the "+" card, over the whole page */}
+    <PlusCard open={plus} onClose={() => setPlus(false)} name={name} model={model} onModel={m => useMoney.getState().setModel(who, m)}
+      onCamera={() => void pick(() => fromCamera())} onPhotos={() => void pick(fromPhotos)} onFiles={() => void pick(fromFiles)}
+      tone={tone} ink={c.ink} muted={c.muted} reduced={reduced} bottom={footH - barY + 8} left={32} plusX={PLUS_X} plusY={12 + foot + 6 + 38 / 2} />
     <ConsentSheet visible={waiting !== null} name={name}
-      onYes={() => { const text = waiting ?? ""; setWaiting(null); useMoney.getState().setAiConsent(true); if (text) go(text); }}
+      onYes={() => { const text = waiting ?? ""; setWaiting(null); useMoney.getState().setAiConsent(true); if (text || attach.length) go(text); }}
       onNo={() => { setQ(waiting ?? ""); setWaiting(null); }} />
     </View>
   );

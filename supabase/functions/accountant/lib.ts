@@ -9,11 +9,18 @@ export type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 /** A conversation as the phone sends it: whose it is, and every message so far, ending with the person's (or a tool result), or
  *  with a web search Claude's side paused, which goes back as it came to carry on. `research`: the phone can check a purchase's
  *  prices and show them as a card (an app from before it can't, so it's never offered the tools for it). */
-export interface Ask { who: Who; messages: Message[]; research?: true }
+export interface Ask { who: Who; messages: Message[]; research?: true; model?: ModelKey }
+
+/** The models the phone may pick for him (the "+" card), by a short key: only these, never a name the phone sends. Without
+ *  one (an app from before), the function's own ACCOUNTANT_MODEL. */
+export const MODELS = {opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5"} as const;
+export type ModelKey = keyof typeof MODELS;
+// a refusal retried on the model's default fallback: Haiku has none
+const NO_FALLBACK: readonly string[] = [MODELS.haiku];
 
 // A long conversation is still well under these; anything bigger isn't from the app. Web results come back encrypted and have
-// to go back whole on every request, so they're most of what a conversation weighs.
-export const MAX_BYTES = 2_000_000, MAX_MESSAGES = 160;
+// to go back whole on every request, and so do the photos and PDFs you add, so they're most of what a conversation weighs.
+export const MAX_BYTES = 12_000_000, MAX_MESSAGES = 160;
 
 // a turn of his with a web search in it: the only one the phone may end a conversation on
 const searched = (m: Message) => m.role === "assistant" && Array.isArray(m.content) &&
@@ -27,8 +34,9 @@ export function readAsk(raw: string): Ask | {error: string} {
   if (new TextEncoder().encode(raw).length > MAX_BYTES) return {error: "too_big"};
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return {error: "bad_request"}; }
-  const {who, messages, research} = (body ?? {}) as {who?: unknown; messages?: unknown; research?: unknown};
+  const {who, messages, research, model} = (body ?? {}) as {who?: unknown; messages?: unknown; research?: unknown; model?: unknown};
   if (who !== "tim" && who !== "frank") return {error: "bad_request"};
+  if (model !== undefined && (typeof model !== "string" || !Object.hasOwn(MODELS, model))) return {error: "bad_request"};
   if (!Array.isArray(messages) || !messages.length || messages.length > MAX_MESSAGES) return {error: "bad_request"};
   for (const m of messages) {
     if (!m || typeof m !== "object") return {error: "bad_request"};
@@ -38,7 +46,7 @@ export function readAsk(raw: string): Ask | {error: string} {
   }
   const last = messages[messages.length - 1] as Message;
   if ((messages[0] as Message).role !== "user" || (last.role !== "user" && !searched(last))) return {error: "bad_request"};
-  return {who, messages: messages as Message[], ...research === true ? {research: true as const} : {}};
+  return {who, messages: messages as Message[], ...research === true ? {research: true as const} : {}, ...model ? {model: model as ModelKey} : {}};
 }
 
 /** Who's asking, from Supabase Auth's answer about their token: a signed-in user (anonymous counts), or no one. */
@@ -91,14 +99,15 @@ export function signedInCache(max = 500) {
  * Buying something (BUYING, and the tools for it) only for a phone that can show its card: two cached versions, and a
  * conversation keeps to one, so a paused or waiting search or page always finds its tool on the next request.
  */
-export function params(ask: Ask, model: string): Params {
+export function params(ask: Ask, fallbackModel: string): Params {
+  const model = ask.model ? MODELS[ask.model] : fallbackModel, fallback = !NO_FALLBACK.includes(model);
   return {
     model,
     max_tokens: 16000,
     thinking: {type: "adaptive", block_binding: {prefix_mismatch_behavior: "drop_block"}},
     output_config: {effort: "medium"},
-    betas: ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"],
-    fallbacks: "default",
+    betas: [...fallback ? ["server-side-fallback-2026-07-01"] : [], "thinking-binding-controls-2026-08-01"],
+    ...fallback ? {fallbacks: "default" as const} : {},
     tools: ask.research ? [...TOOLS, CHECK_PURCHASE, WEB_SEARCH, WEB_FETCH] : [...TOOLS, WEB_SEARCH],
     system: [{type: "text", text: RULES}, ...ask.research ? [{type: "text" as const, text: BUYING}] : [],
       {type: "text", text: VOICES[ask.who], cache_control: {type: "ephemeral"}}],

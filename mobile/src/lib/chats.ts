@@ -14,9 +14,13 @@ export type Chat<S = unknown, T = unknown> = ChatRow & {said: S[]; transcript: T
 /** The least of what's on screen these rules need to know about. */
 type Saidish = {id: number; mine: boolean; text: string; voiced?: unknown; cards?: {status: string}[]};
 
-/** The chat's name: your first question, on one line, cut at a word if it's long. */
-export function titleOf(question: string, max = 80): string {
+/** The chat's name: your first question, on one line, cut at a word if it's long. A photo or file sent with no words: what it was. */
+export function titleOf(question: string, max = 80, attached: readonly {kind: string; name: string}[] = []): string {
   const t = question.replace(/\s+/g, " ").trim();
+  if (!t && attached.length) {
+    const photos = attached.filter(a => a.kind === "image").length;
+    return photos === attached.length ? (photos > 1 ? "Photos" : "Photo") : titleOf(attached.find(a => a.kind !== "image")!.name, max);
+  }
   if (t.length <= max) return t;
   const cut = t.slice(0, max - 1), sp = cut.lastIndexOf(" ");
   return (sp > max / 2 ? cut.slice(0, sp) : cut).replace(/[\s,.;:–-]+$/, "") + "…";

@@ -1,4 +1,4 @@
-import {failure, logLine, MAX_BRIEF, MAX_BYTES, MAX_PHOTO_Q, MAX_SAY, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
+import {failure, logLine, MAX_BRIEF, MAX_BYTES, MAX_PHOTO_Q, MODELS, MAX_SAY, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
 import {BUYING, CHECK_PURCHASE, RULES, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH} from "./prompt.ts";
 
 const eq = (a: unknown, b: unknown) => {
@@ -85,6 +85,23 @@ Deno.test("the request: the same rulebook and tools for both, each in his own vo
   eq(tim.fallbacks, "default");
   eq(tim.betas, ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"]);
   eq(tim.messages, [q]);
+});
+
+Deno.test("the phone picks his model from the list by its key, never by a name; without one, the function's own", () => {
+  eq(ask({who: "frank", messages: [q], model: "sonnet"}), {who: "frank", messages: [q], model: "sonnet"});
+  eq(ask({who: "frank", messages: [q], model: "claude-opus-4-1"}), {error: "bad_request"});
+  eq(ask({who: "frank", messages: [q], model: "toString"}), {error: "bad_request"});
+  eq(ask({who: "frank", messages: [q], model: 5}), {error: "bad_request"});
+  eq(params({who: "frank", messages: [q]}, "claude-opus-5-5").model, "claude-opus-5-5");
+  const sonnet = params({who: "frank", messages: [q], model: "sonnet"}, "claude-opus-5-5");
+  eq(sonnet.model, MODELS.sonnet);
+  eq(sonnet.fallbacks, "default");
+  // Haiku has no server-side fallback: neither the parameter nor its beta
+  const haiku = params({who: "tim", messages: [q], model: "haiku"}, "claude-opus-5-5");
+  eq(haiku.model, MODELS.haiku);
+  eq(haiku.fallbacks, undefined);
+  eq(haiku.betas, ["thinking-binding-controls-2026-08-01"]);
+  eq(haiku.output_config, {effort: "medium"});
 });
 
 Deno.test("a phone that can show a purchase as a card says so, and only then is he given the way to research one: a version of its own, cached", () => {

@@ -2,7 +2,8 @@
 // the conversation so far, this adds the rulebook, the accountant's voice and the tools, asks Claude, and hands back what
 // Claude said, either an answer or the tools it wants run. The tools run on the phone, where the money is; a web search, or a
 // shop's page opened for a purchase, runs on Anthropic's side, and comes back as part of what Claude said.
-//   POST /chat {who, messages, research?} → {content, stop_reason, usage}: usage is only token counts, for what a question costs
+//   POST /chat {who, messages, research?, model?} → {content, stop_reason, usage}: usage is only token counts, for what a question
+//     costs; model is a key from MODELS (lib.ts), picked on the phone
 //   POST /say {who, text} → {audio (mp3, base64), ms, words}: Tim's or Frank's short spoken line, in his voice
 //   POST /photo {q} → {url}: a photo of something he priced, for its card (Brave's image search on its name)
 // Only signed-in users of the app (anonymous sign-in counts). Nothing said is logged.
@@ -87,16 +88,19 @@ Deno.serve(async req => {
   const ask = readAsk(await req.text());
   if ("error" in ask) return json(ask, ask.error === "too_big" ? 413 : 400);
 
-  const started = Date.now();
+  const started = Date.now(), request = params(ask, model);
   try {
-    const msg = await client.beta.messages.create(params(ask, model));
+    const msg = await client.beta.messages.create(request);
     const tools = msg.content.flatMap(b => b.type === "tool_use" ? [b.name] : []);
     console.log(logLine({who: ask.who, model: msg.model, ms: Date.now() - started, auth, stop: msg.stop_reason, usage: msg.usage, tools}), PROMPT_VERSION);
     return json({content: msg.content, stop_reason: msg.stop_reason, usage: msg.usage});
   } catch (e) {
     const status = e instanceof Anthropic.APIError ? e.status : undefined;
-    console.warn(logLine({who: ask.who, model, ms: Date.now() - started, auth, stop: `error ${status ?? (e instanceof Error ? e.name : "unknown")}`, tools: []}));
+    console.warn(logLine({who: ask.who, model: request.model, ms: Date.now() - started, auth, stop: `error ${status ?? (e instanceof Error ? e.name : "unknown")}`, tools: []}));
     const f = failure(status);
-    return json({error: f.error}, f.status);
+    // a request Claude refused: its reason goes back for the phone's development log (it names the part of the request that's
+    // wrong, never what was said), so "bad_request" from Claude can be told apart from one of ours
+    const detail = status === 400 && e instanceof Anthropic.APIError ? e.message.slice(0, 300) : undefined;
+    return json({error: f.error, ...detail ? {detail, from: "claude"} : {}}, f.status);
   }
 });

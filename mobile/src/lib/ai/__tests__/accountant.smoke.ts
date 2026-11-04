@@ -4,7 +4,9 @@
 // Real questions through the real accountant function and Claude, on the test fixtures' money (Mon 5 Oct 2026, £1,000, paid
 // £1,800 on Fri 30 Oct, rent £400 on the 15th). It costs real money (pennies a question), so it never runs with the other
 // tests: `npm run accountant:smoke`, once the function is deployed with its key. It prints each answer to read through.
-import {writeFileSync} from "fs";
+import {readFileSync, writeFileSync} from "fs";
+import type {Attachment} from "../attach";
+import {MODEL_CHOICES, type ModelKey} from "../models";
 import {photo, send} from "@/services/accountant";
 import {baseState, ctx, tx} from "../../__tests__/fixtures";
 import type {Scan} from "../../regulars";
@@ -253,4 +255,66 @@ test("an app from before the card never gets its tags or its tools", async () =>
     const blocks = a.transcript.flatMap(m => Array.isArray(m.content) ? m.content as unknown as {type: string; name?: string}[] : []);
     expect(blocks.filter(b => b.type === "web_fetch_tool_result" || b.name === "web_fetch" || b.name === "check_purchase")).toEqual([]);
   } finally { globalThis.fetch = real; }
+});
+
+// The "+" card: each model he can be switched to answers, from your money and from the web (Haiku stays on the card only if it
+// passes); a photo and a PDF reach him; and a request near the function's new size limit gets through Supabase.
+// `-t "+ card"` runs only these.
+// A one-page receipt, written here so there's no binary in the repo: Helvetica in WinAnsi, where £ is \243
+function receiptPdf(): string {
+  const text = ["TESCO EXPRESS", "Milk 1.45", "Bread 1.20", "Washing liquid 6.50", "Chicken 4.75", "TOTAL \\24313.90"];
+  const stream = `BT /F1 14 Tf 72 720 Td 18 TL ${text.map(t => `(${t}) Tj T*`).join(" ")} ET`;
+  const objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"];
+  let pdf = "%PDF-1.4\n";
+  const at: number[] = [];
+  objs.forEach((o, i) => { at.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${at.map(n => `${String(n).padStart(10, "0")} 00000 n \n`).join("")}`;
+  pdf += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, "latin1").toString("base64");
+}
+
+describe("+ card", () => {
+  const ask = (who: Who, q: string, model: ModelKey, attach?: Attachment[]) => converse([], q, {
+    send: m => send(who, m, model), env: () => ({ctx: money, notes: [], who, newId: () => "n_plus", regulars: {scan, answers: {}}}), apply: () => {},
+  }, new Date(2026, 9, 5, 12, 0), [], attach ? {attach} : {});
+
+  for (const {key} of MODEL_CHOICES) {
+    test(`${key}: answers from your money, and from the web`, async () => {
+      for (const [q, web] of [["What can I spend today?", false], ["How much is Netflix a month in the UK right now?", true]] as const) {
+        const started = Date.now(), a = await ask("frank", q, key);
+        console.log([`${key.toUpperCase()}, FRANK: ${q}`, a.text, `tools: ${a.used.join(", ") || "none"}`, `searched: ${!!a.searched}`, `ms: ${Date.now() - started}`,
+          ...a.unchecked.length ? [`UNCHECKED: ${a.unchecked.join(", ")}`] : [], ...a.ended ? [`ENDED: ${a.ended}`] : []].join("\n"));
+        expect(a.ended).toBeUndefined();
+        if (web) expect(a.searched).toBe(true); else expect(a.used).not.toEqual([]);
+      }
+    });
+  }
+
+  test("a photo and a PDF reach him; a figure off the receipt is said to be read from it", async () => {
+    const pic = {kind: "image" as const, name: "tim.jpg", data: readFileSync(`${__dirname}/../../../../assets/tim.jpg`).toString("base64")};
+    const p = await ask("tim", "Who's in this photo? Describe him in one sentence.", "opus", [pic]);
+    console.log(["PHOTO, TIM:", p.text].join("\n"));
+    expect(p.ended).toBeUndefined();
+    expect(p.text).toMatch(/\b(man|he|his)\b/i);
+    const r = await ask("frank", "What's the total on this receipt, and can I afford it today?", "opus", [{kind: "pdf", name: "receipt.pdf", data: receiptPdf()}]);
+    console.log(["PDF, FRANK:", r.text, `unchecked: ${r.unchecked.join(", ") || "none"}`, `readFrom: ${r.readFrom ?? "none"}`].join("\n"));
+    expect(r.ended).toBeUndefined();
+    expect(r.text).toContain("13.90");
+    if (r.unchecked.length) expect(r.readFrom).toBe("file");
+  });
+
+  test("a request near the function's limit gets through Supabase", async () => {
+    const real = globalThis.fetch;
+    // 9 MB of padding the function doesn't read, on a one-word question: only the size is being tried
+    globalThis.fetch = (async (url: string, init?: RequestInit) => typeof init?.body === "string" && String(url).endsWith("/chat")
+      ? real(url, {...init, body: JSON.stringify({...JSON.parse(init.body), pad: "x".repeat(9_000_000)})}) : real(url, init)) as typeof fetch;
+    try {
+      const a = await ask("tim", "Say hello in three words.", "sonnet");
+      expect(a.ended).toBeUndefined();
+      expect(a.text).toBeTruthy();
+    } finally { globalThis.fetch = real; }
+  });
 });

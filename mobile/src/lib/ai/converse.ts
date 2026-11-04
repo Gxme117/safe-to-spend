@@ -7,6 +7,7 @@
 // server, the tools' view of your money and where notes go are passed in.
 import type Anthropic from "@anthropic-ai/sdk";
 import {idOf, type Proposal} from "../billChange";
+import {blocksOf, hasUnread, unreadIn, type Attachment} from "./attach";
 import {mentionedOf} from "../briefing";
 import {r2} from "../money";
 import {checkNote, isKnown, knownIn, poundsIn, unchecked, unknownIn, webFigures, withoutWeb} from "./check";
@@ -66,9 +67,12 @@ export interface Answer {
   research?: Research;
   /** He looked up something to buy, and no shop's own page backed a price to go by: any price in his words is an estimate. */
   estimate?: true;
+  /** Figures in `unchecked` with a photo or PDF in the conversation: most likely read off it, so they're said to be (lib/ai/attach.ts). */
+  readFrom?: "photo" | "file";
 }
-/** `whole`: a briefing, said in full. What's shown is what he says, audio tags taken out; he marks the facts he mentioned. */
-export interface Options { whole?: boolean }
+/** `whole`: a briefing, said in full. What's shown is what he says, audio tags taken out; he marks the facts he mentioned.
+ *  `attach`: photos and files you added to this question (lib/ai/attach.ts), before your words. */
+export interface Options { whole?: boolean; attach?: Attachment[] }
 
 /** Cards on one answer, at most: a 4th is refused, so a change is never lost among many. */
 export const MAX_CARDS = 3;
@@ -119,10 +123,15 @@ const result = (call: ToolUse, content: unknown, error?: boolean): ToolResult =>
 
 export async function converse(transcript: Transcript, question: string, deps: Deps, now: Date, context: string[] = [], opts: Options = {}): Promise<Answer> {
   // the date and time each time; your notes at the start of a conversation; what you did with his cards since
+  // photos and files you added go before your words; a photo with no words has none (an empty one is refused)
+  const attach = opts.attach ?? [];
   const msgs: Transcript = [...transcript, {role: "user", content: [
     {type: "text", text: appContext(now, transcript.length ? null : deps.env().notes, context)},
-    {type: "text", text: question},
+    ...blocksOf(attach),
+    ...question.trim() ? [{type: "text" as const, text: question}] : [],
   ]}];
+  // something in the conversation only he could read (a photo, a PDF): a figure from it can't be checked here
+  const unread = unreadIn(msgs);
   const used: ToolName[] = [], cards = new Map<string, Proposal>(), hosts: string[] = [];
   let searched = false, attempted = false, refused = false, research: Research | null = null;
   const done = (text: string, ended?: Ended, bad: string[] = []): Answer => ({transcript: msgs, text, used, unchecked: bad, ...ended ? {ended} : {}, ...searched ? {searched: true as const} : {}});
@@ -207,9 +216,11 @@ export async function converse(transcript: Transcript, question: string, deps: D
     const bad = unchecked(visual ? `${rest}\n${figuresOf(visual)}` : rest, known);
     // looked up what something costs, never had it checked and gives figures anyway: one more look, for that too
     const unasked = buying() && searched && !attempted && poundsIn(text).length > 0;
-    if ((bad.length || unasked) && !looked) {
+    // a photo or PDF with this question: a figure he read off it can't trace back here, so another look would only cost a round
+    const recheck = bad.length > 0 && !hasUnread(attach);
+    if ((recheck || unasked) && !looked) {
       looked = true;
-      msgs.push({role: "user", content: [...bad.length ? [{type: "text" as const, text: checkNote(bad)}] : [], ...unasked ? [{type: "text" as const, text: RUN_IT}] : []]});
+      msgs.push({role: "user", content: [...recheck ? [{type: "text" as const, text: checkNote(bad)}] : [], ...unasked ? [{type: "text" as const, text: RUN_IT}] : []]});
       continue;
     }
     // what he says out loud repeats his answer, so a price it cited can be said too
@@ -219,6 +230,6 @@ export async function converse(transcript: Transcript, question: string, deps: D
     const estimate = buying() && searched && !pickOf(research) && (attempted || poundsIn(text).length > 0);
     return {...done(text, undefined, bad), ...sayIt ? {spoken: said.spoken} : {}, ...visual && !bad.length && !research ? {visual} : {}, ...next ? {next} : {},
       ...cards.size ? {proposals: [...cards.values()]} : {}, ...marks ? {mentioned: marks.mentioned} : {}, ...sources.length ? {sources} : {},
-      ...research ? {research} : {}, ...estimate ? {estimate: true as const} : {}};
+      ...research ? {research} : {}, ...estimate ? {estimate: true as const} : {}, ...bad.length && unread ? {readFrom: unread} : {}};
   }
 }

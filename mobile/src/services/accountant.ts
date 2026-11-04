@@ -2,6 +2,7 @@
 // asks Claude. This sends the conversation so far and brings back Claude's turn. Nothing said is logged here either.
 import {File, Paths} from "expo-file-system";
 import type {Transcript, Turn} from "@/lib/ai/converse";
+import type {ModelKey} from "@/lib/ai/models";
 import type {Who} from "@/lib/ai/tools";
 import type {Take} from "@/lib/timSpeech";
 import {accessToken, PUBLIC_KEY, SessionFail, SUPABASE} from "./session";
@@ -12,8 +13,9 @@ const FN = process.env.EXPO_PUBLIC_ACCOUNTANT_FN_URL?.trim() || `${SUPABASE}/fun
 // function's own 120s, so its answer gets here first)
 const WAIT_MS = 130_000;
 
-/** Why he couldn't answer: no connection, no answer in time, too many questions at once, his side's down, or it isn't set up yet. */
-export type AccountantError = "offline" | "timeout" | "busy" | "unavailable" | "not-set-up";
+/** Why he couldn't answer: no connection, no answer in time, too many questions at once, his side's down, it isn't set up yet,
+ *  or the chat's too big to send (too many photos or files in it). */
+export type AccountantError = "offline" | "timeout" | "busy" | "unavailable" | "not-set-up" | "too-big";
 export class AccountantFail extends Error {
   constructor(public kind: AccountantError, detail?: string) { super(detail ?? kind); }
 }
@@ -33,17 +35,19 @@ async function post(door: "chat" | "say" | "photo", body: unknown, token: string
 
 /** Sends the conversation and returns Claude's turn: an answer, or the tools it wants run. `research`: this app can check what
  *  something costs on the shops' own pages and show it as a card (lib/ai/research.ts), so he's given the tools for it. */
-export async function send(who: Who, messages: Transcript): Promise<Turn> {
-  const body = {who, messages, research: true};
+export async function send(who: Who, messages: Transcript, model?: ModelKey): Promise<Turn> {
+  const body = {who, messages, research: true, ...model ? {model} : {}};
   try {
     let r = await post("chat", body, await accessToken());
     // the server didn't know the token (it ran out, or the sign-in went): one more go with a new one
     if (r.status === 401) r = await post("chat", body, await accessToken(true));
-    const j = await r.json().catch(() => ({})) as Partial<Turn> & {error?: string};
+    const j = await r.json().catch(() => ({})) as Partial<Turn> & {error?: string; detail?: string};
     if (r.ok && Array.isArray(j.content)) return {content: j.content, stop_reason: j.stop_reason ?? null, ...j.usage ? {usage: j.usage} : {}};
     if (r.status === 429) throw new AccountantFail("busy");
+    // the conversation's grown past what the function takes: photos and PDFs go back whole every round
+    if (r.status === 413) throw new AccountantFail("too-big");
     if (j.error === "not_configured") throw new AccountantFail("not-set-up", "the function has no key");
-    throw new AccountantFail("unavailable", `${r.status} ${j.error ?? ""}`.trim());
+    throw new AccountantFail("unavailable", `${r.status} ${j.error ?? ""} ${j.detail ?? ""}`.trim());
   } catch (e) {
     if (e instanceof SessionFail) throw new AccountantFail(e.kind, e.message);
     throw e;

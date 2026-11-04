@@ -93,6 +93,42 @@ test("a figure the person gave, or one of his notes, counts as known", async () 
   expect(a.unchecked).toEqual([]);
 });
 
+describe("photos and files you add (lib/ai/attach.ts)", () => {
+  const receipt = {kind: "image" as const, name: "IMG_1.jpg", data: "aGk=", thumb: "data:image/jpeg;base64,aGk="};
+
+  test("they go before your words; a photo with no words has no words block", async () => {
+    const s = server(said("That's a Tesco shop."));
+    await converse([], "", s.deps, NOW, [], {attach: [receipt]});
+    const first = s.sent[0][0].content as {type: string; source?: {type: string; media_type: string}}[];
+    expect(first.map(b => b.type)).toEqual(["text", "image"]);
+    expect(first[1].source).toEqual({type: "base64", media_type: "image/jpeg", data: "aGk="});
+  });
+
+  test("a figure read off a photo sent with this question isn't given a second look, and is said to be from it", async () => {
+    const s = server(said("That receipt comes to £42.99."));
+    const a = await converse([], "What did I spend here?", s.deps, NOW, [], {attach: [receipt]});
+    expect(a).toMatchObject({text: "That receipt comes to £42.99.", unchecked: ["£42.99"], readFrom: "photo"});
+    expect(s.deps.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("a later question in the same chat gets the second look as ever, still labelled from the photo if it doesn't trace back", async () => {
+    const s = server(said("£42.99 on that one."), said("Still £42.99."), said("Still £42.99."));
+    const a = await converse([], "What did I spend here?", s.deps, NOW, [], {attach: [receipt]});
+    const b = await converse(a.transcript, "And again?", s.deps, NOW);
+    expect(b).toMatchObject({unchecked: ["£42.99"], readFrom: "photo"});
+    expect(s.deps.send).toHaveBeenCalledTimes(3);
+  });
+
+  test("a CSV the phone read counts as your words", async () => {
+    const s = server(said("Your biggest was £86.20."));
+    const a = await converse([], "What was my biggest?", s.deps, NOW, [], {attach: [{kind: "text", name: "march.csv", data: "date,amount\n2026-03-02,86.20\n"}]});
+    expect(a.unchecked).toEqual([]);
+    expect(a.readFrom).toBeUndefined();
+    const first = s.sent[0][0].content as {type: string; source?: {type: string}}[];
+    expect(first[1]).toMatchObject({type: "document", source: {type: "text", media_type: "text/plain"}, title: "march.csv"});
+  });
+});
+
 test("still looking things up after every round: the last round says to answer, then it stops and every call still gets an answer", async () => {
   const turns = Array.from({length: MAX_ROUNDS + 1}, () => asks(["overview", {}]));
   const s = server(...turns);

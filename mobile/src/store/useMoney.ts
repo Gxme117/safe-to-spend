@@ -16,6 +16,7 @@ import {billOf, filed, filingsFor, idOf, type Proposal, stale} from "@/lib/billC
 import {type BriefLog, NO_BRIEFS} from "@/lib/briefing";
 import {keyOf} from "@/lib/found";
 import {toBank, toRawTx, withLink, withoutLink} from "@/lib/truelayer";
+import {DEFAULT_MODEL, type ModelKey} from "@/lib/ai/models";
 import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
 import {disconnect, fetchBank, fetchHistory, loggedIn, MonzoFail, type MonzoError} from "@/services/monzo";
 import {fetchLink, fetchLinkHistory, linkBank, unlink} from "@/services/truelayer";
@@ -48,7 +49,8 @@ interface MoneyStore {
   frankRoom: FrankRoom;
   livingView: LivingView;
   accountant: Accountant;
-  aiConsent: boolean;         // you've agreed to Tim and Frank looking at your numbers (what leaves the phone, in ConsentSheet)
+  models: Record<Accountant, ModelKey>; // which Claude each thinks with (the "+" card on his tab, lib/ai/models.ts)
+  aiConsent: boolean;        // you've agreed to Tim and Frank looking at your numbers (what leaves the phone, in ConsentSheet)
   speaks: boolean;            // Tim and Frank say a line of each answer out loud (off: their voices are never asked for)
   notes: Note[];             // what you've told them that will still matter next time; kept through Start over
   scan: Scan | null;          // the bank's last 90 days, looked through for regular payments once a day (lib/regulars.ts)
@@ -68,6 +70,7 @@ interface MoneyStore {
   setFrankRoom(v: FrankRoom): void;
   setLivingView(v: LivingView): void;
   setAccountant(v: Accountant): void;
+  setModel(who: Accountant, model: ModelKey): void;
   setAiConsent(on: boolean): void;
   setSpeaks(on: boolean): void;
   addNote(n: Note): void;
@@ -212,7 +215,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", livingView: "pit", accountant: "tim", aiConsent: false, speaks: true, notes: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", livingView: "pit", accountant: "tim", models: {tim: DEFAULT_MODEL, frank: DEFAULT_MODEL}, aiConsent: false, speaks: true, notes: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
       const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
@@ -226,6 +229,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     setFrankRoom(frankRoom) { set({frankRoom}); },
     setLivingView(livingView) { set({livingView}); },
     setAccountant(accountant) { set({accountant}); },
+    setModel(who, model) { set({models: {...get().models, [who]: model}}); },
     setAiConsent(aiConsent) { set({aiConsent}); },
     setSpeaks(speaks) { set({speaks}); },
     addNote(n) { set({notes: [...get().notes.filter(x => x.id !== n.id), n]}); },
@@ -407,5 +411,5 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   version: 3,
   migrate: (saved, version) => migrateSaved(saved, version) as MoneyStore,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, frankRoom: s.frankRoom, livingView: s.livingView, accountant: s.accountant, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes, scan: s.scan, answers: s.answers, briefLog: s.briefLog}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, frankRoom: s.frankRoom, livingView: s.livingView, accountant: s.accountant, models: s.models, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes, scan: s.scan, answers: s.answers, briefLog: s.briefLog}),
 }));

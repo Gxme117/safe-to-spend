@@ -13,6 +13,14 @@ test("each chat is named after your first question, on one line", () => {
   expect(long).not.toMatch(/\s…$/); // cut at a word
 });
 
+test("a photo or file sent with no words: the chat's named after what it was", () => {
+  expect(titleOf("", 80, [{kind: "image", name: "IMG_1.jpg"}])).toBe("Photo");
+  expect(titleOf("", 80, [{kind: "image", name: "a"}, {kind: "image", name: "b"}])).toBe("Photos");
+  expect(titleOf("", 80, [{kind: "image", name: "a"}, {kind: "pdf", name: "Council tax.pdf"}])).toBe("Council tax.pdf");
+  // words win
+  expect(titleOf("What's this?", 80, [{kind: "image", name: "a"}])).toBe("What's this?");
+});
+
 test("chats are grouped as ChatGPT does, by the calendar day, newest first", () => {
   const groups = groupsOf([
     row("yesterday late", at(2026, 11, 2, 23, 59)),

@@ -54,6 +54,14 @@
         {
           "microphonePermission": "Pinch uses the microphone so you can say your question to Tim and Frank instead of typing it."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pinch opens your photos so you can show Tim and Frank a receipt, a bill or a letter.",
+          "cameraPermission": "Pinch uses the camera so you can show Tim and Frank a receipt, a bill or a letter.",
+          "microphonePermission": false
+        }
       ]
     ],
     "scheme": "moneytracker",
