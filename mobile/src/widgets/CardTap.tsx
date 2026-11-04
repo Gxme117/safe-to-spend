@@ -1,14 +1,14 @@
-import {Gauge, HStack, Image, Link, ProgressView, Spacer, Text, VStack} from "@expo/ui/swift-ui";
+import {Gauge, HStack, Image, ProgressView, Spacer, Text, VStack} from "@expo/ui/swift-ui";
 import {
-  activityBackgroundTint, background, clipShape, fixedSize, font, foregroundStyle, frame, gaugeStyle, layoutPriority, lineLimit, minimumScaleFactor, padding, progressViewStyle,
+  activityBackgroundTint, background, clipShape, font, foregroundStyle, frame, gaugeStyle, lineLimit, minimumScaleFactor, padding, progressViewStyle,
   resizable, scaleEffect, shapes, tint,
 } from "@expo/ui/swift-ui/modifiers";
 import {createLiveActivity} from "expo-widgets";
 import type {CardTapProps} from "@/lib/cardTap";
 
 // The card island (Live Activity: Dynamic Island and Lock Screen), from the "Card tap" artboard: a payment in an everyday
-// budget shows what's left of it (blue bar, a ring when it's minimal); anything else, what's safe to spend today (white bar,
-// "Ask Frank"). Its words come ready-made from `cardTapFor` (lib/cardTap.ts).
+// budget shows what's left of it (blue bar, a ring when it's minimal); anything else, what's safe to spend today (white
+// bar). Its words come ready-made from `cardTapFor` (lib/cardTap.ts).
 //
 // The layout runs on its own inside iOS, not in the app: it can only use Expo UI's components and modifiers, no hooks, and
 // nothing from outside this function (not even a constant beside it), so the colours live inside it.
@@ -49,38 +49,44 @@ const CardTap = (p: CardTapProps) => {
         {under(p.from, p.until)}
       </VStack>
     ),
-    compactLeading: face(24),
+    // Frank left of the camera, the budget's icon and the amount right of it. Frank is a 21.33pt circle (64px at 3x), padded
+    // in so his centre is the end's centre, the pill's own radius (18.33pt), so the gap to its curve is 7.67pt all round
+    // (measured off the simulator: the pill is 36.67pt tall, and iOS starts the leading slot 6.6pt in; 0.77pt more puts him
+    // dead centre). The amount is 13pt bold, ends
+    // 12.67pt from the right end, and the budget's icon beside it is white and small. Padding, not offset: the island clips
+    // anything offset past its slot. (The peek over a wall, scripts/frank_peek.py, is kept but not used.)
+    compactLeading: <HStack modifiers={[padding({leading: .77})]}>{face(21.33)}</HStack>,
     compactTrailing: (
-      <HStack spacing={4}>
-        {p.pot && p.icon ? <Image systemName={p.icon as never} size={14} color={ink} /> : null}
-        <Text modifiers={[font({size: 15, weight: "semibold"}), foregroundStyle(ink)]}>{p.compact}</Text>
+      <HStack spacing={4} modifiers={[padding({trailing: 4.4})]}>
+        {p.pot && p.icon ? <Image systemName={p.icon as never} modifiers={[font({size: 11, weight: "medium"}), foregroundStyle(ink)]} /> : null}
+        <Text modifiers={[font({size: 13, weight: "bold"}), foregroundStyle(ink)]}>{p.compact}</Text>
       </HStack>
     ),
     minimal: p.pot
       ? <Gauge value={p.fill} modifiers={[gaugeStyle("circularCapacity"), tint(blue)]} />
       : <Text modifiers={[font({size: 12, weight: "bold"}), foregroundStyle(ink)]}>{p.minimal}</Text>,
-    // all of it in one block under the camera, the whole width: iOS gives its leading, centre and trailing regions equal
-    // room either side, which cut the headline short beside "Ask Frank"
+    // Frank and the amount stay at the top as the island opens, each corner the compact island's round end grown 2.5 times.
+    // Measured off the simulator: the open island's corners are 48.33pt round and iOS starts its top slots about 18pt in.
+    // Frank is padded onto the corner's centre, so his circle is concentric with it, 21.7pt in all round: the same margin
+    // as the words and bar under him. The amount sits on his centre line, 21.7pt from the side, in line with the bar's end
+    expandedLeading: <HStack modifiers={[padding({leading: 4.17, top: 3.83})]}>{face(53.33)}</HStack>,
+    expandedTrailing: (
+      <HStack spacing={10} modifiers={[padding({top: 11.33, trailing: 1.7})]}>
+        {p.pot && p.icon ? <Image systemName={p.icon as never} size={30} color={ink} /> : null}
+        <Text modifiers={[font({size: 32, weight: "semibold"}), foregroundStyle(ink)]}>{p.compact}</Text>
+      </HStack>
+    ),
+    // the rest under them, the whole width: what the amount is, the payment that made it (muted), and how much of it is left
+    // as a bar. The amount isn't said again in words, and no button: a tap anywhere opens the app
     expandedBottom: (
-      <VStack spacing={10} modifiers={[padding({leading: 4, trailing: 4})]}>
-        <HStack spacing={10}>
-          {face(48)}
-          {/* takes all the room the button or "this pay" leaves, so the headline only shrinks when it has to */}
-          <VStack alignment="leading" spacing={2} modifiers={[frame({maxWidth: 10000, alignment: "leading"}), layoutPriority(1)]}>
-            <Text modifiers={[font({size: 14}), foregroundStyle(muted), lineLimit(1)]}>{`${p.where} · ${p.paid}`}</Text>
-            {/* shrinks a little on a narrow phone rather than lose its last word */}
-            <Text modifiers={[font({size: 17, weight: "semibold"}), foregroundStyle(ink), lineLimit(1), minimumScaleFactor(.75)]}>{p.headline}</Text>
-          </VStack>
-          {p.pot
-            ? <Text modifiers={[font({size: 14}), foregroundStyle(muted)]}>{p.aside}</Text>
-            : (
-              <Link destination="moneytracker://tim?who=frank">
-                <Text modifiers={[font({size: 14, weight: "semibold"}), foregroundStyle("#000000"), lineLimit(1), fixedSize(), padding({horizontal: 11, vertical: 7}), background(ink, shapes.capsule())]}>Ask Frank</Text>
-              </Link>
-            )}
-        </HStack>
-        <VStack modifiers={[padding({top: 12})]}>{bar}</VStack>
-        {under(p.spent, p.of)}
+      <VStack alignment="leading" spacing={10} modifiers={[padding({leading: 4, trailing: 4, bottom: 8})]}>
+        <VStack alignment="leading" spacing={2} modifiers={[frame({maxWidth: 10000, alignment: "leading"})]}>
+          {/* shrinks a little on a narrow phone rather than lose its last word */}
+          <Text modifiers={[font({size: 17, weight: "semibold"}), foregroundStyle(ink), lineLimit(1), minimumScaleFactor(.75)]}>{p.headline}</Text>
+          <Text modifiers={[font({size: 14}), foregroundStyle(muted), lineLimit(1)]}>{`${p.where} · ${p.paid}`}</Text>
+        </VStack>
+        {/* nothing under the bar: the open island is at most 160pt tall, and the amount above says it */}
+        {bar}
       </VStack>
     ),
   };

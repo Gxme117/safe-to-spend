@@ -15,8 +15,8 @@ test("a grocery payment shows what's left of the groceries budget this pay, as t
   const e = calc(c).everyday.find(x => x.x.id === "groceries")!;
   expect(e.left).toBe(38.3);
   expect(p).toMatchObject({
-    pot: true, icon: "basket", where: "Tesco", paid: "£14.20", when: "just now",
-    compact: "£38 left", minimal: "£38", headline: "£38.30 left for groceries", aside: "this pay",
+    pot: true, icon: "cart.fill", where: "Tesco", paid: "£14.20", when: "just now",
+    compact: "£38", minimal: "£38", headline: "Left for groceries until payday",
     title: "Left for groceries", big: "£38", spent: "£161.70 spent", of: "£200 this pay",
     from: "Wed 30", until: "Lasts until payday",
   });
@@ -29,7 +29,7 @@ test("any other payment shows what's safe to spend today, the same as Today", ()
   const p = cardTapOf(c, new Set(), NOW)!;
   expect(p).toMatchObject({
     pot: false, where: "Amazon", paid: "£11.99",
-    compact: `£${Math.floor(h.left)} today`, big: `£${Math.floor(h.left)}`, headline: `£${Math.floor(h.left)} safe to spend today`,
+    compact: `£${Math.floor(h.left)}`, big: `£${Math.floor(h.left)}`, headline: "Safe to spend today",
     title: "Safe to spend today", spent: "£11.99 spent", of: `£${h.perDay} today`, from: "Today", until: "Resets at midnight",
   });
   expect(p.fill).toBeCloseTo(h.left / h.perDay);
@@ -39,7 +39,7 @@ test("a budget gone past its amount says £0 left, never a minus or 'over'", () 
   const t = bank({amount: 30, date: TODAY, cat: "groceries", note: "Tesco"});
   const c = makeCtx({txs: [tx({amount: 190, date: "2026-10-02", cat: "groceries"}), t]});
   const p = cardTapOf(c, new Set(), NOW)!;
-  expect(p).toMatchObject({compact: "£0 left", headline: "£0 left for groceries", big: "£0", fill: 0});
+  expect(p).toMatchObject({compact: "£0", big: "£0", fill: 0});
   expect(JSON.stringify(p)).not.toMatch(/−|over/i);
 });
 
