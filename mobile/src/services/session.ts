@@ -23,11 +23,23 @@ async function auth(path: string, body: object) {
   return {status: r.status, session: r.ok && j.access_token ? j : null};
 }
 
+// in development, who you are to the server, once a run: the id that goes in the accountant function's CAP_EXEMPT
+let noted = false;
+function noteUser(token: string) {
+  if (!__DEV__ || noted) return token;
+  noted = true;
+  try {
+    const {sub} = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as {sub?: string};
+    if (sub) console.log("Signed in to Supabase as", sub);
+  } catch { /* not a token we can read */ }
+  return token;
+}
+
 async function keep(s: {access_token?: string; refresh_token?: string; expires_in?: number}) {
   await SecureStore.setItemAsync(K.access, s.access_token!);
   if (s.refresh_token) await SecureStore.setItemAsync(K.refresh, s.refresh_token);
   await SecureStore.setItemAsync(K.expires, String(Date.now() + ((s.expires_in || 3600) - 60) * 1000));
-  return s.access_token!;
+  return noteUser(s.access_token!);
 }
 
 /**
@@ -36,7 +48,7 @@ async function keep(s: {access_token?: string; refresh_token?: string; expires_i
  */
 export async function accessToken(renew = false): Promise<string> {
   const [access, expires] = await Promise.all([SecureStore.getItemAsync(K.access), SecureStore.getItemAsync(K.expires)]);
-  if (!renew && access && Number(expires || 0) > Date.now()) return access;
+  if (!renew && access && Number(expires || 0) > Date.now()) return noteUser(access);
   const refresh = await SecureStore.getItemAsync(K.refresh);
   if (refresh) {
     const r = await auth("token?grant_type=refresh_token", {refresh_token: refresh});

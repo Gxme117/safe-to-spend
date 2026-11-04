@@ -6,9 +6,10 @@
 //     costs; model is a key from MODELS (lib.ts), picked on the phone
 //   POST /say {who, text} → {audio (mp3, base64), ms, words}: Tim's or Frank's short spoken line, in his voice
 //   POST /photo {q} → {url}: a photo of something he priced, for its card (Brave's image search on its name)
-// Only signed-in users of the app (anonymous sign-in counts). Nothing said is logged.
+// Only signed-in users of the app (anonymous sign-in counts), each up to a daily cap on what their questions cost (429 "limit";
+// the accountant_usage table, supabase/migrations). Nothing said is logged.
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
-import {failure, logLine, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, signedInCache, userOf} from "./lib.ts";
+import {type Cap, capFor, costCents, DAILY_CAP_CENTS, exemptOf, failure, logLine, newQuestion, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, signedInCache, ukDay, userOf} from "./lib.ts";
 import {PROMPT_VERSION} from "./prompt.ts";
 
 const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
@@ -17,6 +18,10 @@ const supabase = Deno.env.get("SUPABASE_URL") ?? "";
 const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const voiceKey = Deno.env.get("ELEVENLABS_API_KEY") ?? ""; // their voices, for /say
 const photoKey = Deno.env.get("BRAVE_API_KEY") ?? ""; // product photos, for /photo
+// the daily cap's count is kept with the service role (no one's own key reaches it)
+const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const cap = Number(Deno.env.get("DAILY_CAP_CENTS")) || DAILY_CAP_CENTS;
+const exempt = exemptOf(Deno.env.get("CAP_EXEMPT") ?? "");
 // one try per request: the phone says "busy, ask again" rather than keeping you waiting twice as long. Long enough for a few web
 // searches, and short of the 150s Supabase gives a function to answer
 const client = new Anthropic({apiKey: key, timeout: 120_000, maxRetries: 0});
@@ -36,6 +41,20 @@ async function signedIn(req: Request): Promise<{user: string | null; cached?: bo
   const user = r ? userOf(r.status, await r.json().catch(() => null)) : null;
   if (user) seen.set(token, user, now);
   return {user};
+}
+
+/** Adds `cents` to what the user's questions have cost today (UK day) and returns the new total (0 just reads it); null when
+ *  the count can't be reached, and the request goes through anyway: the cap is a safety net, not worth silencing them for. */
+async function spend(user: string, cents: number): Promise<number | null> {
+  if (!service) return null;
+  const r = await fetch(`${supabase}/rest/v1/rpc/accountant_spend`, {
+    method: "POST", signal: AbortSignal.timeout(5_000),
+    headers: {apikey: service, authorization: `Bearer ${service}`, "content-type": "application/json"},
+    body: JSON.stringify({p_user: user, p_day: ukDay(new Date()), p_cents: cents}),
+  }).catch(() => null);
+  const total = r?.ok ? await r.json().catch(() => null) : null;
+  if (typeof total !== "number") console.warn(JSON.stringify({door: "cap", status: r?.status ?? "error"}));
+  return typeof total === "number" ? total : null;
 }
 
 /** Tim or Frank says one short line of his answer out loud: ElevenLabs records it in his voice, with when each word is said.
@@ -88,11 +107,20 @@ Deno.serve(async req => {
   const ask = readAsk(await req.text());
   if ("error" in ask) return json(ask, ask.error === "too_big" ? 413 : 400);
 
+  // the daily cap: over it, Claude isn't asked (a question under way may finish, see capFor)
+  const user = who.user, free = exempt.has(user), spent = free ? null : await spend(user, 0);
+  const capped: Cap = free ? "exempt" : spent === null ? "unchecked" : "ok";
+  if (spent !== null && capFor(spent, cap, newQuestion(ask.messages)) === "limit") {
+    console.log(JSON.stringify({door: "chat", who: ask.who, auth, stop: "limit"}));
+    return json({error: "limit"}, 429);
+  }
+
   const started = Date.now(), request = params(ask, model);
   try {
     const msg = await client.beta.messages.create(request);
     const tools = msg.content.flatMap(b => b.type === "tool_use" ? [b.name] : []);
-    console.log(logLine({who: ask.who, model: msg.model, ms: Date.now() - started, auth, stop: msg.stop_reason, usage: msg.usage, tools}), PROMPT_VERSION);
+    if (!free) await spend(user, costCents(msg.model, msg.usage));
+    console.log(logLine({who: ask.who, model: msg.model, ms: Date.now() - started, auth, stop: msg.stop_reason, usage: msg.usage, tools, cap: capped}), PROMPT_VERSION);
     return json({content: msg.content, stop_reason: msg.stop_reason, usage: msg.usage});
   } catch (e) {
     const status = e instanceof Anthropic.APIError ? e.status : undefined;

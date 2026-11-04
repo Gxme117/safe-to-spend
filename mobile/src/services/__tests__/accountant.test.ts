@@ -65,6 +65,11 @@ test("what went wrong, as something he can say calmly", async () => {
   expect(await why()).toBe("not-set-up");
   fetchMock.mockResolvedValueOnce(session(1)).mockResolvedValueOnce(res(429, {error: "busy"}));
   expect(await why()).toBe("busy");
+  // today's questions have used up the daily cap
+  fetchMock.mockResolvedValueOnce(res(429, {error: "limit"}));
+  expect(await why()).toBe("limit");
+  fetchMock.mockResolvedValueOnce(res(429));
+  expect(await why()).toBe("busy");
   fetchMock.mockResolvedValueOnce(res(500, {error: "not_configured"}));
   expect(await why()).toBe("not-set-up");
   fetchMock.mockResolvedValueOnce(res(502, {error: "unavailable"}));

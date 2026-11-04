@@ -14,8 +14,9 @@ const FN = process.env.EXPO_PUBLIC_ACCOUNTANT_FN_URL?.trim() || `${SUPABASE}/fun
 const WAIT_MS = 130_000;
 
 /** Why he couldn't answer: no connection, no answer in time, too many questions at once, his side's down, it isn't set up yet,
- *  or the chat's too big to send (too many photos or files in it). */
-export type AccountantError = "offline" | "timeout" | "busy" | "unavailable" | "not-set-up" | "too-big";
+ *  the chat's too big to send (too many photos or files in it), or today's questions have used up the daily cap (the
+ *  function's, so no one runs up the bill; it starts afresh at midnight UK time). */
+export type AccountantError = "offline" | "timeout" | "busy" | "unavailable" | "not-set-up" | "too-big" | "limit";
 export class AccountantFail extends Error {
   constructor(public kind: AccountantError, detail?: string) { super(detail ?? kind); }
 }
@@ -43,7 +44,7 @@ export async function send(who: Who, messages: Transcript, model?: ModelKey): Pr
     if (r.status === 401) r = await post("chat", body, await accessToken(true));
     const j = await r.json().catch(() => ({})) as Partial<Turn> & {error?: string; detail?: string};
     if (r.ok && Array.isArray(j.content)) return {content: j.content, stop_reason: j.stop_reason ?? null, ...j.usage ? {usage: j.usage} : {}};
-    if (r.status === 429) throw new AccountantFail("busy");
+    if (r.status === 429) throw new AccountantFail(j.error === "limit" ? "limit" : "busy");
     // the conversation's grown past what the function takes: photos and PDFs go back whole every round
     if (r.status === 413) throw new AccountantFail("too-big");
     if (j.error === "not_configured") throw new AccountantFail("not-set-up", "the function has no key");

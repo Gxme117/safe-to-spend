@@ -205,6 +205,60 @@ export function photoOf(got: unknown, q = ""): string | null {
   return (pics.find(p => !p.other) ?? pics[0])?.src ?? null;
 }
 
+// The daily cap: what one person's questions may cost Anthropic in a UK day, in US cents (DAILY_CAP_CENTS), so a tester (or
+// anyone with the app: anonymous sign-in counts) can't run up the bill. Worked out from each answer's own token counts.
+export const DAILY_CAP_CENTS = 250; // about £2
+// a question already under way may carry on past the cap, up to this much of it, so it isn't cut off halfway; never further,
+// so a phone that keeps sending rounds can't go on for ever
+export const CARRY_ON = 1.5;
+
+/** US dollars per million tokens, by model (cache reads and writes from the input price, see costCents). */
+export const PRICES: Record<string, {input: number; output: number; cacheRead?: number}> = {
+  "claude-opus-5-5": {input: 4, output: 20, cacheRead: 0.2},
+  "claude-sonnet-5-5": {input: 2, output: 10, cacheRead: 0.2},
+  "claude-haiku-5-5": {input: 0.1, output: 0.5},
+  "claude-opus-5": {input: 5, output: 25}, // a fallback may answer on it
+};
+// a model not in the table is priced as the dearest one, so the cap never undercounts
+const DEAREST = Object.values(PRICES).reduce((a, b) => b.output > a.output ? b : a);
+const SEARCH_CENTS = 1; // $10 per 1,000 web searches; a page opened costs only its tokens
+
+export interface Usage {
+  input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null; server_tool_use?: {web_search_requests?: number | null; web_fetch_requests?: number | null} | null;
+}
+
+/** What one request cost (US cents), from its model and token counts: near enough for a cap, not a bill. */
+export function costCents(model: string, u: Usage | undefined): number {
+  if (!u) return 0;
+  const p = PRICES[model] ?? DEAREST, perToken = (usd: number) => usd / 1e6 * 100;
+  const cents = (u.input_tokens ?? 0) * perToken(p.input) + (u.output_tokens ?? 0) * perToken(p.output) +
+    (u.cache_read_input_tokens ?? 0) * perToken(p.cacheRead ?? p.input * 0.1) +
+    (u.cache_creation_input_tokens ?? 0) * perToken(p.input * 1.25) +
+    (u.server_tool_use?.web_search_requests ?? 0) * SEARCH_CENTS;
+  return Math.round(cents * 10_000) / 10_000;
+}
+
+const LONDON = new Intl.DateTimeFormat("en-CA", {timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit"});
+/** The UK day (YYYY-MM-DD) a moment falls on, so the cap starts afresh at midnight in the UK, summer time or not. */
+export const ukDay = (now: Date) => LONDON.format(now);
+
+/** A new question: the person's own words last, not tool results going back or a paused search carrying on. */
+export function newQuestion(messages: Message[]): boolean {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return false;
+  return typeof last.content === "string" || !last.content.some(b => b.type === "tool_result");
+}
+
+/** Whether this request may go to Claude, with `spent` (cents) already today: a new question only under the cap, one under
+ *  way up to CARRY_ON times it. */
+export function capFor(spent: number, cap: number, isNew: boolean): "ok" | "limit" {
+  return spent < (isNew ? cap : cap * CARRY_ON) ? "ok" : "limit";
+}
+
+/** The user ids the cap doesn't apply to (CAP_EXEMPT: comma-separated). */
+export const exemptOf = (raw: string) => new Set(raw.split(",").map(s => s.trim()).filter(Boolean));
+
 /** What the phone is told when Claude can't be reached: a kind it can say calmly, never the provider's own message. */
 export function failure(status: number | undefined): {status: number; error: string} {
   if (status === 429 || status === 529) return {status: 429, error: "busy"};
@@ -213,18 +267,23 @@ export function failure(status: number | undefined): {status: number; error: str
   return {status: 502, error: "unavailable"};
 }
 
+/** How the daily cap went for a request: checked and under it, the user's exempt, or the count couldn't be reached (let through). */
+export type Cap = "ok" | "exempt" | "unchecked";
+
 /** One log line per request: who, what model, how long (Claude's turn, and the sign-in check before it, or "cached"), the
- *  tokens, why it stopped, which tools it asked for, and how many web searches it ran and pages it opened. Never what was said,
- *  searched for or opened. */
+ *  tokens, why it stopped, which tools it asked for, how many web searches it ran and pages it opened, what it cost (cents) and
+ *  how the cap went. Never what was said, searched for or opened. */
 export function logLine(x: {
   who: Who; model: string; ms: number; auth: number | "cached"; stop: string | null;
-  usage?: {input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null; server_tool_use?: {web_search_requests?: number | null; web_fetch_requests?: number | null} | null};
+  usage?: Usage;
   tools: string[];
+  cap?: Cap;
 }) {
   const u = x.usage ?? {};
   return JSON.stringify({
     who: x.who, model: x.model, ms: x.ms, auth: x.auth, stop: x.stop, tools: x.tools,
     in: u.input_tokens ?? 0, out: u.output_tokens ?? 0, cache_read: u.cache_read_input_tokens ?? 0, cache_write: u.cache_creation_input_tokens ?? 0,
     searches: u.server_tool_use?.web_search_requests ?? 0, fetches: u.server_tool_use?.web_fetch_requests ?? 0,
+    cents: costCents(x.model, x.usage), ...x.cap ? {cap: x.cap} : {},
   });
 }

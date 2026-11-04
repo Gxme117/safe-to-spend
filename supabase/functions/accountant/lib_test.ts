@@ -1,4 +1,4 @@
-import {failure, logLine, MAX_BRIEF, MAX_BYTES, MAX_PHOTO_Q, MODELS, MAX_SAY, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
+import {capFor, CARRY_ON, costCents, DAILY_CAP_CENTS, exemptOf, failure, logLine, newQuestion, ukDay,MAX_BRIEF, MAX_BYTES, MAX_PHOTO_Q, MODELS, MAX_SAY, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
 import {BUYING, CHECK_PURCHASE, RULES, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH} from "./prompt.ts";
 
 const eq = (a: unknown, b: unknown) => {
@@ -266,6 +266,54 @@ Deno.test("the photo is the first result's picture as Brave keeps it, not one of
 });
 
 Deno.test("a log line has the numbers, never the words", () => {
-  const line = logLine({who: "frank", model: "claude-opus-5-5", ms: 1200, auth: 140, stop: "tool_use", usage: {input_tokens: 10, output_tokens: 5, server_tool_use: {web_search_requests: 2}}, tools: ["what_if"]});
-  eq(JSON.parse(line), {who: "frank", model: "claude-opus-5-5", ms: 1200, auth: 140, stop: "tool_use", tools: ["what_if"], in: 10, out: 5, cache_read: 0, cache_write: 0, searches: 2, fetches: 0});
+  const line = logLine({who: "frank", model: "claude-opus-5-5", ms: 1200, auth: 140, stop: "tool_use", usage: {input_tokens: 10, output_tokens: 5, server_tool_use: {web_search_requests: 2}}, tools: ["what_if"], cap: "ok"});
+  eq(JSON.parse(line), {who: "frank", model: "claude-opus-5-5", ms: 1200, auth: 140, stop: "tool_use", tools: ["what_if"], in: 10, out: 5, cache_read: 0, cache_write: 0, searches: 2, fetches: 0, cents: 2.014, cap: "ok"});
+});
+
+Deno.test("what a request cost, in cents, from its model and tokens", () => {
+  const million = (k: string) => ({[k]: 1_000_000});
+  eq(costCents("claude-opus-5-5", million("input_tokens")), 400);
+  eq(costCents("claude-opus-5-5", million("output_tokens")), 2000);
+  eq(costCents("claude-opus-5-5", million("cache_read_input_tokens")), 20);
+  eq(costCents("claude-opus-5-5", million("cache_creation_input_tokens")), 500);
+  eq(costCents("claude-sonnet-5-5", {input_tokens: 1_000_000, output_tokens: 1_000_000}), 1200);
+  eq(costCents("claude-haiku-5-5", {input_tokens: 1_000_000, cache_read_input_tokens: 1_000_000}), 11);
+  eq(costCents("claude-opus-5-5", {server_tool_use: {web_search_requests: 3, web_fetch_requests: 2}}), 3);
+  // a model it doesn't know is priced as the dearest
+  eq(costCents("claude-something-new", million("output_tokens")), 2500);
+  eq(costCents("claude-opus-5-5", undefined), 0);
+  eq(costCents("claude-opus-5-5", {input_tokens: null}), 0);
+});
+
+Deno.test("the cap's day is the UK's, summer time too", () => {
+  eq(ukDay(new Date("2026-11-04T23:30:00Z")), "2026-11-04"); // GMT
+  eq(ukDay(new Date("2026-07-04T23:30:00Z")), "2026-07-05"); // BST: half past midnight
+  eq(ukDay(new Date("2026-03-29T00:30:00Z")), "2026-03-29"); // the night the clocks go forward
+  eq(ukDay(new Date("2026-10-24T23:00:00Z")), "2026-10-25"); // and the night they go back
+});
+
+Deno.test("a new question is the person's own words last", () => {
+  eq(newQuestion([q]), true);
+  eq(newQuestion([{role: "user", content: [{type: "text", text: "Hi"}]}]), true);
+  eq(newQuestion([q, {role: "assistant", content: [{type: "tool_use", id: "t1", name: "overview", input: {}}]},
+    {role: "user", content: [{type: "tool_result", tool_use_id: "t1", content: "{}"}]}]), false);
+  // a paused search carrying on
+  eq(newQuestion([q, {role: "assistant", content: [{type: "server_tool_use", id: "s1", name: "web_search", input: {query: "x"}}]}]), false);
+  eq(newQuestion([]), false);
+});
+
+Deno.test("the cap stops a new question at it, one under way at half as much again", () => {
+  eq(capFor(0, 250, true), "ok");
+  eq(capFor(249.9, 250, true), "ok");
+  eq(capFor(250, 250, true), "limit");
+  eq(capFor(300, 250, false), "ok");
+  eq(capFor(374.9, 250, false), "ok");
+  eq(capFor(375, 250, false), "limit");
+  eq(CARRY_ON, 1.5);
+  eq(DAILY_CAP_CENTS, 250);
+});
+
+Deno.test("exempt users come from a comma-separated list", () => {
+  eq([...exemptOf(" a-1 , b-2,,")], ["a-1", "b-2"]);
+  eq(exemptOf("").size, 0);
 });
