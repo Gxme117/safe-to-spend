@@ -22,10 +22,10 @@ jest.mock("react-native-keyboard-controller", () => jest.requireActual("react-na
 jest.mock("react-native-reanimated", () => ({
   __esModule: true, default: {View: jest.requireActual("react-native").View}, useAnimatedStyle: (f: () => object) => f(),
   useSharedValue: <T,>(v: T) => jest.requireActual("react").useRef({value: v}).current, withTiming: <T,>(v: T) => v,
-  Easing: {out: (f: unknown) => f, cubic: (x: number) => x},
+  Easing: {in: (f: unknown) => f, out: (f: unknown) => f, cubic: (x: number) => x},
 }));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
-jest.mock("expo-router", () => ({router: {push: jest.fn()}, useFocusEffect: (f: () => void | (() => void)) => jest.requireActual("react").useEffect(f, [f])}));
+jest.mock("expo-router", () => ({router: {push: jest.fn()}, useLocalSearchParams: () => ({}), useFocusEffect: (f: () => void | (() => void)) => jest.requireActual("react").useEffect(f, [f])}));
 jest.mock("@/db/transactions", () => ({listSince: jest.fn(async () => []), insertTx: jest.fn(async () => {}), deleteTx: jest.fn(async () => {}), updateFiling: jest.fn(async () => {}), fileBills: jest.fn(async () => {})}));
 jest.mock("expo-web-browser", () => ({openBrowserAsync: jest.fn(async () => ({type: "opened"}))}));
 // the kept chats, in memory: copied in and out, as the database would

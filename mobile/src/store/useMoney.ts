@@ -3,6 +3,7 @@ import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
 import {backfill, deleteAllTx, deleteTx, fileBills, insertMany, insertTx, listSince, updateFiling} from "@/db/transactions";
 import type {Note, Who} from "@/lib/ai/tools";
+import {cardTapOf} from "@/lib/cardTap";
 import {withCatalog} from "@/lib/categories";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
@@ -19,6 +20,7 @@ import {toBank, toRawTx, withLink, withoutLink} from "@/lib/truelayer";
 import {DEFAULT_MODEL, type ModelKey} from "@/lib/ai/models";
 import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
 import {disconnect, fetchBank, fetchHistory, loggedIn, MonzoFail, type MonzoError} from "@/services/monzo";
+import {showCardTap} from "@/services/island";
 import {fetchLink, fetchLinkHistory, linkBank, unlink} from "@/services/truelayer";
 
 export type ThemePref = "system" | "light" | "dark";
@@ -316,6 +318,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
       if (get().syncing) return {error: "other", detail: "a sync is already running"};
       if (!before) return {error: "other", detail: "the app isn't set up yet"};
       set({syncing: true});
+      const seen = new Set(get().txs.map(t => t.id));
       try {
         // Monzo once it's in the app, or straight after its login (before its first sync)
         const monzo = !!before.bank || await loggedIn().catch(() => false);
@@ -327,6 +330,10 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         const failed = results.find(r => "error" in r);
         // once a day, the bank's last 90 days are looked through for regular payments: never waited for, so syncing isn't slower
         if (!failed && get().scan?.at !== today()) void get().scanRegulars();
+        // a new card payment today: Frank shows it in the Dynamic Island (lib/cardTap.ts, services/island.ts)
+        const s = get().state;
+        const tap = !failed && s ? cardTapOf({state: s, txs: get().txs, today: today()}, seen, Date.now()) : null;
+        if (tap) void showCardTap(tap);
         return failed ?? {added: results.reduce((a, r) => a + ("added" in r ? r.added : 0), 0)};
       } finally { set({syncing: false}); }
     },

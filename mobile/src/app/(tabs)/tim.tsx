@@ -1,7 +1,7 @@
 import {setAudioModeAsync, useAudioPlayer, type AudioSource} from "expo-audio";
 import {GlassView} from "expo-glass-effect";
 import {LinearGradient} from "expo-linear-gradient";
-import {router, useFocusEffect} from "expo-router";
+import {router, useFocusEffect, useLocalSearchParams} from "expo-router";
 import {openBrowserAsync} from "expo-web-browser";
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type HostInstance, type ScrollViewInstance} from "react-native";
@@ -1199,5 +1199,8 @@ function Tim() {
 }
 
 export default function TimScreen() {
+  // "Ask Frank" on the card island opens moneytracker://tim?who=frank
+  const {who} = useLocalSearchParams<{who?: string}>();
+  useEffect(() => { if (who === "tim" || who === "frank") useMoney.getState().setAccountant(who); }, [who]);
   return <HomeLook value><Tim /></HomeLook>;
 }

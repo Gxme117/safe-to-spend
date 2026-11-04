@@ -4,11 +4,13 @@ import {ScrollView, View} from "react-native";
 import {Choice} from "@/components/Form";
 import {AccountantCard, BankSettings, DataCard, YouCard} from "@/components/Profile";
 import {Button, Card, CardHead, Field, Input, PageTitle, Row, T} from "@/components/ui";
-import {savingPerPay} from "@/lib/calc";
+import {catGroup, savingPerPay} from "@/lib/calc";
+import {cardTapFor} from "@/lib/cardTap";
 import {niceDate} from "@/lib/dates";
 import {FREQ, lowAmt} from "@/lib/income";
 import {money, parseAmount} from "@/lib/money";
-import type {Ctx} from "@/lib/types";
+import type {Ctx, Tx} from "@/lib/types";
+import {showCardTap} from "@/services/island";
 import {useCalc} from "@/store/useCalc";
 import {useMoney, type CardStyle, type FrankRoom, type ThemePref} from "@/store/useMoney";
 import {parseHex} from "@/theme/color";
@@ -111,7 +113,28 @@ export default function SettingsScreen() {
       <AccountantCard />
 
       <DataCard />
+
+      {__DEV__ ? <IslandTry ctx={ctx} /> : null}
     </ScrollView>
+  );
+}
+
+/** Development only: shows the card island for a made-up payment today (counted as if it happened), so both kinds can be
+ *  tried without spending. Nothing is saved. */
+function IslandTry({ctx}: {ctx: Ctx}) {
+  const show = (budget: boolean) => {
+    const cat = budget ? ctx.state.categories.find(x => catGroup(x) === "everyday" && x.budget > 0) : undefined;
+    const t: Tx = {id: "island-try", type: "expense", amount: cat ? 14.2 : 11.99, cat: cat?.id ?? "other", note: cat ? "Tesco" : "Amazon",
+      date: ctx.today, created: Date.now(), paidAt: Date.now(), monzoId: "island-try"};
+    const p = cardTapFor({...ctx, txs: [...ctx.txs, t]}, t, Date.now());
+    if (p) void showCardTap(p); else useMoney.getState().notify("No daily number today, so there's nothing to show");
+  };
+  return (
+    <Card>
+      <CardHead title="Card island (development)" />
+      <Button label="Show it for a budget" onPress={() => show(true)} />
+      <Button kind="ghost" label="Show it for anything else" onPress={() => show(false)} />
+    </Card>
   );
 }
 
