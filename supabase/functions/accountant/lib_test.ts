@@ -1,5 +1,5 @@
-import {capFor, CARRY_ON, costCents, DAILY_CAP_CENTS, exemptOf, failure, logLine, newQuestion, ukDay,MAX_BRIEF, MAX_BYTES, MAX_PHOTO_Q, MODELS, MAX_SAY, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
-import {BUYING, CHECK_PURCHASE, RULES, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH} from "./prompt.ts";
+import {capFor, CARRY_ON, costCents, DAILY_CAP_CENTS, exemptOf, failure, lineOf, lineParams, logLine, newQuestion, ukDay,MAX_BRIEF, MAX_BYTES, MAX_PHOTO_Q, MAX_WHERE, MODELS, MAX_SAY, OLD_CHECK_PURCHASE, oldToolsIn, params, photoOf, photoUrl, readAsk, readLine, readPhoto, readSay, sayBody, sayReply, sayUrl, SIGNED_IN_SPARE, signedInCache, SPEAKERS, spokenWords, tokenExp, userOf} from "./lib.ts";
+import {BUYING, CHECK_PURCHASE, FIND_PRODUCTS, ISLAND, RULES, SHOW_PRODUCTS, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH} from "./prompt.ts";
 
 const eq = (a: unknown, b: unknown) => {
   if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${JSON.stringify(a)} !== ${JSON.stringify(b)}`);
@@ -104,30 +104,58 @@ Deno.test("the phone picks his model from the list by its key, never by a name; 
   eq(haiku.output_config, {effort: "medium"});
 });
 
-Deno.test("a phone that can show a purchase as a card says so, and only then is he given the way to research one: a version of its own, cached", () => {
-  eq(ask({who: "frank", messages: [q], research: true}), {who: "frank", messages: [q], research: true});
-  // anything but true is an app from before
-  eq(ask({who: "frank", messages: [q], research: "yes"}), {who: "frank", messages: [q]});
-  const card = params({who: "frank", messages: [q], research: true}, "claude-opus-5-5"), old = params({who: "frank", messages: [q]}, "claude-opus-5-5");
+Deno.test("a phone that can show a purchase as a card says so, and only then is he given find_products and show_products: a version of its own, cached", () => {
+  eq(ask({who: "frank", messages: [q], shop: true}), {who: "frank", messages: [q], shop: true});
+  // anything but true is an app from before; so is the older `research` (that app can't run find_products)
+  eq(ask({who: "frank", messages: [q], shop: "yes"}), {who: "frank", messages: [q]});
+  eq(ask({who: "frank", messages: [q], research: true}), {who: "frank", messages: [q]});
+  const card = params({who: "frank", messages: [q], shop: true}, "claude-opus-5-5"), old = params({who: "frank", messages: [q]}, "claude-opus-5-5");
   eq(card.system, [{type: "text", text: RULES}, {type: "text", text: BUYING}, {type: "text", text: VOICES.frank, cache_control: {type: "ephemeral"}}]);
-  eq(card.tools, [...TOOLS, CHECK_PURCHASE, WEB_SEARCH, WEB_FETCH]);
-  // an app from before gets just what it always has: it couldn't run the tool or read what a page gives back
+  eq(card.tools, [...TOOLS, FIND_PRODUCTS, SHOW_PRODUCTS, WEB_SEARCH]);
+  // an app from before gets just what it always has: it couldn't run the tools or show the card
   eq(old.system, [{type: "text", text: RULES}, {type: "text", text: VOICES.frank, cache_control: {type: "ephemeral"}}]);
   eq(old.tools, [...TOOLS, WEB_SEARCH]);
 });
 
-Deno.test("buying something: he finds the price himself, opens the shops' own pages, and checks it through the app", () => {
-  for (const s of ["Never ask them for the price", "web_search", "web_fetch", "check_purchase", "the shop's own listing or category page", "never a blog",
-    "don't try it again", "with an offer from every shop's page you opened", "even if that's one offer", "do_next", "Never search again on a second look", "no picture",
-    "write it as \"from £X\" too", "Never say a spec", "never about how the app checks them", "is an estimate", "Never give a yes or no on it",
-    "This replaces the rulebook's \"Trying a listed price against their money with what_if is fine\""]) {
+Deno.test("a chat kept from before find_products carries on: the old tools its turns used are given back for it, and only for it", () => {
+  const before = [q, {role: "assistant", content: [{type: "server_tool_use", id: "f1", name: "web_fetch", input: {url: "https://www.argos.co.uk/product/1"}},
+    {type: "web_fetch_tool_result", tool_use_id: "f1", content: {type: "web_fetch_tool_result_error", error_code: "url_not_accessible"}},
+    {type: "tool_use", id: "t1", name: "check_purchase", input: {}}]},
+    {role: "user", content: [{type: "tool_result", tool_use_id: "t1", content: "{}"}]}, {role: "assistant", content: "Argos has it at £279."}, q] as never[];
+  eq(oldToolsIn(before), {checks: true, pages: true});
+  eq(params({who: "frank", messages: before, shop: true}, "claude-opus-5-5").tools, [...TOOLS, FIND_PRODUCTS, SHOW_PRODUCTS, OLD_CHECK_PURCHASE, WEB_SEARCH, WEB_FETCH]);
+  eq(params({who: "frank", messages: before}, "claude-opus-5-5").tools, [...TOOLS, OLD_CHECK_PURCHASE, WEB_SEARCH, WEB_FETCH]);
+  eq(oldToolsIn([q]), {checks: false, pages: false});
+  // given back as it was, but not strict: one strict tool more than the 16 and the API refuses the grammar (live, 5 Nov)
+  eq(OLD_CHECK_PURCHASE.strict, undefined);
+  eq([OLD_CHECK_PURCHASE.name, OLD_CHECK_PURCHASE.description, OLD_CHECK_PURCHASE.input_schema], [CHECK_PURCHASE.name, CHECK_PURCHASE.description, CHECK_PURCHASE.input_schema]);
+});
+
+Deno.test("buying something: he finds it himself with find_products, says how sure each price is, and tries one only through show_products", () => {
+  for (const s of ["Never ask them for the price", "find_products", "show_products", "3 to 6 searches", "with \"UK\"", "Nothing about them goes in a search",
+    "puts its best 8 on the card", "5 to 8", "with pick", "always when they tap one", "If fewer than five came back", "Never pad the card",
+    "on the shop's own page now", "listed in search, the page not checked", "an estimate", "\"from £X\"", "Never present a listed price or an estimate as confirmed",
+    "what_if refuses them", "calculate may work out the difference", "<app_context> says which", "whether waiting for payday would be better", "no picture",
+    "never write a link", "never about how the app finds or checks them", "This replaces the rulebook's \"Trying a listed price against their money with what_if is fine\""]) {
     if (!BUYING.includes(s)) throw new Error(`no "${s}"`);
   }
-  // the app's own words for its checking never reach him as his to use, except in the rule that bans them
-  if (BUYING.replace(/no "check_purchase", "backed"[^.]*\./, "").match(/\bbacked\b/)) throw new Error("BUYING still says backed");
-  // what it overrides really is in the rulebook, and neither the tool nor the markup of an earlier card is in what every app gets
+  // the old way's words are gone
+  for (const gone of ["check_purchase", "backed", "do_next"]) if (BUYING.includes(gone)) throw new Error(`BUYING still says ${gone}`);
+  // what it overrides really is in the rulebook, and none of the tools for a card is in what every app gets
   if (!RULES.includes("Trying a listed price against their money with what_if is fine")) throw new Error("BUYING overrides a rule that's gone");
-  for (const gone of ["check_purchase", "web_fetch", "<research"]) if (RULES.includes(gone)) throw new Error(`${gone} is in the rulebook every app gets`);
+  for (const gone of ["check_purchase", "web_fetch", "find_products", "show_products", "<research"]) if (RULES.includes(gone)) throw new Error(`${gone} is in the rulebook every app gets`);
+});
+
+Deno.test("find_products and show_products: strict, every field required, closed, no limits only the phone can check, no nullable fields", () => {
+  for (const t of [FIND_PRODUCTS, SHOW_PRODUCTS]) {
+    eq(t.strict, true);
+    const s = t.input_schema as {additionalProperties?: boolean; properties: Record<string, unknown>; required: string[]};
+    eq(s.additionalProperties, false);
+    eq([...s.required].sort(), Object.keys(s.properties).sort());
+    eq(/"(minimum|maximum|minLength|maxLength|minItems|maxItems|anyOf)"/.test(JSON.stringify(s)), false);
+  }
+  eq(Object.keys((FIND_PRODUCTS.input_schema as {properties: object}).properties), ["queries", "match", "exclude", "max_price"]);
+  eq(Object.keys((SHOW_PRODUCTS.input_schema as {properties: object}).properties), ["title", "note", "ids", "pick"]);
 });
 
 Deno.test("a shop's page: Anthropic's own tool, called directly, a few a request, only from search results or a link you paste", () => {
@@ -145,7 +173,7 @@ Deno.test("a shop's page: Anthropic's own tool, called directly, a few a request
   eq((WEB_FETCH.blocked_domains?.length ?? 0) <= 64, true);
 });
 
-Deno.test("check_purchase: strict, every field required at each level, objects closed, no limits only the phone can check", () => {
+Deno.test("check_purchase, kept for old chats: strict, every field required at each level, objects closed", () => {
   eq(CHECK_PURCHASE.strict, true);
   const s = CHECK_PURCHASE.input_schema as {additionalProperties?: boolean; properties: Record<string, {items?: {additionalProperties?: boolean; properties: object; required: string[]}}>; required: string[]};
   eq(s.additionalProperties, false);
@@ -154,8 +182,6 @@ Deno.test("check_purchase: strict, every field required at each level, objects c
   eq(offer.additionalProperties, false);
   eq([...offer.required].sort(), Object.keys(offer.properties).sort());
   eq(/"(minimum|maximum|minLength|maxLength|minItems|maxItems)"/.test(JSON.stringify(s)), false);
-  // the only way to try a web price, and it says so where he reads it
-  eq(CHECK_PURCHASE.description?.startsWith("The only way to try a price from the web against their money."), true);
 });
 
 // the phone reads these exact tags (mobile/src/lib/ai/visual.ts), so a rewrite of the rulebook can't quietly lose them
@@ -165,9 +191,12 @@ Deno.test("the rulebook says how to lead with a picture, in the tags the phone d
   }
 });
 
-Deno.test("the strict tools stay within Claude's limit on nullable fields, or every question comes back a 400", () => {
-  const unions = [...TOOLS, CHECK_PURCHASE].filter(t => t.strict).flatMap(t => JSON.stringify(t.input_schema).match(/"anyOf"/g) ?? []);
-  eq(unions.length <= 16, true);
+Deno.test("the strict tools stay within Claude's limits, or every question comes back a 400, old chat or not", () => {
+  // the most a request can have: the shop's tools and an old chat's check_purchase together. At most 16 nullable fields; and the
+  // grammar they compile to has a size limit too: 16 strict tools pass, 17 (with check_purchase strict) were refused live on 5 Nov
+  const most = [...TOOLS, FIND_PRODUCTS, SHOW_PRODUCTS, OLD_CHECK_PURCHASE].filter(t => t.strict);
+  eq(most.flatMap(t => JSON.stringify(t.input_schema).match(/"anyOf"/g) ?? []).length <= 16, true);
+  eq(most.length <= 16, true);
 });
 
 Deno.test("the tools: the ones the phone runs, strict but for change_bill, every field required, objects closed", () => {
@@ -221,6 +250,28 @@ Deno.test("a line for Tim or Frank to say: some words, up to MAX_SAY characters"
   eq(readSay(JSON.stringify({text: 5})), {error: "bad_request"});
   eq(readSay("not json"), {error: "bad_request"});
   eq(readSay("null"), {error: "bad_request"});
+});
+
+Deno.test("the card island's facts: a shop, two plain amounts and short words, nothing else", () => {
+  const facts = {where: " Tesco ", paid: "£14.20", left: "£38", what: "left for groceries until payday"};
+  eq(readLine(JSON.stringify(facts)), {where: "Tesco", paid: "£14.20", left: "£38", what: "left for groceries until payday"});
+  eq(readLine(JSON.stringify({...facts, paid: "£1,240.50", left: "£0"})), {where: "Tesco", paid: "£1,240.50", left: "£0", what: facts.what});
+  eq(readLine(JSON.stringify({...facts, paid: "14.20"})), {error: "bad_request"});
+  eq(readLine(JSON.stringify({...facts, left: "£38 and a bit"})), {error: "bad_request"});
+  eq(readLine(JSON.stringify({...facts, where: "x".repeat(MAX_WHERE + 1)})), {error: "bad_request"});
+  eq(readLine(JSON.stringify({...facts, what: " "})), {error: "bad_request"});
+  eq(readLine("not json"), {error: "bad_request"});
+  eq(readLine("null"), {error: "bad_request"});
+});
+
+Deno.test("his island line is asked of Haiku with the island's prompt and only the facts, and comes back as one line", () => {
+  const p = lineParams({where: "Tesco", paid: "£14.20", left: "£38", what: "left for groceries until payday"});
+  eq([p.model, p.system === ISLAND], [MODELS.haiku, true]);
+  eq(p.messages, [{role: "user", content: "Paid: £14.20 at Tesco.\nNow: £38 left for groceries until payday."}]);
+  eq(lineOf([{type: "text", text: ' "[flatly] Tesco, £14.20.\n[dryly] £38 left." '}]), "[flatly] Tesco, £14.20. [dryly] £38 left.");
+  eq(lineOf([{type: "text", text: "  "}]), null);
+  eq(lineOf([]), null);
+  eq(lineOf([{type: "text", text: "x".repeat(MAX_SAY + 1)}]), null);
 });
 
 Deno.test("it's said in his own voice and delivery, as his openings are; the phone only picks who and the words", () => {

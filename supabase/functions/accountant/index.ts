@@ -6,11 +6,15 @@
 //     costs; model is a key from MODELS (lib.ts), picked on the phone
 //   POST /say {who, text} → {audio (mp3, base64), ms, words}: Tim's or Frank's short spoken line, in his voice
 //   POST /photo {q} → {url}: a photo of something he priced, for its card (Brave's image search on its name)
+//   POST /line {where, paid, left, what} → {text}: Frank's line about a card payment, for the card island (then said by /say)
+//   POST /shop {queries, match, exclude, max_price} → {products, partial?, stats}: the products a purchase question is about, with
+//     their prices (each verified, search_listed or estimated) and photos, from Brave's web search and the shops' own pages (shop.ts)
 // Only signed-in users of the app (anonymous sign-in counts), each up to a daily cap on what their questions cost (429 "limit";
 // the accountant_usage table, supabase/migrations). Nothing said is logged.
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
-import {type Cap, capFor, costCents, DAILY_CAP_CENTS, exemptOf, failure, logLine, newQuestion, params, photoOf, photoUrl, readAsk, readPhoto, readSay, sayBody, sayReply, sayUrl, signedInCache, ukDay, userOf} from "./lib.ts";
+import {type Cap, capFor, costCents, DAILY_CAP_CENTS, exemptOf, failure, lineOf, lineParams, logLine, newQuestion, params, photoOf, photoUrl, readAsk, readLine, readPhoto, readSay, sayBody, sayReply, sayUrl, signedInCache, ukDay, userOf} from "./lib.ts";
 import {PROMPT_VERSION} from "./prompt.ts";
+import {BRAVE_CENTS, readShop, runShop, shopLog} from "./shop.ts";
 
 const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const model = Deno.env.get("ACCOUNTANT_MODEL") || "claude-opus-5-5";
@@ -76,6 +80,51 @@ async function say(req: Request, auth: number | "cached") {
   return json({error: f.error}, f.status);
 }
 
+/** Frank's line about a card payment, for the card island: Claude (Haiku) writes it from what the island shows. On the daily
+ *  cap like a question. Only how it went is logged, never the shop or the line. */
+async function line(req: Request, user: string, auth: number | "cached") {
+  const facts = readLine(await req.text());
+  if ("error" in facts) return json(facts, 400);
+  const free = exempt.has(user), spent = free ? null : await spend(user, 0);
+  if (spent !== null && capFor(spent, cap, true) === "limit") {
+    console.log(JSON.stringify({door: "line", auth, stop: "limit"}));
+    return json({error: "limit"}, 429);
+  }
+  const started = Date.now();
+  try {
+    const msg = await client.messages.create(lineParams(facts));
+    if (!free) await spend(user, costCents(msg.model, msg.usage));
+    const text = lineOf(msg.content);
+    console.log(JSON.stringify({door: "line", model: msg.model, ms: Date.now() - started, auth, stop: msg.stop_reason,
+      cents: costCents(msg.model, msg.usage), chars: text?.length ?? 0, cap: free ? "exempt" : spent === null ? "unchecked" : "ok"}));
+    return text ? json({text}) : json({error: "unavailable"}, 502);
+  } catch (e) {
+    const status = e instanceof Anthropic.APIError ? e.status : undefined;
+    console.warn(JSON.stringify({door: "line", ms: Date.now() - started, auth, stop: `error ${status ?? (e instanceof Error ? e.name : "unknown")}`}));
+    const f = failure(status);
+    return json({error: f.error}, f.status);
+  }
+}
+
+/** The products a purchase question is about (shop.ts): Brave's web search, then the shops' own pages and photos, each part on
+ *  its own time limit, so what comes back is what was found in time. On the daily cap like a question (each Brave request counts
+ *  half a cent); a question already under way may finish. Only counts and times are logged, never a search or a product. */
+async function shop(req: Request, user: string, auth: number | "cached") {
+  if (!photoKey) return json({error: "not_configured"}, 500);
+  const ask = readShop(await req.text());
+  if ("error" in ask) return json(ask, 400);
+  const free = exempt.has(user), spent = free ? null : await spend(user, 0);
+  if (spent !== null && capFor(spent, cap, false) === "limit") {
+    console.log(JSON.stringify({door: "shop", auth, stop: "limit"}));
+    return json({error: "limit"}, 429);
+  }
+  const out = await runShop(ask, {fetch, key: photoKey});
+  if (!free && out.stats.brave) await spend(user, out.stats.brave * BRAVE_CENTS);
+  console.log(shopLog(out.stats, auth, {cap: free ? "exempt" : spent === null ? "unchecked" : "ok", ...("error" in out ? {stop: out.error} : {})}));
+  if ("error" in out) return json({error: out.error}, out.error === "not_configured" ? 500 : 502);
+  return json(out);
+}
+
 /** A photo of something he priced: the first picture Brave's image search finds for its name. The name isn't logged. */
 async function photo(req: Request, auth: number | "cached") {
   if (!photoKey) return json({error: "not_configured"}, 500);
@@ -96,13 +145,15 @@ async function photo(req: Request, auth: number | "cached") {
 
 Deno.serve(async req => {
   const door = new URL(req.url).pathname.split("/").filter(Boolean).pop();
-  if (!supabase || !anon || (door === "chat" && !key)) return json({error: "not_configured"}, 500);
-  if (req.method !== "POST" || (door !== "chat" && door !== "say" && door !== "photo")) return json({error: "not_found"}, 404);
+  if (!supabase || !anon || ((door === "chat" || door === "line") && !key)) return json({error: "not_configured"}, 500);
+  if (req.method !== "POST" || !["chat", "say", "photo", "line", "shop"].includes(door ?? "")) return json({error: "not_found"}, 404);
   const checking = Date.now(), who = await signedIn(req);
   if (!who.user) return json({error: "signed_out"}, 401);
   const auth = who.cached ? "cached" : Date.now() - checking;
   if (door === "say") return say(req, auth);
   if (door === "photo") return photo(req, auth);
+  if (door === "line") return line(req, who.user, auth);
+  if (door === "shop") return shop(req, who.user, auth);
 
   const ask = readAsk(await req.text());
   if ("error" in ask) return json(ask, ask.error === "too_big" ? 413 : 400);

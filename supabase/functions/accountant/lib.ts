@@ -1,15 +1,16 @@
 // The pure parts of the accountant function: no network, so they can be tested with `deno test`.
 // The Anthropic API key is only ever used in index.ts, read from Supabase secrets.
 import type Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
-import {BUYING, CHECK_PURCHASE, RULES, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH, type Who} from "./prompt.ts";
+import {BUYING, CHECK_PURCHASE, FIND_PRODUCTS, ISLAND, RULES, SHOW_PRODUCTS, TOOLS, VOICES, WEB_FETCH, WEB_SEARCH, type Who} from "./prompt.ts";
 
 type Message = Anthropic.Beta.Messages.BetaMessageParam;
 export type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 
 /** A conversation as the phone sends it: whose it is, and every message so far, ending with the person's (or a tool result), or
- *  with a web search Claude's side paused, which goes back as it came to carry on. `research`: the phone can check a purchase's
- *  prices and show them as a card (an app from before it can't, so it's never offered the tools for it). */
-export interface Ask { who: Who; messages: Message[]; research?: true; model?: ModelKey }
+ *  with a web search Claude's side paused, which goes back as it came to carry on. `shop`: the phone can look round the shops
+ *  (find_products, show_products) and show what it finds as a card. An app from before it (one that sends the older `research`, or
+ *  nothing) can't, so it's never offered those tools. */
+export interface Ask { who: Who; messages: Message[]; shop?: true; model?: ModelKey }
 
 /** The models the phone may pick for him (the "+" card), by a short key: only these, never a name the phone sends. Without
  *  one (an app from before), the function's own ACCOUNTANT_MODEL. */
@@ -34,7 +35,7 @@ export function readAsk(raw: string): Ask | {error: string} {
   if (new TextEncoder().encode(raw).length > MAX_BYTES) return {error: "too_big"};
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return {error: "bad_request"}; }
-  const {who, messages, research, model} = (body ?? {}) as {who?: unknown; messages?: unknown; research?: unknown; model?: unknown};
+  const {who, messages, shop, model} = (body ?? {}) as {who?: unknown; messages?: unknown; shop?: unknown; model?: unknown};
   if (who !== "tim" && who !== "frank") return {error: "bad_request"};
   if (model !== undefined && (typeof model !== "string" || !Object.hasOwn(MODELS, model))) return {error: "bad_request"};
   if (!Array.isArray(messages) || !messages.length || messages.length > MAX_MESSAGES) return {error: "bad_request"};
@@ -46,7 +47,25 @@ export function readAsk(raw: string): Ask | {error: string} {
   }
   const last = messages[messages.length - 1] as Message;
   if ((messages[0] as Message).role !== "user" || (last.role !== "user" && !searched(last))) return {error: "bad_request"};
-  return {who, messages: messages as Message[], ...research === true ? {research: true as const} : {}, ...model ? {model: model as ModelKey} : {}};
+  return {who, messages: messages as Message[], ...shop === true ? {shop: true as const} : {}, ...model ? {model: model as ModelKey} : {}};
+}
+
+/** check_purchase as an old chat gets it back: not strict, since the API refuses a request whose strict tools add up to too large a
+ *  grammar (found live, 5 Nov: the 16 strict tools and this one were one too many), and nothing calls it now. */
+export const OLD_CHECK_PURCHASE = (({strict: _, ...rest}) => rest)(CHECK_PURCHASE) as typeof CHECK_PURCHASE;
+
+/** The tools an old chat used that are no longer offered (check_purchase, and web_fetch for a shop's page), so a chat kept from
+ *  before find_products can carry on: its turns name them, so they're given back for it. */
+export function oldToolsIn(messages: Message[]): {checks: boolean; pages: boolean} {
+  let checks = false, pages = false;
+  for (const m of messages) {
+    if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      if (b.type === "tool_use" && b.name === "check_purchase") checks = true;
+      if ((b.type === "server_tool_use" && b.name === "web_fetch") || b.type === "web_fetch_tool_result") pages = true;
+    }
+  }
+  return {checks, pages};
 }
 
 /** Who's asking, from Supabase Auth's answer about their token: a signed-in user (anonymous counts), or no one. */
@@ -96,11 +115,11 @@ export function signedInCache(max = 500) {
  * The request to Claude. Tools and system first and always the same, cached; the conversation after. Adaptive thinking at
  * medium effort. A request a safety filter wrongly declines is retried on the model's default fallback. If the rulebook
  * changes mid-conversation (a new deploy), old thinking is dropped rather than failing the question.
- * Buying something (BUYING, and the tools for it) only for a phone that can show its card: two cached versions, and a
- * conversation keeps to one, so a paused or waiting search or page always finds its tool on the next request.
+ * Buying something (BUYING, find_products and show_products) only for a phone that can show its card: two cached versions, and
+ * a conversation keeps to one. A chat from before them gets back the old tools its turns used (oldToolsIn), so it carries on.
  */
 export function params(ask: Ask, fallbackModel: string): Params {
-  const model = ask.model ? MODELS[ask.model] : fallbackModel, fallback = !NO_FALLBACK.includes(model);
+  const model = ask.model ? MODELS[ask.model] : fallbackModel, fallback = !NO_FALLBACK.includes(model), old = oldToolsIn(ask.messages);
   return {
     model,
     max_tokens: 16000,
@@ -108,8 +127,8 @@ export function params(ask: Ask, fallbackModel: string): Params {
     output_config: {effort: "medium"},
     betas: [...fallback ? ["server-side-fallback-2026-07-01"] : [], "thinking-binding-controls-2026-08-01"],
     ...fallback ? {fallbacks: "default" as const} : {},
-    tools: ask.research ? [...TOOLS, CHECK_PURCHASE, WEB_SEARCH, WEB_FETCH] : [...TOOLS, WEB_SEARCH],
-    system: [{type: "text", text: RULES}, ...ask.research ? [{type: "text" as const, text: BUYING}] : [],
+    tools: [...TOOLS, ...ask.shop ? [FIND_PRODUCTS, SHOW_PRODUCTS] : [], ...old.checks ? [OLD_CHECK_PURCHASE] : [], WEB_SEARCH, ...old.pages ? [WEB_FETCH] : []],
+    system: [{type: "text", text: RULES}, ...ask.shop ? [{type: "text" as const, text: BUYING}] : [],
       {type: "text", text: VOICES[ask.who], cache_control: {type: "ephemeral"}}],
     // and the conversation so far, so each tool round reads the earlier ones from the cache
     cache_control: {type: "ephemeral"},
@@ -173,6 +192,39 @@ export function sayReply(got: {audio_base64?: unknown; alignment?: Alignment | n
   if (typeof got.audio_base64 !== "string" || !got.alignment?.characters?.length) return null;
   const words = spokenWords(got.alignment), ends = got.alignment.character_end_times_seconds;
   return words.length ? {audio: got.audio_base64, ms: Math.round(ends[ends.length - 1] * 1000), words} : null;
+}
+
+// Frank's line about a card payment, for the card island (POST /line): Claude writes it from what the island already shows,
+// and the phone checks its figures and has it said (/say). Haiku: one short line, no tools, no thinking, pennies.
+export interface LineFacts { where: string; paid: string; left: string; what: string }
+export const LINE_MODEL = MODELS.haiku;
+export const MAX_WHERE = 60;
+const POUNDS = /^£\d{1,3}(,\d{3})*(\.\d\d)?$/;
+
+/** What the phone sends: the shop as the bank wrote it ("Tesco"), what was paid ("£14.20"), what's left ("£38") and what that
+ *  is ("left for groceries until payday"). Only plain amounts, and short words. */
+export function readLine(raw: string): LineFacts | {error: string} {
+  let body: unknown;
+  try { body = JSON.parse(raw); } catch { return {error: "bad_request"}; }
+  const {where, paid, left, what} = (body ?? {}) as Record<string, unknown>;
+  const words = (s: unknown) => typeof s === "string" && s.trim().length > 0 && s.trim().length <= MAX_WHERE;
+  if (!words(where) || !words(what)) return {error: "bad_request"};
+  if (typeof paid !== "string" || !POUNDS.test(paid) || typeof left !== "string" || !POUNDS.test(left)) return {error: "bad_request"};
+  return {where: (where as string).trim(), paid, left, what: (what as string).trim()};
+}
+
+/** The request to Claude for his line. */
+export const lineParams = (f: LineFacts) => ({
+  model: LINE_MODEL, max_tokens: 200, system: ISLAND,
+  messages: [{role: "user" as const, content: `Paid: ${f.paid} at ${f.where}.\nNow: ${f.left} ${f.what}.`}],
+});
+
+/** His line from Claude's reply: its words on one line, without quotes round them. Null when there are none, or it's too long
+ *  to be said (MAX_SAY). */
+export function lineOf(content: readonly {type: string; text?: string}[]): string | null {
+  const text = content.flatMap(b => b.type === "text" && b.text ? [b.text] : []).join(" ")
+    .replace(/\s+/g, " ").trim().replace(/^["“'](.*)["”']$/, "$1").trim();
+  return text && text.length <= MAX_SAY ? text : null;
 }
 
 // A photo of something he priced, for its card (POST /photo): Brave's image search on its name. Only the name goes, nothing about
