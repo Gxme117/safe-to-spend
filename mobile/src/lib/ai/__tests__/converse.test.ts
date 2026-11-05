@@ -1,6 +1,7 @@
 import {calc, hero} from "../../calc";
 import {ctx} from "../../__tests__/fixtures";
 import {converse, MAX_PAUSES, MAX_ROUNDS, type Deps, type Transcript, type Turn} from "../converse";
+import type {Product, Shopped} from "../research";
 import type {Note, ToolEffect} from "../tools";
 
 // Claude's side, scripted: each turn as the function would hand it back
@@ -371,203 +372,221 @@ describe("a search on the web: Claude's side runs it and it comes back in his tu
   });
 });
 
-describe("buying something: he finds its prices, tries one against your money and shows them as a card, all in one question", () => {
-  const ARGOS = "https://www.argos.co.uk/product/iphone-17-256gb", APPLE = "https://www.apple.com/uk/shop/buy-iphone/iphone-17";
-  const search = {type: "server_tool_use", id: "s9", name: "web_search", input: {query: "buy iphone 17 256gb uk"}};
-  const found = {type: "web_search_tool_result", tool_use_id: "s9",
-    content: [ARGOS, APPLE, "https://www.currys.co.uk/iphone-17"].map(url => ({type: "web_search_result", url, title: "iPhone 17", encrypted_content: "secret"}))};
-  const words = (text: string) => ({type: "text", text});
-  const turn = (stop: Turn["stop_reason"], ...content: object[]) => ({content, stop_reason: stop} as unknown as Turn);
-  // a page he asks to open, and the page as it comes back
-  const opens = (id: string, url: string) => ({type: "server_tool_use", id, name: "web_fetch", input: {url}});
-  const page = (id: string, url: string, data: string) => ({type: "web_fetch_tool_result", tool_use_id: id,
-    content: {type: "web_fetch_result", url, retrieved_at: "2026-10-05T13:00:00Z", content: {type: "document", title: "Buy iPhone 17", source: {type: "text", media_type: "text/plain", data}}}});
-  const PAGES = [opens("f1", APPLE), page("f1", APPLE, "iPhone 17 256GB £899.00 Free delivery"), opens("f2", ARGOS), page("f2", ARGOS, "Apple iPhone 17 256GB £879.00")];
-  const tool = (name: string, input: object) => ({type: "tool_use", id: `tu_b${++ids}`, name, input});
-  const tries = (amount: number) => tool("what_if", {amount});
-  const sums = (expression: string) => tool("calculate", {expression});
-  const apple = {seller: "Apple", url: APPLE, price: 899, condition: "new", delivery: 0, pick: false}, argos = {seller: "Argos", url: ARGOS, price: 879, condition: "new", delivery: null, pick: true};
-  const checks = (...offers: object[]) => tool("check_purchase", {product: "iPhone 17, 256GB", assumed: "The newest standard model", identifies: ["iPhone 17", "256GB"], offers});
+describe("buying something: find_products looks round the shops, the card shows what it found, and a price reaches your money only through show_products", () => {
+  const product = (over: Partial<Product> = {}): Omit<Product, "id"> => ({name: "Sony WH-1000XM6 Wireless Headphones", brand: "Sony", model: "WH-1000XM6", group: "sony|wh1000xm6",
+    retailer: "Argos", host: "argos.co.uk", url: "https://www.argos.co.uk/product/1", price: 349.99, confidence: "search_listed", priceSource: "https://www.argos.co.uk/product/1",
+    image: "https://imgs.search.brave.com/a.jpg", condition: "new", delivery: "free", checked: "2026-10-05T12:00:00.000Z", ...over});
+  const SHOPPED: Shopped = {products: [
+    product(),
+    product({name: "Bose QuietComfort Ultra Headphones", brand: "Bose", model: "", group: "bose|ultra", retailer: "John Lewis", host: "johnlewis.com", url: "https://www.johnlewis.com/bose/p1", price: 449.95, confidence: "verified", delivery: null}),
+    product({name: "Sony WH-CH720N Headphones", group: "sony|whch720n", retailer: "Very", host: "very.co.uk", url: "https://www.very.co.uk/1.prd", price: 79.99, delivery: 3.99}),
+    product({name: "JBL Tune 770NC Headphones", brand: "JBL", group: "jbl|770nc", retailer: "AO", host: "ao.com", url: "https://ao.com/p", price: 69.99, confidence: "estimated"}),
+    product({name: "Sennheiser Momentum 4 Headphones", brand: "Sennheiser", group: "sennheiser|4", retailer: "Richer Sounds", host: "richersounds.com", url: "https://www.richersounds.com/m4.html",
+      price: null, confidence: null, priceSource: null}),
+  ]};
+  const ARGS = {queries: ["wireless headphones UK", "Sony WH-1000XM6 price UK"], match: ["headphones"], exclude: [], max_price: 0};
+  const finds = (args: object = ARGS) => ["find_products", args] as [string, object];
+  const shows = (ids: string[], pick = "", title = "Wireless headphones", note = "") => ["show_products", {title, note, ids, pick}] as [string, object];
+  // /shop, as the function would answer: what each call asked for, and what it hands back (or a failure)
+  const shopper = (s: ReturnType<typeof server>, got: Shopped | Error = SHOPPED) => {
+    const asked: object[] = [];
+    s.deps.shop = jest.fn(async a => { asked.push(a); if (got instanceof Error) throw got; return JSON.parse(JSON.stringify(got)); });
+    return asked;
+  };
   const watched = (s: ReturnType<typeof server>) => { const hosts: string[][] = []; s.deps.looked = h => { hosts.push(h); }; return hosts; };
   // the result one tool got: the nth in a request's last message
   const resultOf = (sent: Transcript, n = 0) => { const r = (sent[sent.length - 1].content as {content: string; is_error?: boolean}[])[n]; return {...r, body: JSON.parse(r.content)}; };
-  const IPHONE = "Can I afford a new iPhone?";
+  const HEADPHONES = "Can I afford some wireless headphones?";
 
-  test("one question, two requests: he searches, opens the pages and checks them, and the engine runs on the price they back", async () => {
-    const s = server(turn("tool_use", search, found, ...PAGES, checks(apple, argos)),
-      said("At £879 it'd come out of what's held back, so not today.\n<say>[flatly] Apple wants £899.00. Argos, £879.00. Not today.</say>"));
-    const hosts = watched(s);
-    const a = await converse([], IPHONE, s.deps, NOW);
+  test("find_products: /shop is asked once, its products are numbered and on the card straight away; two requests in all", async () => {
+    const s = server(asks(finds()), said("Argos lists the Sony at £349.99, and John Lewis has the Bose at £449.95.\n<say>[dryly] Five pairs. Pick one.</say>"));
+    const asked = shopper(s), hosts = watched(s);
+    const a = await converse([], HEADPHONES, s.deps, NOW);
+    expect(asked).toEqual([ARGS]);
     expect(s.sent).toHaveLength(2);
     const r = resultOf(s.sent[1]).body;
-    expect(r.confirmed).toEqual([{seller: "Apple", price: 899, condition: "new", delivery: "free"}, {seller: "Argos", price: 879, condition: "new", went_by: true}]);
-    expect(r.went_by).toEqual({seller: "Argos", price: 879, with_delivery: 879});
-    expect(r.what_if.amount).toBe(879);
-    expect(r.overview.in_savings_pots).toBeDefined();
-    expect(a).toMatchObject({text: "At £879 it'd come out of what's held back, so not today.", unchecked: [], searched: true, used: ["check_purchase", "what_if"],
-      spoken: "[flatly] Apple wants £899.00. Argos, £879.00. Not today."});
-    expect(a.research).toEqual({product: "iPhone 17, 256GB", note: "The newest standard model", offers: [
-      expect.objectContaining({seller: "Apple", price: 899, delivery: "free", url: APPLE, host: "apple.com", checked: "2026-10-05T13:00:00Z"}),
-      expect.objectContaining({seller: "Argos", price: 879, url: ARGOS, pick: true}),
-    ]});
+    expect(r.found).toBe("5 products");
+    expect(r.products.map((p: {id: string}) => p.id)).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+    expect(r.products[0]).toMatchObject({id: "p1", name: "Sony WH-1000XM6 Wireless Headphones", shop: "Argos", price: 349.99, price_is: "listed in search; the shop's page couldn't be checked",
+      delivery: "free", url: "https://www.argos.co.uk/product/1", photo: "https://imgs.search.brave.com/a.jpg"});
+    expect(r.products[1].price_is).toBe("on the shop's own page now");
+    expect(r.products[3].price_is).toBe("an estimate, not a shop's current listing");
+    expect(r.products[4]).toMatchObject({price: null, price_is: "no price found"});
+    expect(r.do_next).toMatch(/on the card now/);
+    expect(a).toMatchObject({unchecked: [], used: ["find_products"], spoken: "[dryly] Five pairs. Pick one."});
+    expect(a.research).toMatchObject({v: 2, title: "Headphones", products: SHOPPED.products.map((p, i) => ({...p, id: `p${i + 1}`}))});
+    expect(a.research?.pick).toBeUndefined();
     expect(a.estimate).toBeUndefined();
-    // what the line where his answer goes said, and the sites he looked at
-    expect(s.doing).toEqual(["Looking up prices…", "Checking it against your money…"]);
-    expect(hosts).toEqual([["argos.co.uk", "apple.com", "currys.co.uk"]]);
-    // the card rides on the answer, not through what saves notes
+    expect(s.doing).toEqual(["Looking up prices…", "Looking round the shops…"]);
+    expect(hosts).toEqual([["argos.co.uk", "johnlewis.com", "very.co.uk", "ao.com", "richersounds.com"]]);
     expect(s.effects).toEqual([]);
     expect(growsOnly([...s.sent, a.transcript])).toBe(true);
   });
 
-  test("what the pages don't back he's told, by name and why, with nothing to lean on; nothing backed, no engine, and his words are an estimate", async () => {
-    const blog = "https://www.lewislovelock.com/blog/iphone-17-price";
-    const s = server(turn("tool_use", search, {...found, content: [{type: "web_search_result", url: blog, title: "x", encrypted_content: "x"}]},
-      opens("f1", blog), page("f1", blog, "Amazon has the iPhone 17 256GB at £779.00"), checks({seller: "Amazon UK £1", url: blog, price: 779, condition: "new", delivery: null, pick: true})),
-    said("I couldn't confirm a shop's price, so no verdict yet."));
-    const a = await converse([], IPHONE, s.deps, NOW);
-    const r = resultOf(s.sent[1]);
-    expect(r.is_error).toBeUndefined();
-    expect(r.body.not_confirmed).toEqual([{seller: "Amazon UK 1", why: "an article, not a shop page", you_went_by_it: true}]);
-    expect(r.body.do_next).toMatch(/give it as an estimate/);
-    expect(r.body.what_if).toBeUndefined();
-    // neither what he said it costs, nor anything else of his, is now a figure he can state
-    expect(r.content).not.toContain("£");
-    expect(r.content).not.toContain("779");
-    expect(a).toMatchObject({text: "I couldn't confirm a shop's price, so no verdict yet.", unchecked: [], used: ["check_purchase"], estimate: true});
-    expect(a.research).toBeUndefined();
+  test("show_products: his choice and order on the card, and with pick the engine runs on its price and delivery, with how sure that price is", async () => {
+    const s = server(asks(finds()), asks(shows(["p3", "p1"], "p3", "Wireless headphones", "Over-ear £5")), said("Very lists the Sony at £79.99, plus £3.99 delivery."));
+    shopper(s);
+    const a = await converse([], HEADPHONES, s.deps, NOW);
+    const r = resultOf(s.sent[2]);
+    expect(r.body.went_by).toEqual({id: "p3", name: "Sony WH-CH720N Headphones", shop: "Very", price: 79.99, with_delivery: 83.98, price_is: "listed in search; the shop's page couldn't be checked"});
+    expect(r.body.what_if.amount).toBe(83.98);
+    expect(r.body.overview.in_savings_pots).toBeDefined();
+    expect(r.body.do_next).toMatch(/Very lists it in search; their page couldn't be checked/);
+    // the others are named, never priced: only the pick's figures become ones he can state
+    expect(JSON.stringify(r.body.shown)).not.toMatch(/349|£/);
+    expect(a.research).toMatchObject({v: 2, title: "Wireless headphones", note: "Over-ear", pick: "p3"});
+    expect(a.research?.products.map(p => p.id)).toEqual(["p3", "p1"]);
+    expect(a).toMatchObject({unchecked: [], used: ["find_products", "show_products", "what_if"]});
+    expect(s.doing).toContain("Checking it against your money…");
   });
 
-  test("a card is still shown for what was backed, with no price to go by if his kind was turned away; words about the rest get the second look", async () => {
-    const answer = () => said("Currys has it at £849, though that's from nowhere.");
-    const s = server(turn("tool_use", search, found, ...PAGES, checks({...argos, condition: "refurbished", pick: false}, {...apple, price: 1, pick: true})), answer(), answer());
-    const a = await converse([], IPHONE, s.deps, NOW);
+  test("a shop's price reaches the engine only through show_products: what_if on it is sent there, one from nowhere refused, the pick's price runs", async () => {
+    const s = server(asks(finds()), asks(["what_if", {amount: 349.99}], ["what_if", {amount: 1234}]), asks(shows(["p1"], "p1"), ["what_if", {amount: 349.99}]), said("Not today."));
+    shopper(s);
+    const a = await converse([], HEADPHONES, s.deps, NOW);
+    const [redirected, refused] = [resultOf(s.sent[2], 0), resultOf(s.sent[2], 1)];
+    expect(redirected).toMatchObject({is_error: true, body: {error: expect.stringMatching(/show_products, that product's id as pick/)}});
+    expect(refused).toMatchObject({is_error: true, body: {error: expect.stringMatching(/isn't one the app knows/)}});
+    expect(`${redirected.content}${refused.content}`).not.toMatch(/£|349|1234/);
+    // show_products goes first in its round, so what_if on its pick runs beside it
+    expect(resultOf(s.sent[3], 1).body.amount).toBe(349.99);
+    expect(a.used).toEqual(["find_products", "show_products", "what_if", "what_if"]);
+  });
+
+  test("his words: a shop's price counts to the penny, as a price; rounded, or a figure from nowhere, gets the second look", async () => {
+    const s = server(asks(finds()), said("Argos has it at £350, and you'd have £5,000 spare."), said("Argos lists it at £349.99."));
+    shopper(s);
+    const a = await converse([], HEADPHONES, s.deps, NOW);
     expect(s.sent).toHaveLength(3);
-    expect(a.unchecked).toEqual(["£849"]);
-    expect(a.research?.offers.map(o => o.seller)).toEqual(["Argos"]);
-    expect(a.estimate).toBe(true);
+    const note = (s.sent[2][s.sent[2].length - 1].content as {text: string}[]).map(b => b.text).join("\n");
+    expect(note).toContain("£350, £5,000");
+    expect(a).toMatchObject({text: "Argos lists it at £349.99.", unchecked: []});
   });
 
-  test("a shop he opened and left out: with nothing to go by he's asked once for it, then it's settled, no new search", async () => {
-    const s = server(turn("tool_use", search, found, ...PAGES, checks({...apple, price: 1, pick: true})),
-      {content: [checks({...apple, price: 2, pick: true})], stop_reason: "tool_use"} as unknown as Turn, said("I couldn't confirm a price."));
-    const a = await converse([], IPHONE, s.deps, NOW);
-    expect(s.sent).toHaveLength(3);
-    expect(resultOf(s.sent[1]).body).toMatchObject({opened_not_passed: ["argos.co.uk"], do_next: expect.stringMatching(/Call check_purchase once more/)});
-    expect(resultOf(s.sent[2]).body.do_next).toMatch(/Don't call this again/);
-    expect(a.estimate).toBe(true);
+  test("a sum may take the difference between two shops' prices, never a figure from nowhere", async () => {
+    const s = server(asks(finds()), asks(["calculate", {expression: "449.95 - 349.99"}], ["calculate", {expression: "5000 - 349.99"}]), said("The Bose is £99.96 more."));
+    shopper(s);
+    const a = await converse([], HEADPHONES, s.deps, NOW);
+    expect(resultOf(s.sent[2], 0).body.result).toBe(99.96);
+    expect(resultOf(s.sent[2], 1).is_error).toBe(true);
+    expect(a.unchecked).toEqual([]);
   });
 
-  test("the engine never tries a price nothing backed: before any search, or on a follow-up; a figure the app knows, or you gave, is fine", async () => {
-    const s = server(asks(["what_if", {amount: 799}]), said("I'll need to look that up."));
-    const a = await converse([], IPHONE, s.deps, NOW);
-    const r = resultOf(s.sent[1]);
-    expect(r.is_error).toBe(true);
-    expect(r.content).not.toMatch(/£|799/);
-    expect(a.used).toEqual([]);
-    // a follow-up with no search of its own: a backed price runs, one from nowhere doesn't
-    const t = server(turn("tool_use", search, found, ...PAGES, checks(apple, argos)), said("Not today."), turn("tool_use", tries(1234), tries(899)), said("Later, then."));
-    const first = await converse([], IPHONE, t.deps, NOW);
-    await converse(first.transcript, "And if I wait till payday?", t.deps, NOW);
-    expect(resultOf(t.sent[3], 0).is_error).toBe(true);
-    expect(resultOf(t.sent[3], 1).body.amount).toBe(899);
-    // your own figure, with a search or not
-    const y = server(turn("tool_use", search, found, tries(850)), said("Not today."));
-    expect((await converse([], "Currys has it at £850. Could I buy an iPhone?", y.deps, NOW)).used).toEqual(["what_if"]);
-    // and nothing's gated on a question that has nothing to do with buying
-    const n = server(asks(["what_if", {amount: 123.45}]), said("Fine."));
-    expect((await converse([], "Can I spend some on trainers?", n.deps, NOW)).used).toEqual(["what_if"]);
+  test("/shop failing, or not there at all: he's told, says so, no card, no crash, nothing invented", async () => {
+    for (const fail of [new Error("unavailable"), null]) {
+      const s = server(asks(finds()), said("I couldn't look round the shops just now."));
+      if (fail) shopper(s, fail);
+      const a = await converse([], HEADPHONES, s.deps, NOW);
+      const r = resultOf(s.sent[1]);
+      expect(r).toMatchObject({is_error: true, body: {error: expect.stringMatching(/Couldn't look round the shops/)}});
+      expect(a.research).toBeUndefined();
+      expect(a.estimate).toBeUndefined();
+      expect(a.ended).toBeUndefined();
+      expect(a.used).toEqual([]);
+    }
   });
 
-  test("nor a sum: a buying question can't work out what a price nothing backed does to your money", async () => {
-    const s = server(turn("tool_use", search, found, sums("32640 - 346.51"), sums("879 / 4")), said("I couldn't confirm that."));
-    await converse([], "Could I buy a BMW?", s.deps, NOW);
-    expect(resultOf(s.sent[1], 0).is_error).toBe(true);
-    expect(resultOf(s.sent[1], 0).content).not.toMatch(/£|32640/);
-    // once it's backed, the sums on it run
-    const t = server(turn("tool_use", search, found, ...PAGES, checks(apple, argos)), turn("tool_use", sums("879 / 4"), sums("(899 - 879) * 12")), said("Not today."));
-    await converse([], IPHONE, t.deps, NOW);
-    expect(resultOf(t.sent[2], 0).body.result).toBe(219.75);
-    expect(resultOf(t.sent[2], 1).body.result).toBe(240);
-    // what_if refused marks it, even on words that don't look like buying, and in any order: the sum beside it is refused too
-    const u = server(turn("tool_use", search, found, sums("1099 - 346"), tries(1099)), said("I couldn't confirm that."));
-    await converse([], "Thinking of a PS5, would that fit?", u.deps, NOW);
-    expect(resultOf(u.sent[1], 0).is_error).toBe(true);
-    // carrying on a purchase counts; a subscription doesn't, nor does it need a shop's page
-    const v = server(turn("tool_use", search, found, ...PAGES, checks(apple, argos)), said("Not today."), turn("tool_use", search, found, sums("450 - 346")), said("I couldn't confirm that."));
-    const first = await converse([], IPHONE, v.deps, NOW);
-    await converse(first.transcript, "And an Xbox Series X?", v.deps, NOW);
-    expect(resultOf(v.sent[3], 0).is_error).toBe(true);
-    const d = server(turn("tool_use", search, found, sums("(9.99 - 5.99) * 12")), said("About £48 a year."));
-    const disney = await converse([], "What's the cheapest UK plan for Disney Plus now, and what would that save me a year on the £9.99 I pay?", d.deps, NOW);
-    expect(resultOf(d.sent[1]).body.result).toBe(48);
-    expect(disney).toMatchObject({unchecked: []});
-    expect(disney.estimate).toBeUndefined();
-    expect(d.sent).toHaveLength(2);
+  test("fewer than five: the card has what came back and says so; none, and there's no card", async () => {
+    const s = server(asks(finds()), said("Only two came back."));
+    shopper(s, {products: SHOPPED.products.slice(0, 2), partial: "Only 2 products came back that fit."});
+    const a = await converse([], HEADPHONES, s.deps, NOW);
+    expect(resultOf(s.sent[1]).body).toMatchObject({partial: "Only 2 products came back that fit.", do_next: expect.stringMatching(/Fewer than five fit/)});
+    expect(a.research).toMatchObject({partial: "Only 2 products came back that fit."});
+    expect(a.research?.products).toHaveLength(2);
+    const none = server(asks(finds()), said("Nothing fits that."));
+    shopper(none, {products: [], partial: "Nothing came back that fits."});
+    const b = await converse([], HEADPHONES, none.deps, NOW);
+    expect(resultOf(none.sent[1]).body.do_next).toMatch(/Nothing fits/);
+    expect(b.research).toBeUndefined();
   });
 
-  test("called together, check_purchase goes first, so what it backs can be tried; results go back in the order he asked", async () => {
-    const what = tries(899), check = checks(apple, argos);
-    const s = server(turn("tool_use", search, found, ...PAGES, what, check), said("Not today."));
-    await converse([], IPHONE, s.deps, NOW);
-    const sent = s.sent[1][s.sent[1].length - 1].content as {tool_use_id: string; is_error?: boolean}[];
-    expect(sent.map(r => r.tool_use_id)).toEqual([what.id, check.id]);
-    expect(sent[0].is_error).toBeUndefined();
+  test("ids count on through the chat; show_products beside find_products waits for its results; a third look in one question is refused", async () => {
+    const s = server(asks(finds(), shows(["p1"])), asks(finds({...ARGS, queries: ["Bose headphones UK"]})), asks(finds()), said("Here's what I found."));
+    shopper(s);
+    const a = await converse([], HEADPHONES, s.deps, NOW);
+    expect(resultOf(s.sent[1], 0).body.products.map((p: {id: string}) => p.id)).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+    expect(resultOf(s.sent[1], 1)).toMatchObject({is_error: true, body: {error: expect.stringMatching(/Wait for find_products' results/)}});
+    expect(resultOf(s.sent[2]).body.products[0].id).toBe("p6");
+    expect(resultOf(s.sent[3])).toMatchObject({is_error: true, body: {error: expect.stringMatching(/twice/)}});
+    // the card is this question's last find
+    expect(a.research?.products[0].id).toBe("p6");
+    // and on into the next question, from the chat as it was kept
+    const t = server(asks(finds()), said("More."));
+    shopper(t);
+    await converse(JSON.parse(JSON.stringify(a.transcript)), "And some cheaper ones?", t.deps, NOW);
+    expect(resultOf(t.sent[1]).body.products[0].id).toBe("p11");
   });
 
-  test("a page asked for beside it hasn't opened yet: he's told to call again, and it isn't counted against him", async () => {
-    const s = server(turn("tool_use", search, found, opens("f1", APPLE), checks({...apple, pick: true})),
-      turn("tool_use", page("f1", APPLE, "iPhone 17 256GB £899.00"), checks({...apple, pick: true})), said("Not today."));
-    const a = await converse([], IPHONE, s.deps, NOW);
-    const r = resultOf(s.sent[1]);
-    expect(r.body).toEqual({do_next: expect.stringMatching(/still opening/)});
-    expect((s.sent[1][2].content as {type: string}[]).map(b => b.type)).toEqual(["tool_result"]);
-    expect(s.doing).toContain("Looking on the web…");
-    expect(a.research?.offers.map(o => o.seller)).toEqual(["Apple"]);
-    expect(a.used).toEqual(["check_purchase", "check_purchase", "what_if"]);
+  test("a tap on the card: the app says which; show_products with just it runs the engine, and the answer carries how sure its price is", async () => {
+    const s = server(asks(finds()), said("Here are five."), asks(shows(["p2"], "p2", "Bose QuietComfort Ultra Headphones")), said("John Lewis has it at £449.95."),
+      asks(shows(["p1"], "p1", "Sony WH-1000XM6")), said("Argos lists it at £349.99."));
+    shopper(s);
+    const first = await converse([], HEADPHONES, s.deps, NOW);
+    // a kept chat, opened again
+    const kept = JSON.parse(JSON.stringify(first.transcript)) as Transcript;
+    const tapped = "They tapped p2 on your card: Bose QuietComfort Ultra Headphones at John Lewis. Call show_products with ids [\"p2\"] and pick \"p2\".";
+    const bose = await converse(kept, "Can I afford the Bose QuietComfort Ultra Headphones from John Lewis?", s.deps, NOW, [tapped]);
+    expect((s.sent[2][s.sent[2].length - 1].content as {text: string}[])[0].text).toContain("They tapped p2");
+    const verified = resultOf(s.sent[3]).body;
+    expect(verified.went_by).toMatchObject({id: "p2", price: 449.95, price_is: "on the shop's own page now"});
+    expect(verified.what_if.amount).toBe(449.95);
+    expect(verified.do_next).not.toMatch(/couldn't be checked|estimate/);
+    expect(bose.research).toMatchObject({pick: "p2", products: [expect.objectContaining({id: "p2", confidence: "verified"})]});
+    expect(bose.unchecked).toEqual([]);
+    const sony = await converse(bose.transcript, "Can I afford the Sony WH-1000XM6 Wireless Headphones from Argos?", s.deps, NOW,
+      ["They tapped p1 on your card: Sony WH-1000XM6 Wireless Headphones at Argos. Call show_products with ids [\"p1\"] and pick \"p1\"."]);
+    expect(resultOf(s.sent[5]).body.do_next).toMatch(/Argos lists it in search; their page couldn't be checked/);
+    expect(sony.research?.pick).toBe("p1");
   });
 
-  test("a later try that does worse doesn't take away the card he had", async () => {
-    const s = server(turn("tool_use", search, found, ...PAGES, checks(apple, argos)), turn("tool_use", checks({...apple, url: "https://www.apple.com/uk/other", pick: true})), said("Not today."));
-    const a = await converse([], IPHONE, s.deps, NOW);
-    expect(a.research?.offers.map(o => o.seller)).toEqual(["Apple", "Argos"]);
-    expect(a.estimate).toBeUndefined();
-  });
-
-  test("looked up what it costs and never had it checked: one more look says so, and only one", async () => {
-    const s = server(turn("end_turn", search, found, words("It's about £799.")), said("Around £799, I couldn't confirm it."));
-    const a = await converse([], IPHONE, s.deps, NOW);
-    expect(s.sent).toHaveLength(2);
-    const note = (s.sent[1][s.sent[1].length - 1].content as {text: string}[]).map(b => b.text).join("\n");
-    expect(note).toContain("didn't run check_purchase");
-    expect(a).toMatchObject({unchecked: ["£799"], estimate: true});
-    // a question he didn't search for isn't asked again
-    const q = server(said("Which model did you mean?"));
-    const back = await converse([], IPHONE, q.deps, NOW);
-    expect(q.sent).toHaveLength(1);
-    expect(back.estimate).toBeUndefined();
-  });
-
-  test("his second look keeps the card he had, and his words stand on what it backed", async () => {
-    const s = server(turn("tool_use", search, found, ...PAGES, checks(apple, argos)), said("You've £5,000 spare."), said("At £879, not today."));
-    const a = await converse([], IPHONE, s.deps, NOW);
-    expect(a).toMatchObject({text: "At £879, not today.", unchecked: []});
-    expect(a.research?.offers.map(o => o.seller)).toEqual(["Apple", "Argos"]);
+  test("a price with no price found can't be picked; nor can a product that doesn't exist", async () => {
+    const s = server(asks(finds()), asks(shows(["p5"], "p5")), asks(shows(["p9"])), said("No price for that one."));
+    shopper(s);
+    await converse([], HEADPHONES, s.deps, NOW);
+    expect(resultOf(s.sent[2])).toMatchObject({is_error: true, body: {error: expect.stringMatching(/p5 has no price found/)}});
+    expect(resultOf(s.sent[3])).toMatchObject({is_error: true, body: {error: expect.stringMatching(/There's no product p9/)}});
   });
 
   test("the card takes the picture's place", async () => {
-    const s = server(turn("tool_use", search, found, ...PAGES, checks(apple, argos)), said(`<figure label="Today">£${perDay}</figure>\nNot today.`));
-    const a = await converse([], IPHONE, s.deps, NOW);
+    const s = server(asks(finds(), ["overview", {}]), said(`<figure label="Today">£${perDay}</figure>\nHere they are.`));
+    shopper(s);
+    const a = await converse([], HEADPHONES, s.deps, NOW);
     expect(a.unchecked).toEqual([]);
     expect(a.visual).toBeUndefined();
     expect(a.research).toBeDefined();
   });
 
-  test("while a page or a search waits, or carries on, the line says he's looking; the sites come as they're found", async () => {
-    const s = server(turn("pause_turn", search, found), turn("tool_use", ...PAGES, checks(apple, argos)), said("Not today."));
-    const hosts = watched(s);
-    await converse([], IPHONE, s.deps, NOW);
-    expect(s.doing).toEqual(["Looking up prices…", "Looking on the web…", "Checking it against your money…"]);
-    expect(hosts).toEqual([["argos.co.uk", "apple.com", "currys.co.uk"]]);
+  test("prices from a web search instead of the shops: one more look says so, and only one; then it's marked an estimate", async () => {
+    const search = {type: "server_tool_use", id: "s9", name: "web_search", input: {query: "iphone 17 price uk"}};
+    const results = {type: "web_search_tool_result", tool_use_id: "s9", content: [{type: "web_search_result", url: "https://www.argos.co.uk/x", title: "iPhone 17", encrypted_content: "x"}]};
+    const s = server({content: [search, results, {type: "text", text: "It's about £799."}], stop_reason: "end_turn"} as unknown as Turn, said("Around £799, I couldn't find a shop's price."));
+    const a = await converse([], "Can I afford a new iPhone?", s.deps, NOW);
+    expect(s.sent).toHaveLength(2);
+    const note = (s.sent[1][s.sent[1].length - 1].content as {text: string}[]).map(b => b.text).join("\n");
+    expect(note).toContain("didn't use find_products");
+    expect(a).toMatchObject({unchecked: ["£799"], estimate: true});
+    // a question he didn't search for isn't asked again
+    const q = server(said("Which model did you mean?"));
+    const back = await converse([], "Can I afford a new iPhone?", q.deps, NOW);
+    expect(q.sent).toHaveLength(1);
+    expect(back.estimate).toBeUndefined();
+  });
+
+  test("before anything's found, and carrying a purchase on, the engine and sums take no figure from nowhere; your own figure, or a question not for the shops, is fine", async () => {
+    const s = server(asks(["what_if", {amount: 799}]), said("I'll need to look that up."));
+    const a = await converse([], "Can I afford a new iPhone?", s.deps, NOW);
+    expect(resultOf(s.sent[1])).toMatchObject({is_error: true});
+    expect(resultOf(s.sent[1]).content).not.toMatch(/£|799/);
+    expect(a.used).toEqual([]);
+    const t = server(asks(finds()), said("Here."), asks(["calculate", {expression: "450 - 346"}]), said("I couldn't find that."));
+    shopper(t);
+    const first = await converse([], HEADPHONES, t.deps, NOW);
+    await converse(first.transcript, "And an Xbox Series X?", t.deps, NOW);
+    expect(resultOf(t.sent[3]).is_error).toBe(true);
+    const y = server(asks(["what_if", {amount: 850}]), said("Not today."));
+    expect((await converse([], "Currys has it at £850. Could I buy an iPhone?", y.deps, NOW)).used).toEqual(["what_if"]);
+    const n = server(asks(["what_if", {amount: 123.45}]), said("Fine."));
+    expect((await converse([], "Can I spend some on trainers?", n.deps, NOW)).used).toEqual(["what_if"]);
   });
 
   test("a briefing is never gated, nor a question that isn't for the shops", async () => {

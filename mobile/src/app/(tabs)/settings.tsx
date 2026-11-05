@@ -127,7 +127,8 @@ function IslandTry({ctx}: {ctx: Ctx}) {
     const t: Tx = {id: "island-try", type: "expense", amount: cat ? 14.2 : 11.99, cat: cat?.id ?? "other", note: cat ? "Tesco" : "Amazon",
       date: ctx.today, created: Date.now(), paidAt: Date.now(), monzoId: "island-try"};
     const p = cardTapFor({...ctx, txs: [...ctx.txs, t]}, t, Date.now());
-    if (p) void showCardTap(p); else useMoney.getState().notify("No daily number today, so there's nothing to show");
+    const {speaks, aiConsent} = useMoney.getState();
+    if (p) void showCardTap(p, {speaks: speaks && aiConsent}); else useMoney.getState().notify("No daily number today, so there's nothing to show");
   };
   return (
     <Card>

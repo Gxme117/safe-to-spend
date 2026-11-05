@@ -19,7 +19,7 @@ import {unsorted} from "../payments";
 import {billChanges, regularsView, sameKind, type Answers, type Scan} from "../regulars";
 import type {AppState, Bill, BillFreq, Ctx, Income, IsoDate, Tx} from "../types";
 import {whatIf} from "../today";
-import {checkOffers, CONDITIONS, notPassed, pickOf, totalOf, type Condition, type OfferClaim, type Pages, type PurchaseClaim, type Research} from "./research";
+import {clip, forTool, MAX_SHOWN, PRICE_IS, totalOf, type Product, type Research, type ShopArgs, type Shopped} from "./research";
 import {sum} from "./sum";
 
 export type Who = "tim" | "frank";
@@ -31,7 +31,7 @@ export const NOTE_KINDS: NoteKind[] = ["goal", "plan", "preference", "circumstan
 export const MAX_NOTES = 50, NOTE_LEN = 120;
 
 export const TOOL_NAMES = ["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
-  "add_bill", "change_bill", "remove_bill", "check_purchase"] as const;
+  "add_bill", "change_bill", "remove_bill", "find_products", "show_products"] as const;
 export type ToolName = typeof TOOL_NAMES[number];
 export const isTool = (name: string): name is ToolName => (TOOL_NAMES as readonly string[]).includes(name);
 
@@ -40,25 +40,31 @@ export const DOING: Record<ToolName, string> = {
   overview: "Checking your numbers…", upcoming: "Looking at what's due…", bills: "Looking at your bills…", regulars: "Going through your payments…",
   everyday: "Looking at your everyday budgets…", spending: "Adding up your spending…", payments: "Looking through your payments…", what_if: "Trying it out…",
   forecast: "Looking at the days ahead…", calculate: "Doing the sums…", remember: "Making a note…", forget: "Crossing out a note…",
-  add_bill: "Writing it up…", change_bill: "Writing it up…", remove_bill: "Writing it up…", check_purchase: "Checking the shops' pages…",
+  add_bill: "Writing it up…", change_bill: "Writing it up…", remove_bill: "Writing it up…", find_products: "Looking round the shops…",
+  show_products: "Checking it against your money…",
 };
-// what an answer was checked against, for the line under it; notes aren't money. check_purchase counts as the what_if it ran, when it ran one
+// what an answer was checked against, for the line under it; notes and shops' prices aren't your money. show_products counts as the
+// what_if it ran, when it ran one
 const CHECKED: Record<ToolName, string | null> = {
   overview: "your numbers", upcoming: "what's due", bills: "your bills", regulars: "your bank's payments", everyday: "your budgets",
   spending: "your spending", payments: "your payments", what_if: "a what if", forecast: "the days ahead", calculate: "a sum", remember: null, forget: null,
-  add_bill: "your bills", change_bill: "your bills", remove_bill: "your bills", check_purchase: null,
+  add_bill: "your bills", change_bill: "your bills", remove_bill: "your bills", find_products: null, show_products: null,
 };
 
 /** The bank's payments looked through for regular ones (lib/regulars.ts), and what you've said about them. */
 export interface RegularsEnv { scan: Scan | null; answers: Answers }
-/** Everything a tool needs. `newId` names a new note. `pages` and `now`: the shops' pages he's opened, for check_purchase, and
- *  `checked`: how many times it's run for this question (converse gives them). */
-export interface ToolEnv { ctx: Ctx; notes: Note[]; who: Who; newId: () => string; regulars: RegularsEnv; pages?: Pages; now?: Date; checked?: number }
+/** Everything a tool needs. `newId` names a new note. For find_products, what /shop found (`shopped`, converse asks it first) and
+ *  the first id to number its products from; for show_products, every product found in the conversation (`catalogue`). `now`: the
+ *  time, for how old a price is. */
+export interface ToolEnv {
+  ctx: Ctx; notes: Note[]; who: Who; newId: () => string; regulars: RegularsEnv; now?: Date;
+  shopped?: Shopped | {error: string}; firstId?: number; catalogue?: ReadonlyMap<string, Product>;
+}
 /** A note to save or remove: the tool only says so, the store does it. A change to your bills: only ever a card for you to say yes to. */
 export type ToolEffect = {add: Note} | {remove: Note} | {propose: Proposal};
 /** A tool's answer for the accountant, whether it went wrong (`error`: his arguments didn't make sense), and a note to save or remove.
- *  `research`: what check_purchase kept, for the card on the answer; `ran`: it ran the engine on the one he went by. */
-export interface ToolOut { result: unknown; error?: true; effect?: ToolEffect; research?: Research; ran?: true; waiting?: true }
+ *  `products`: what find_products found, numbered; `research`: the card show_products made; `ran`: it ran the engine on the pick. */
+export interface ToolOut { result: unknown; error?: true; effect?: ToolEffect; research?: Research; ran?: true; products?: Product[] }
 
 class Bad extends Error {}
 type Args = Record<string, unknown>;
@@ -340,46 +346,73 @@ function whatIfTool({ctx}: ToolEnv, a: Args) {
   };
 }
 
-// what check_purchase was given, or why it makes no sense
-function claimArg(a: Args): PurchaseClaim {
-  const product = strArg(a, "product")!, offers = a.offers, identifies = a.identifies;
-  if (!Array.isArray(identifies) || !identifies.every(i => typeof i === "string")) throw new Bad("identifies must be a list of the words that make it this product.");
-  if (!Array.isArray(offers) || !offers.length) throw new Bad("offers must list what you found, at least one.");
-  return {product, assumed: typeof a.assumed === "string" ? a.assumed : "", identifies, offers: offers.map((o: Args): OfferClaim => ({
-    seller: strArg(o, "seller")!, url: strArg(o, "url")!, price: numArg(o, "price", 0, 10_000_000)!,
-    condition: CONDITIONS.includes(o.condition as Condition) ? o.condition as Condition : "new", delivery: numArg(o, "delivery", 0, 100_000, true), pick: o.pick === true,
-  }))};
+// What find_products asks /shop for, or why it makes no sense (checked before anything is looked up)
+const strings = (a: Args, k: string, max: number, len: number): string[] => {
+  const v = a[k] ?? [];
+  if (!Array.isArray(v) || v.length > max || !v.every(s => typeof s === "string" && s.trim() && s.trim().length <= len)) throw new Bad(`${k} must be a list of up to ${max} short pieces of text.`);
+  return v.map(s => s.trim());
+};
+export function shopArgs(input: unknown): ShopArgs {
+  const a = (input && typeof input === "object" ? input : {}) as Args;
+  const queries = strings(a, "queries", 6, 120);
+  if (!queries.length) throw new Bad("queries must have at least one search.");
+  return {queries, match: strings(a, "match", 6, 40), exclude: strings(a, "exclude", 10, 40), max_price: numArg(a, "max_price", 0, 1_000_000) ?? 0};
 }
 
-// A price from the web reaches your money only through here: the pages he opened are read against what he says they show, and the
-// engine runs on the one he went by, only if a page backs it. Nothing a page didn't back goes back in a number or a £, since every
-// figure in a result counts as one he can state (lib/ai/check.ts); `why` and his words have no £ for the same reason.
-function checkPurchase(env: ToolEnv, a: Args): ToolOut {
-  const pages = env.pages ?? {open: new Map(), waiting: new Set()}, claim = claimArg(a), {research, rejected, waiting} = checkOffers(claim, pages, env.now ?? new Date());
-  const pick = pickOf(research), not_confirmed = rejected.map(r => ({seller: r.seller, why: r.why, ...r.pick ? {you_went_by_it: true} : {}}));
-  // asked for beside this call: those pages open on the next request, so nothing's decided yet
-  if (waiting && !pick) return {result: {do_next: "Those pages are still opening: call check_purchase again now, with nothing beside it."}, waiting: true};
-  const confirmed = research?.offers.map(o => ({seller: o.seller, price: o.price, condition: o.condition, ...o.delivery === "free" ? {delivery: "free"} : o.delivery !== undefined ? {delivery: o.delivery} : {},
-    ...o.from ? {starting_price: true} : {}, ...o.unshown ? {not_shown_with_price: o.unshown} : {}, ...o.pick ? {went_by: true} : {}})) ?? [];
-  // shops he opened for this question and left out: each could have had the price
-  const left = notPassed(claim, pages), opened = left.length ? {opened_not_passed: left} : {};
-  if (!pick) {
-    const again = left.length && !env.checked;
-    return {result: {confirmed, not_confirmed, ...opened,
-      do_next: again ? "None of those shows it at that price. Call check_purchase once more, with an offer from each of the other shops' pages you opened that shows the product and a price; don't search or open anything new."
-        : "No shop's own page you opened shows it at a price to go by. Don't call this again unless you've opened another shop's page. Otherwise give it as an estimate from a search result you cite, with no yes or no on it and nothing about what it would do to their money, and say you couldn't confirm a price."},
-    ...research ? {research} : {}};
-  }
-  const amount = totalOf(pick), caveats = [
-    pick.from ? "It's a starting price: write \"from\" with it, and say the version they'd want may cost more." : "",
-    pick.unshown ? `The page doesn't show ${pick.unshown.join(", ")} with that price: don't say that spec costs that.` : "",
+const DAY_MS = 86_400_000;
+
+// What /shop found, numbered for him. Its prices are what things cost out in the world, never figures about your money: the
+// phone counts them only to the penny, as prices, and they reach your money only through show_products' pick (converse.ts).
+function findProducts(env: ToolEnv, a: Args): ToolOut {
+  shopArgs(a);
+  const got = env.shopped;
+  if (!got || "error" in got) return {result: {error: "Couldn't look round the shops just now. Say so plainly, and don't give a price or a yes or no on one."}, error: true};
+  const first = env.firstId ?? 1;
+  const products: Product[] = got.products.map((p, i) => ({...p, id: `p${first + i}`, name: clip(p.name, 100), retailer: clip(p.retailer, 40)}));
+  const same = (p: Product) => products.find(o => o !== p && o.group === p.group && products.indexOf(o) < products.indexOf(p))?.id;
+  return {
+    result: {
+      found: `${products.length} ${products.length === 1 ? "product" : "products"}`, ...got.partial ? {partial: got.partial} : {},
+      products: products.map(p => ({...forTool(p), ...same(p) ? {same_thing_as: same(p)} : {}})),
+      note: "Each price is what a shop lists, not their money. url, price_page and photo are for the card: never write them.",
+      do_next: products.length
+        ? `The best ${Math.min(products.length, MAX_SHOWN)} are on the card now. Call show_products only to choose differently, or with pick to try one against their money.${got.partial ? " Fewer than five fit: say so, and don't pad it." : ""}`
+        : "Nothing fits. Say so plainly, and don't give a price or a yes or no on one. Ask what they'd like instead if it would help.",
+    },
+    products,
+  };
+}
+
+// The card, and the engine on the one picked: its price and delivery, with how sure that price is. Only the pick's figures come
+// back as numbers (they count as known); the others are named, not priced, since they never reach your money.
+function showProducts(env: ToolEnv, a: Args): ToolOut {
+  const catalogue = env.catalogue ?? new Map<string, Product>();
+  const noPounds = (s: string) => s.replace(/£\s?[\d,.]+/g, "").replace(/£/g, "").replace(/\s+/g, " ").trim();
+  const title = noPounds(strArg(a, "title")!).slice(0, 60), note = typeof a.note === "string" ? noPounds(a.note).slice(0, 100) : "";
+  const ids = [...new Set(strings(a, "ids", 20, 12))].slice(0, MAX_SHOWN), pickId = typeof a.pick === "string" ? a.pick.trim() : "";
+  if (!ids.length) throw new Bad("ids must name at least one product from find_products.");
+  const unknown = ids.filter(id => !catalogue.has(id));
+  if (unknown.length) throw new Bad(`There's no product ${unknown.join(", ")}: use ids find_products gave (${[...catalogue.keys()].slice(0, 12).join(", ") || "none yet"}).`);
+  const products = ids.map(id => catalogue.get(id)!), pick = pickId ? products.find(p => p.id === pickId) : undefined;
+  if (pickId && !pick) throw new Bad("pick must be one of ids, or empty.");
+  if (pick && pick.price === null) throw new Bad(`${pick.id} has no price found, so it can't be tried against their money: pick another, or none.`);
+  const research: Research = {v: 2, title, ...note ? {note} : {}, products, ...pick ? {pick: pick.id} : {}};
+  const shown = products.map(p => `${p.id}: ${p.name} at ${p.retailer}`);
+  if (!pick) return {result: {shown, do_next: "Answer now. The card shows them, their prices and links, so don't list them."}, research};
+  const now = env.now ?? new Date(), amount = totalOf(pick), seen = new Date(pick.checked), old = now.getTime() - seen.getTime() > DAY_MS;
+  const caveats = [
+    pick.confidence === "search_listed" ? `Its price is as ${pick.retailer} lists it in search; their page couldn't be checked. Say so, and that your answer depends on that price.` : "",
+    pick.confidence === "estimated" ? "Its price is only an estimate: say \"around\", and that it isn't a shop's current price." : "",
+    pick.from ? "It's a starting price: write \"from\" with it, and say the one they'd want may cost more." : "",
+    old && !isNaN(seen.getTime()) ? `That price was seen on ${day(isoD(seen))}: say it may have changed since.` : "",
   ].filter(Boolean).join(" ");
   return {
-    result: {confirmed, not_confirmed, ...opened,
-      went_by: {seller: pick.seller, price: pick.price, with_delivery: amount, ...pick.from ? {starting_price: true} : {}, ...pick.unshown ? {not_shown_with_price: pick.unshown} : {}},
+    result: {
+      shown, went_by: {id: pick.id, name: pick.name, shop: pick.retailer, price: pick.price, with_delivery: amount, price_is: PRICE_IS[pick.confidence!], ...pick.from ? {starting_price: true} : {}},
       what_if: whatIfTool(env, {amount}), overview: overview(env),
-      do_next: `Answer now: the card shows ${research!.offers.length === 1 ? "the one shop" : "the shops"} and links their pages, so don't list them. ${caveats ? `${caveats} ` : ""}${not_confirmed.length ? "Leave out the prices not confirmed, or call them estimates. " : ""}Answer can, afford and should from these figures.`},
-    research: research!, ran: true,
+      do_next: `Answer now: the card shows ${products.length === 1 ? "it" : "them"} and links the shop${products.length === 1 ? "" : "s"}, so don't list them. ${caveats ? `${caveats} ` : ""}Answer can, afford and should from these figures, and whether waiting for payday would be better.`,
+    },
+    research, ran: true,
   };
 }
 
@@ -457,7 +490,8 @@ export function runTool(name: string, input: unknown, env: ToolEnv): ToolOut {
       case "add_bill": return propose(env.ctx, proposeAdd(env.ctx, env.regulars.scan, billArgs(a), env.newId()));
       case "change_bill": return propose(env.ctx, proposeChange(env.ctx, env.regulars.scan, strArg(a, "bill_id")!, billArgs(a)));
       case "remove_bill": return propose(env.ctx, proposeRemove(env.ctx, strArg(a, "bill_id")!));
-      case "check_purchase": return checkPurchase(env, a);
+      case "find_products": return findProducts(env, a);
+      case "show_products": return showProducts(env, a);
       default: return {result: {error: `There's no tool called ${name}.`}, error: true};
     }
   } catch (e) {

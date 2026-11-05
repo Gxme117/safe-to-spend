@@ -24,7 +24,7 @@ import {AnswerFigure} from "@/components/AnswerFigure";
 import {BillCard, type CardStatus} from "@/components/BillCard";
 import {ResearchCard} from "@/components/ResearchCard";
 import {doneLine, leftLine, outcomeLine, proposalView, type Proposal, type ProposalView} from "@/lib/billChange";
-import {researchView, type ResearchView} from "@/lib/ai/research";
+import {isNewView, researchView, type OldResearchView, type ResearchView, type Tile} from "@/lib/ai/research";
 import {yesNo} from "@/lib/ai/yesNo";
 import {converse, type Answer, type Deps, type Ended, type Transcript} from "@/lib/ai/converse";
 import {briefingAsk, briefingDue, briefingFacts, logBrief} from "@/lib/briefing";
@@ -38,7 +38,7 @@ import {calmly, micRefused, micState, MIC_BUTTON, transcriptOf, withHeard} from 
 import {pieceFor} from "@/lib/lipsync";
 import {BLINK, frankBeats, lidFor, nextBeats, ON_TWOS, typingPoses, type Beat, type Lift, type Look, type Mood} from "@/lib/timEyes";
 import {answerFrames, beatsFrom, beatsOf, bubbleFits, CAPTION, FRANK_BOX, frankFrames, linesOf, roomOf, still, TIM_BOX, timFrames, waitFrames, wordsFit, type Mouth, type SpeechFrame, type Take} from "@/lib/timSpeech";
-import {AccountantFail, say as sayAloud, send, type AccountantError} from "@/services/accountant";
+import {AccountantFail, say as sayAloud, send, shop, type AccountantError} from "@/services/accountant";
 import {FRANK_WAIT_CLIPS} from "../../../assets/frankWait-voice";
 import {FRANK_CLIPS} from "../../../assets/frank-voice";
 import {TIM_CLIPS} from "../../../assets/tim-voice";
@@ -97,12 +97,13 @@ const PEOPLE: Record<Accountant, {name: string; button: string; fails: Record<Fa
 // `next`, what you might ask him next (shown under his latest answer only).
 // `cards`, changes to your bills he proposed, each waiting for your yes (its view worked out when it was shown).
 // `web`, the pages he cites, when he searched the web for it (none: he looked and has nothing to cite).
-// `research`, something to buy he looked up, as a card leading the answer (worked out when it was shown); `estimate`, no shop's
-// own page backed a price to go by, so any price in his words is an estimate, and this says so under them.
+// `research`, something to buy he looked up, as a card leading the answer (worked out when it was shown; one from before
+// find_products, kept in a saved chat, is the old kind); `estimate`, he talked about what something costs with no card to show
+// for it, so any price in his words is an estimate, and this says so under them.
 // `attached`, on yours: the photos and files you sent with it (a small picture of each photo; the things themselves are in the transcript).
 type Card = {p: Proposal; view: ProposalView; status: CardStatus; note?: string};
-type Said = {id: number; who: Accountant; mine: boolean; text: string; attached?: Shown[]; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; web?: Source[]; research?: ResearchView; estimate?: string};
-const ESTIMATE = "No shop's own page showed the price, so any price here is an estimate.";
+type Said = {id: number; who: Accountant; mine: boolean; text: string; attached?: Shown[]; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; web?: Source[]; research?: ResearchView | OldResearchView; estimate?: string};
+const ESTIMATE = "No shop's listing was found for this, so any price here is an estimate.";
 // a chat to keep, from your first question in it
 const newChatId = () => ({id: uid(), made: Date.now()});
 const Track = GLASS ? GlassView : View; // the Tim · Frank switch's track
@@ -131,7 +132,7 @@ function saidOf(who: Accountant, a: Answer, now: Date): Omit<Said, "id"> {
   const st = useMoney.getState(), state = st.state, ctx = state && {state, txs: st.txs, today: st.today};
   const research = a.research && ctx ? researchView(ctx, a.research, now) : null;
   // the pages the card already links aren't listed again; with a card, nothing to list is nothing to say
-  const onCard = new Set(research?.rows.map(r => r.url)), web = (a.sources ?? []).filter(w => !onCard.has(w.url));
+  const onCard = new Set(research?.tiles.map(t => t.url)), web = (a.sources ?? []).filter(w => !onCard.has(w.url));
   return {
     who, mine: false, text: a.text, checked: state && receipt(a.used, state, now, a.searched || !!research),
     ...a.unchecked.length ? {flag: a.readFrom ? readFrom(a.unchecked, a.readFrom) : `I couldn't check ${a.unchecked.join(", ")} against your numbers${a.searched ? " or a source" : ""}.`} : {},
@@ -317,9 +318,10 @@ const place = (c: typeof LOOK_CROP, k: number) =>
 // wait for it, LOADING at most, then go on without it, his voice left to catch up if it comes.
 const LISTEN = 20, STALL = 1000, LOADING = 8000;
 
-// the silent switch mutes him; whatever you're listening to carries on under him. Set on mount, and again after a
-// dictation, which hands the audio session to the recogniser while it listens.
-const AUDIO = {playsInSilentMode: false, interruptionMode: "mixWithOthers"} as const;
+// he speaks whatever the silent switch says, as a voice message does (the setting in Settings is how to quiet him);
+// whatever you're listening to carries on under him. Set on mount, and again after a dictation, which hands the audio
+// session to the recogniser while it listens.
+const AUDIO = {playsInSilentMode: true, interruptionMode: "mixWithOthers"} as const;
 
 /** Plays what he says whenever the tab shows: the words so far, his mouth, and his eyes' beats while he's saying it. His
  *  opening in his voice: the recording loads while he looks up, and everything from its first pose on starts when the sound
@@ -551,10 +553,17 @@ function Tim() {
   const [working, setWorking] = useState<{who: Accountant; doing: string} | null>(null);
   // the sites his searches brought back while he works, under that line (apart, so the line isn't read out again as they come)
   const [looked, setLooked] = useState<string[]>([]);
-  // a question waiting for you to say he can look at your numbers
+  // a question waiting for you to say he can look at your numbers, and what the app tells him with it (a product you tapped)
   const [waiting, setWaiting] = useState<string | null>(null);
-  const follow = useRef(false); // something was just said: scroll to it once it's laid out
-  const say = (s: Omit<Said, "id">) => { const id = said.current++; follow.current = true; setThread(th => [...th, {...s, id}]); return id; };
+  const waitingExtra = useRef<string[]>([]);
+  // As ChatGPT does: send a question and it goes to the top, just under his pinned bubble, with room under it for his answer
+  // (the latest exchange is at least a screen tall), so his answer comes in below it and you read it from its beginning.
+  // Nothing scrolls when it lands. A chat opened again goes to the end.
+  const follow = useRef(false);
+  const pin = useRef<number | null>(null); // your question, to go to the top once it's laid out
+  const listY = useRef(0);
+  const [viewH, setViewH] = useState(0);
+  const say = (s: Omit<Said, "id">) => { const id = said.current++; if (s.mine) pin.current = id; setThread(th => [...th, {...s, id}]); return id; };
   const thinking = working?.who === who;
   const reduced = useReducedMotion();
   // The "+" card (components/PlusCard.tsx): photos and files for your next question, in a tray in the box until you send, and
@@ -645,6 +654,13 @@ function Tim() {
       apply: effect => { if (!tempRef.current) note(effect, to); },
       doing: doing => { if (current()) setWorking(w => w && {...w, doing}); },
       looked: hosts => { if (current()) setLooked(hosts); },
+      // the shops, for find_products; how it went goes in the dev log's timings line (counts, never names)
+      shop: async args => {
+        const got = await shop(args);
+        const st = got.stats as {verified?: number; listed?: number; brave?: number} | undefined;
+        clock?.mark(`shop (${got.products.length} found, ${st?.verified ?? 0} on the shops' pages, ${st?.brave ?? 0} searches)`);
+        return got;
+      },
     };
   };
   const briefed = useRef(false);
@@ -814,6 +830,8 @@ function Tim() {
     for (const w of ["tim", "frank"] as const) if (chatId.current[w] === id) newChat(w);
   };
   const bubbleTop = insets.top + SWITCH_H + TOP_ROOM, {scale: bs, x: bx, y: by} = BUBBLE[who], fit = bs / k;
+  // where your question sits once sent: 16pt under the hairline of the bar behind his bubble
+  const pinTop = small ? bubbleTop + BUBBLE_D + BAR_FOOT + 16 : 0;
   // the clip goes from his whole picture to the round bubble, and his picture shrinks inside it to his face
   const clip = useAnimatedStyle(() => {
     const p = shrunk.value, at = (a: number, b: number) => a + (b - a) * p;
@@ -875,7 +893,8 @@ function Tim() {
   };
   // the cards still waiting for your yes, in this accountant's chat
   const openCards = (w: Accountant) => thread.filter(s => s.who === w && s.cards).flatMap(s => s.cards!.map((k, i) => ({s, i, k}))).filter(x => waits(x.k));
-  const go = (text: string) => {
+  // `extra`: what the app tells him with this question only (a product you tapped on his card)
+  const go = (text: string, extra: string[] = []) => {
     const to = who, chat = chats.current[to], still = () => chats.current[to] === chat;
     const files = attach; // the tray goes with this question
     setAttach([]);
@@ -886,7 +905,7 @@ function Tim() {
       setCard(s.id, i, {status: "unanswered"});
       if (st0.state) outcomes.current[to].push(outcomeLine({state: st0.state, txs: st0.txs, today: st0.today}, k.p, "unanswered"));
     }
-    const context = [...outcomes.current[to].splice(0), ...tempRef.current ? [TEMP_CHAT] : []];
+    const context = [...outcomes.current[to].splice(0), ...extra, ...tempRef.current ? [TEMP_CHAT] : []];
     if (!chatId.current[to]) { const n = newChatId(); setChatId(to, n.id); made.current[to] = n.made; }
     say({who: to, mine: true, text, ...files.length ? {attached: shownOf(files)} : {}});
     setSmallFor(sm => ({...sm, [to]: true}));
@@ -910,8 +929,8 @@ function Tim() {
       })
       .finally(() => { if (still()) setWorking(null); });
   };
-  // what's in the box, or a suggestion you tapped (sent as it is, the box left alone)
-  const ask = (tapped?: string) => {
+  // what's in the box, or a suggestion you tapped (sent as it is, the box left alone); `extra` goes to him with it only
+  const ask = (tapped?: string, extra: string[] = []) => {
     const text = tapped ?? q.trim();
     // a photo or file can go on its own, with no words
     if ((!text && !attach.length) || working || dict.listening || !useMoney.getState().state) return;
@@ -921,8 +940,14 @@ function Tim() {
     const open = openCards(who), reply = !tapped && !attach.length && open.length === 1 ? yesNo(text) : "reply";
     if (reply !== "reply") { say({who, mine: true, text}); void decide(open[0].s, open[0].i, reply === "yes"); return; }
     // the first time, he asks before looking at your numbers
-    if (!useMoney.getState().aiConsent) setWaiting(text);
-    else go(text);
+    if (!useMoney.getState().aiConsent) { waitingExtra.current = extra; setWaiting(text); }
+    else go(text, extra);
+  };
+  // a product you tapped on his card: you ask whether it fits, and the app tells him which one (by its id, never its price, so the
+  // price reaches your money only through show_products, with how sure it is)
+  const choose = (t: Tile) => {
+    if (working || !t.selectable) return;
+    ask(`Can I afford the ${t.name} from ${t.retailer}?`, [`They tapped ${t.id} on your card: ${t.name} at ${t.retailer}. Call show_products with ids ["${t.id}"] and pick "${t.id}", then answer whether they can afford it, and whether waiting for payday would be better.`]);
   };
   // a photo or file in the tray is something to send, words or not
   const sendable = !!q.trim() || attach.length > 0;
@@ -953,7 +978,12 @@ function Tim() {
     <ScrollView ref={scroll} testID="conversation" style={{flex: 1}} contentContainerStyle={{alignItems: "center", paddingHorizontal: 32, paddingBottom: 24}}
       keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" stickyHeaderIndices={small ? [0] : []}
       contentInset={{bottom: covered}} scrollIndicatorInsets={{bottom: covered}}
-      onContentSizeChange={() => { if (follow.current) { follow.current = false; scroll.current?.scrollToEnd({animated: !reduced}); } }}>
+      onLayout={e => setViewH(e.nativeEvent.layout.height)}
+      onContentSizeChange={() => {
+        if (!follow.current) return;
+        follow.current = false;
+        scroll.current?.scrollToEnd({animated: !reduced});
+      }}>
       <Reanimated.View style={[{alignSelf: "stretch", marginHorizontal: -32, backgroundColor: bg}, space]}>
         {/* while he's a bubble, the bar behind him and his name is solid, in the page's colour, ending in a hairline, not a fade */}
         {small && (
@@ -1020,9 +1050,15 @@ function Tim() {
           words with a row of small icons under it that ends it, and more room before your next question than inside an
           exchange */}
       {talked && (
-        <View style={{marginTop: 32, alignSelf: "stretch", gap: 40}}>
-          {exchanges(thread.filter(s => s.who === who)).map(group => (
-          <View key={group[0].id} style={{gap: 20}}>
+        <View onLayout={e => { listY.current = e.nativeEvent.layout.y; }} style={{marginTop: 32, alignSelf: "stretch", gap: 40}}>
+          {exchanges(thread.filter(s => s.who === who)).map((group, gi, groups) => (
+          <View key={group[0].id} onLayout={e => {
+            if (pin.current !== group[0].id) return;
+            pin.current = null;
+            // where the list starts once he's a bubble (he may still be shrinking into it, the list moving up with him)
+            const top = small ? bubbleTop + BUBBLE_D + 32 : listY.current;
+            scroll.current?.scrollTo({y: Math.max(0, top + e.nativeEvent.layout.y - pinTop), animated: !reduced});
+          }} style={{gap: 20, minHeight: gi === groups.length - 1 ? Math.max(0, viewH - covered - pinTop - 24) : 0}}>
           {group.map(s => s.mine ? (
             <View key={s.id} style={{alignSelf: "flex-end", alignItems: "flex-end", maxWidth: "80%", gap: 8}}>
               {/* the photos and files you sent with it, above your words */}
@@ -1037,7 +1073,8 @@ function Tim() {
             <View key={s.id} style={{alignSelf: "stretch", gap: 32}}>
             {/* the picture he leads with, or what he found to buy, the whole width; his words under it say what it doesn't */}
             {s.visual ? <AnswerFigure visual={s.visual} />
-              : s.research ? <ResearchCard view={s.research} box={box} edge={edge} onOpen={url => { openBrowserAsync(url).catch(() => {}); }} /> : null}
+              : s.research ? <ResearchCard view={s.research} box={box} edge={edge} onOpen={url => { openBrowserAsync(url).catch(() => {}); }}
+                onSelect={isNewView(s.research) ? choose : undefined} disabled={!!working} /> : null}
             <View style={{alignSelf: "flex-start", maxWidth: "90%", gap: 8}}>
               {/* what he said out loud: tap it to hear it again (the take's on the phone, so it costs nothing) */}
               <Pressable disabled={!s.voiced} onPress={() => s.voiced && speech.speak(s.who, s.voiced.line, s.voiced.take, fits)}
@@ -1082,15 +1119,15 @@ function Tim() {
             </View>
             </View>
           ))}
-          </View>
-          ))}
           {/* what he's doing while he works it out, where his answer will go, and the sites he's looking at */}
-          {thinking ? (
+          {thinking && gi === groups.length - 1 ? (
             <View style={{alignSelf: "flex-start", gap: 4}}>
               <Text style={{fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.muted}}>{working?.doing}</Text>
               {looked.length ? <Looked hosts={looked} color={c.muted} reduced={reduced} /> : null}
             </View>
           ) : null}
+          </View>
+          ))}
         </View>
       )}
     </ScrollView>
@@ -1194,8 +1231,8 @@ function Tim() {
       onCamera={() => void pick(() => fromCamera())} onPhotos={() => void pick(fromPhotos)} onFiles={() => void pick(fromFiles)}
       tone={tone} ink={c.ink} muted={c.muted} reduced={reduced} bottom={footH - barY + 8} left={32} plusX={PLUS_X} plusY={12 + foot + 6 + 38 / 2} />
     <ConsentSheet visible={waiting !== null} name={name}
-      onYes={() => { const text = waiting ?? ""; setWaiting(null); useMoney.getState().setAiConsent(true); if (text || attach.length) go(text); }}
-      onNo={() => { setQ(waiting ?? ""); setWaiting(null); }} />
+      onYes={() => { const text = waiting ?? "", extra = waitingExtra.current; waitingExtra.current = []; setWaiting(null); useMoney.getState().setAiConsent(true); if (text || attach.length) go(text, extra); }}
+      onNo={() => { setQ(waiting ?? ""); waitingExtra.current = []; setWaiting(null); }} />
     </View>
   );
 }

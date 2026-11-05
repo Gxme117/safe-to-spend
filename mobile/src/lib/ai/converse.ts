@@ -1,8 +1,10 @@
 // One question to Tim or Frank, start to finish. The conversation goes to the accountant function, which asks Claude; Claude
-// either answers or asks for tools, which run here and go back with their results, a few rounds at most. A web search, or a shop's
-// page opened for a purchase, runs on Claude's side and comes back in his turn (lib/ai/web.ts). A price from the web only reaches
-// your money through check_purchase, which reads it on the page (lib/ai/research.ts). The answer's £ figures
-// are then checked (lib/ai/check.ts): one that doesn't trace back gets one more look, and is flagged if it still doesn't.
+// either answers or asks for tools, which run here and go back with their results, a few rounds at most. A web search runs on
+// Claude's side and comes back in his turn (lib/ai/web.ts). Something to buy: find_products asks the function's /shop (deps.shop)
+// before the round's tools run, and its products are numbered p1, p2… in the chat (lib/ai/research.ts). Their prices are what
+// things cost out in the world: they count only to the penny, as prices, and reach your money only through show_products' pick,
+// with how sure each is. The answer's £ figures are then checked (lib/ai/check.ts): one that doesn't trace back gets one more
+// look, and is flagged if it still doesn't.
 // The conversation only ever grows: nothing sent is changed later, so Claude's earlier thinking stays valid. Pure: the
 // server, the tools' view of your money and where notes go are passed in.
 import type Anthropic from "@anthropic-ai/sdk";
@@ -11,9 +13,10 @@ import {blocksOf, hasUnread, unreadIn, type Attachment} from "./attach";
 import {mentionedOf} from "../briefing";
 import {r2} from "../money";
 import {checkNote, isKnown, knownIn, poundsIn, unchecked, unknownIn, webFigures, withoutWeb} from "./check";
-import {appContext, DOING, isTool, runTool, type ToolEffect, type ToolEnv, type ToolName} from "./tools";
+import {appContext, DOING, isTool, runTool, shopArgs, type ToolEffect, type ToolEnv, type ToolName} from "./tools";
 import {nextOf} from "./next";
-import {CHECKING_IT, notSubscription, pagesIn, pickOf, PRICES_DOING, pricesLikely, totalOf, type Research} from "./research";
+import {callsOf, catalogueIn, CHECKING_IT, defaultCard, nextIdIn, notSubscription, PRICES_DOING, pricesLikely, SHOPPING, titleOf, totalOf, type Product, type Research,
+  type ShopArgs, type Shopped} from "./research";
 import {figuresOf, visualOf, type Visual} from "./visual";
 import {answerBlocks, joinerOf, resultHosts, SEARCHING, searchedIn, searchWaiting, sourcesOf, type Source} from "./web";
 
@@ -38,6 +41,8 @@ export interface Deps {
   doing?(what: string): void;
   /** The sites his searches brought back so far, once each, as they come. */
   looked?(hosts: string[]): void;
+  /** Looks round the shops for find_products (the accountant function's /shop). Without it, find_products says it can't. */
+  shop?(args: ShopArgs): Promise<Shopped>;
 }
 
 /** How a question ended when it didn't end in an answer: declined, cut off, or still looking things up after every round. */
@@ -63,9 +68,10 @@ export interface Answer {
   searched?: true;
   /** The pages his answer cites. Only on an answer. */
   sources?: Source[];
-  /** Something to buy he looked up, as a card (lib/ai/research.ts): only the offers a shop's own page backs. Only on an answer. */
+  /** Something to buy he looked up, as a card (lib/ai/research.ts): the products find_products found, or the ones show_products
+   *  chose, each price labelled with how sure it is. Only on an answer. */
   research?: Research;
-  /** He looked up something to buy, and no shop's own page backed a price to go by: any price in his words is an estimate. */
+  /** He talked about what something costs with no card to show for it: any price in his words is an estimate. */
   estimate?: true;
   /** Figures in `unchecked` with a photo or PDF in the conversation: most likely read off it, so they're said to be (lib/ai/attach.ts). */
   readFrom?: "photo" | "file";
@@ -86,13 +92,20 @@ const LAST_ROUND = "<app_context>That was the last lookup for this question: ans
 /** Times one question's search can be paused and carried on (Claude's side pauses a long one) before he's stopped. */
 export const MAX_PAUSES = 3;
 // the lookups that try something against your money, once he's found what it costs
-const TRYING: ToolName[] = ["check_purchase", "what_if", "overview", "upcoming", "forecast"];
-// A price from the web only reaches your money through check_purchase. No £ in what he's told: a tool's £ counts as known
-const NOT_BACKED = {error: "That price isn't one check_purchase confirmed on a shop's own page, nor a figure the app knows. Prices from the web go through check_purchase, once you've opened the shops' pages. If no page confirms it, it's an estimate: say so, with no yes or no on it, and don't try it again."};
-const SUM_NOT_BACKED = {error: "A number in that sum isn't from your tools, their words or a price check_purchase confirmed. Prices from the web go through check_purchase. A price no page confirmed is an estimate: don't work out what it would do to their money, and don't try this sum again."};
-const RUN_IT = "<app_check>You looked up what it costs but didn't run check_purchase, so the price hasn't been checked. Run it now with every shop's page you opened that shows the product and a price (a shop's own listing or category page counts), opening them with web_fetch first if you haven't; or say plainly you couldn't confirm a price, with no yes or no. Then give your whole answer again.</app_check>";
-// check_purchase first, so what_if can try what it backed in the same round, and what_if before a sum, whose refusal the sum goes by
-const rank = (name: string) => name === "check_purchase" ? 0 : name === "what_if" ? 1 : 2;
+const TRYING: ToolName[] = ["show_products", "what_if", "overview", "upcoming", "forecast"];
+// A price from the shops only reaches your money through show_products' pick, with how sure it is. No £ in what he's told: a
+// tool's £ counts as known
+const NOT_BACKED = {error: "That figure isn't one the app knows: not from your tools, their words, or a product find_products found. Prices go through find_products, and reach their money only through show_products with pick. Don't try it again."};
+const USE_SHOW = {error: "That's a price find_products found. Try it against their money with show_products, that product's id as pick, so its price is labelled with how sure it is."};
+const SUM_NOT_BACKED = {error: "A number in that sum isn't from your tools, their words or a product find_products found. Prices from the web go through find_products. Don't try this sum again."};
+const RUN_IT = "<app_check>You talked about what something costs but didn't use find_products, so the prices haven't been looked up properly. Call find_products now; or say plainly you couldn't find a price, with no yes or no on one. Then give your whole answer again.</app_check>";
+const SHOP_WAIT = {error: "Wait for find_products' results before show_products: you can't know the ids yet. Call it after, if the card needs changing or you want to try one."};
+const ENOUGH_LOOKING = {error: "You've looked round the shops twice for this question: go with what you found."};
+/** find_products a question, at most. */
+export const MAX_FINDS = 2;
+type Found = {products: Product[]; title: string; partial?: string};
+// show_products first, so what_if can try its pick in the same round, and what_if before a sum, whose refusal the sum goes by
+const rank = (name: string) => name === "show_products" ? 0 : name === "what_if" ? 1 : 2;
 
 // his words, for a phone screen: he's asked for plain text, but a stray **bold** or # heading shouldn't show its marks.
 // A citation splits a sentence into several text blocks, spaces and all, so those go back together as they came
@@ -134,17 +147,23 @@ export async function converse(transcript: Transcript, question: string, deps: D
   const unread = unreadIn(msgs);
   const used: ToolName[] = [], cards = new Map<string, Proposal>(), hosts: string[] = [];
   let searched = false, attempted = false, refused = false, research: Research | null = null;
+  // this question's last find_products: its card, unless show_products makes another
+  let found: Found | null = null;
   const done = (text: string, ended?: Ended, bad: string[] = []): Answer => ({transcript: msgs, text, used, unchecked: bad, ...ended ? {ended} : {}, ...searched ? {searched: true as const} : {}});
-  let rounds = 0, looked = false, pauses = 0, before: number | null = null, checked = 0;
-  // a question for the shops: that's what the line says while he searches (no word comes back until he's done)
+  let rounds = 0, looked = false, pauses = 0, before: number | null = null, finds = 0;
+  // a question for the shops: that's what the line says while he looks (no word comes back until he's done)
   const shopping = !opts.whole && pricesLikely(question);
   if (shopping) deps.doing?.(PRICES_DOING);
-  const checkedBefore = transcript.some(m => m.role === "assistant" && Array.isArray(m.content) && m.content.some(b => b.type === "tool_use" && b.name === "check_purchase"));
-  // whether a price has to come through check_purchase: for a purchase, or carrying one on ("And an Xbox?"), never a briefing or a subscription
-  const buying = () => !opts.whole && (shopping || attempted || refused || (searched && checkedBefore && notSubscription(question)));
-  const gated = () => !opts.whole && (shopping || searched || checkedBefore);
-  // the figures that can reach the engine or a sum: what's known, and what a page has backed this round
-  const trusted = () => [...knownIn(msgs), ...(research?.offers ?? []).flatMap(o => [o.price, totalOf(o)])];
+  const shoppedBefore = callsOf(transcript, "find_products").size > 0 || callsOf(transcript, "check_purchase").size > 0;
+  // whether a price has to come from the shops' tools: for a purchase, or carrying one on ("And an Xbox?"), never a briefing or a subscription
+  const buying = () => !opts.whole && (shopping || attempted || refused || ((searched || shoppedBefore) && notSubscription(question)));
+  const gated = () => !opts.whole && (shopping || searched || attempted || shoppedBefore);
+  // figures about your money: everything known but find_products' prices; those count only as prices, to the penny
+  const known = () => knownIn(msgs, callsOf(msgs, "find_products"));
+  const prices = () => [...catalogueIn(msgs).values()].flatMap(p => [...p.price === null ? [] : [p.price, totalOf(p)], ...typeof p.delivery === "number" ? [p.delivery] : []]);
+  const exactly = (x: number, xs: number[]) => xs.some(p => Math.abs(p - x) < 0.005);
+  // the pick's price and total this round, before its result is in the conversation (what_if after show_products, in one round)
+  let picked: number[] = [];
   for (;;) {
     const turn = await deps.send(msgs);
     before ??= msgs.length;
@@ -171,18 +190,47 @@ export async function converse(transcript: Transcript, question: string, deps: D
     }
     if (calls.length) {
       rounds++;
+      picked = [];
       const first = calls.find(call => isTool(call.name));
-      if (first) deps.doing?.(searched && TRYING.includes(first.name as ToolName) ? CHECKING_IT : DOING[first.name as ToolName]);
-      const env: ToolEnv = {now, ...deps.env(), ...calls.some(call => call.name === "check_purchase") ? {pages: pagesIn(msgs, transcript.length), checked} : {}};
+      // find_products first: /shop is asked for each, in turn, before anything else in the round runs. Its products are numbered
+      // on from the conversation's, across every call in the round. A failure there is his to say, never a crash
+      const finding = calls.filter(call => call.name === "find_products");
+      const shopped = new Map<string, Pick<ToolEnv, "shopped" | "firstId"> | {refused: object}>();
+      if (finding.length) {
+        deps.doing?.(SHOPPING);
+        let next = nextIdIn(catalogueIn(msgs));
+        for (const call of finding) {
+          if (finds >= MAX_FINDS) { shopped.set(call.id, {refused: ENOUGH_LOOKING}); continue; }
+          finds++;
+          let args: ShopArgs;
+          // arguments that make no sense: the tool says what's wrong, nothing is looked up
+          try { args = shopArgs(call.input); } catch { shopped.set(call.id, {}); continue; }
+          const got: Shopped | {error: string} = deps.shop
+            ? await deps.shop(args).catch((e: unknown) => ({error: e instanceof Error ? e.message : "failed"}))
+            : {error: "can't look round the shops from here"};
+          shopped.set(call.id, {shopped: got, firstId: next});
+          if ("error" in got) continue;
+          next += got.products.length;
+          const fresh = [...new Set(got.products.map(p => p.host))].filter(h => h && !hosts.includes(h));
+          if (fresh.length) { hosts.push(...fresh); deps.looked?.([...hosts]); }
+        }
+      }
+      if (first && !finding.length) deps.doing?.((searched || attempted) && TRYING.includes(first.name as ToolName) ? CHECKING_IT : DOING[first.name as ToolName]);
+      const env: ToolEnv = {now, ...deps.env(), catalogue: catalogueIn(msgs)};
       const run = (call: ToolUse): BlockParam => {
         const input = (call.input ?? {}) as {amount?: unknown; expression?: unknown};
-        // a price nothing has backed never reaches the engine, nor a sum about your money
-        if (call.name === "what_if" && gated() && typeof input.amount === "number" && !isKnown(r2(input.amount), trusted())) {
+        // show_products needs find_products' ids, which come with its results
+        if (call.name === "show_products" && finding.length) return result(call, SHOP_WAIT, true);
+        // a figure from nowhere never reaches the engine; a shop's price only through show_products, with its label
+        if (call.name === "what_if" && gated() && typeof input.amount === "number" && !isKnown(r2(input.amount), [...known(), ...picked])) {
           refused = true;
-          return result(call, NOT_BACKED, true);
+          return result(call, exactly(r2(input.amount), prices()) ? USE_SHOW : NOT_BACKED, true);
         }
-        if (call.name === "calculate" && buying() && typeof input.expression === "string" && unknownIn(input.expression, trusted()).length) return result(call, SUM_NOT_BACKED, true);
-        const out = runTool(call.name, call.input, env);
+        // a sum may use shops' prices (the difference between two), never a figure from nowhere
+        if (call.name === "calculate" && buying() && typeof input.expression === "string" && unknownIn(input.expression, [...known(), ...prices(), ...picked]).length) return result(call, SUM_NOT_BACKED, true);
+        const s = shopped.get(call.id);
+        if (s && "refused" in s) return result(call, s.refused, true);
+        const out = runTool(call.name, call.input, s ? {...env, ...s} : env);
         if (out.effect && "propose" in out.effect) {
           const p = out.effect.propose, key = target(p);
           if (!cards.has(key) && cards.size >= MAX_CARDS) return result(call, TOO_MANY, true);
@@ -190,10 +238,18 @@ export async function converse(transcript: Transcript, question: string, deps: D
           cards.set(key, p);
         } else if (out.effect) deps.apply(out.effect);
         if (!out.error && isTool(call.name)) used.push(call.name);
-        if (call.name === "check_purchase" && !out.error && !out.waiting) { attempted = true; checked++; }
-        // the card he's backed: a later try that does worse doesn't take it away
-        if (out.research && (pickOf(out.research) || !pickOf(research))) research = out.research;
-        if (out.ran) used.push("what_if");
+        if (call.name === "find_products" && !out.error && out.products) {
+          attempted = true;
+          const got = s && "shopped" in s && s.shopped && !("error" in s.shopped) ? s.shopped : null;
+          found = {products: out.products, title: titleOf(shopArgs(call.input)), ...got?.partial ? {partial: got.partial} : {}};
+        }
+        // the latest card he made is the one shown
+        if (out.research) research = out.research;
+        if (out.ran && out.research?.pick) {
+          used.push("what_if");
+          const p = out.research.products.find(x => x.id === out.research!.pick)!;
+          picked = [p.price!, totalOf(p)];
+        }
         return result(call, out.result, out.error);
       };
       const ran = new Map([...calls].sort((a, b) => rank(a.name) - rank(b.name)).map(call => [call.id, run(call)]));
@@ -209,12 +265,13 @@ export async function converse(transcript: Transcript, question: string, deps: D
     // than a sentence
     const marks = opts.whole ? mentionedOf(plain(turn.content)) : null;
     if (marks?.nothing && !marks.text) return {...done(""), mentioned: [], nothing: true};
-    const said = marks ? wholeOf(marks.text) : spokenOf(plain(turn.content)), {text: asked, next} = nextOf(said.text), {text, visual} = visualOf(asked), known = knownIn(msgs);
-    // a price he cites answers for itself, in the words that cite it; everything else, a picture's figures included, has to trace
-    // back as ever, a price check_purchase backed being a tool's figure like any other. A briefing has only the app's facts to go on
+    const said = marks ? wholeOf(marks.text) : spokenOf(plain(turn.content)), {text: asked, next} = nextOf(said.text), {text, visual} = visualOf(asked);
+    // a price he cites answers for itself, in the words that cite it; a shop's price find_products found, to the penny; everything
+    // else, a picture's figures included, has to trace back as ever. A briefing has only the app's facts to go on
+    const knownNow = known(), exact = prices();
     const rest = marks ? text : visualOf(nextOf(spokenOf(plain(turn.content, withoutWeb)).text).text).text;
-    const bad = unchecked(visual ? `${rest}\n${figuresOf(visual)}` : rest, known);
-    // looked up what something costs, never had it checked and gives figures anyway: one more look, for that too
+    const bad = unchecked(visual ? `${rest}\n${figuresOf(visual)}` : rest, knownNow, exact);
+    // talked about what something costs from the web without looking round the shops: one more look, for that too
     const unasked = buying() && searched && !attempted && poundsIn(text).length > 0;
     // a photo or PDF with this question: a figure he read off it can't trace back here, so another look would only cost a round
     const recheck = bad.length > 0 && !hasUnread(attach);
@@ -225,11 +282,14 @@ export async function converse(transcript: Transcript, question: string, deps: D
     }
     // what he says out loud repeats his answer, so a price it cited can be said too
     const web = marks ? [] : answerBlocks(turn.content).flatMap(webFigures), sources = sourcesOf(turn.content);
-    const sayIt = said.spoken && !bad.length && !unchecked(said.spoken, known, web).length;
-    // the card takes the picture's place: one thing leads an answer. No price backed: what he says is only an estimate, and it says so
-    const estimate = buying() && searched && !pickOf(research) && (attempted || poundsIn(text).length > 0);
-    return {...done(text, undefined, bad), ...sayIt ? {spoken: said.spoken} : {}, ...visual && !bad.length && !research ? {visual} : {}, ...next ? {next} : {},
+    const sayIt = said.spoken && !bad.length && !unchecked(said.spoken, knownNow, [...web, ...exact]).length;
+    // the card: the one show_products made, else what this question's find_products found. It takes the picture's place: one thing
+    // leads an answer. Prices talked about with no card to show for them: what he says is only an estimate, and it says so
+    const lastFound = found as Found | null, made = research as Research | null;
+    const card = made ?? (lastFound?.products.length ? defaultCard(lastFound.products, lastFound.title, lastFound.partial) : null);
+    const estimate = buying() && !card && (attempted || searched) && poundsIn(text).length > 0;
+    return {...done(text, undefined, bad), ...sayIt ? {spoken: said.spoken} : {}, ...visual && !bad.length && !card ? {visual} : {}, ...next ? {next} : {},
       ...cards.size ? {proposals: [...cards.values()]} : {}, ...marks ? {mentioned: marks.mentioned} : {}, ...sources.length ? {sources} : {},
-      ...research ? {research} : {}, ...estimate ? {estimate: true as const} : {}, ...bad.length && unread ? {readFrom: unread} : {}};
+      ...card ? {research: card} : {}, ...estimate ? {estimate: true as const} : {}, ...bad.length && unread ? {readFrom: unread} : {}};
   }
 }

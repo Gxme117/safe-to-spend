@@ -47,7 +47,7 @@
         {
           "microphonePermission": "Pinch uses the microphone so you can say your question to Tim and Frank instead of typing it.",
           "recordAudioAndroid": false,
-          "enableBackgroundPlayback": false
+          "enableBackgroundPlayback": true
         }
       ],
       [

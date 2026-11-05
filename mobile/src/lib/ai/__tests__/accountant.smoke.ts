@@ -7,12 +7,12 @@
 import {readFileSync, writeFileSync} from "fs";
 import type {Attachment} from "../attach";
 import {MODEL_CHOICES, type ModelKey} from "../models";
-import {photo, send} from "@/services/accountant";
+import {photo, send, shop} from "@/services/accountant";
 import {baseState, ctx, tx} from "../../__tests__/fixtures";
 import type {Scan} from "../../regulars";
 import type {Bank, Bill} from "../../types";
 import {converse, type Transcript} from "../converse";
-import {isExact, photoQuery, totalOf} from "../research";
+import {catalogueIn, photoQuery, totalOf, type Product} from "../research";
 import {roundOf, stopwatch} from "../timings";
 import type {Note, ToolEffect, Who} from "../tools";
 
@@ -24,12 +24,12 @@ jest.mock("expo-secure-store", () => ({
 }));
 jest.setTimeout(10 * 60_000);
 // the network for real (scripts/real-fetch-env.js). SMOKE_OLD_APP=1: every question as an app from before the card asks it
-// (no `research`), to compare with
+// (no `shop`), to compare with
 beforeAll(() => {
   const real = (globalThis as unknown as {realFetch: typeof fetch}).realFetch;
   globalThis.fetch = !process.env.SMOKE_OLD_APP ? real : (async (url: string, init?: RequestInit) => {
     if (typeof init?.body !== "string" || !String(url).endsWith("/chat")) return real(url, init);
-    const {research: _, ...before} = JSON.parse(init.body);
+    const {shop: _, ...before} = JSON.parse(init.body);
     return real(url, {...init, body: JSON.stringify(before)});
   }) as typeof fetch;
 });
@@ -148,112 +148,149 @@ test("photo: every card gets one, looked up by its name", async () => {
   }
 });
 
-const FIRST_FOUR: [Who, string][] = [
-  ["frank", "Can I afford a new iPhone?"],
-  ["tim", "Could I buy a BMW?"],
-  ["tim", "Is it worth getting a new TV?"],
+// The acceptance questions: each should end in a card of at least five relevant products (or say why fewer), each price labelled
+const FIVE: [Who, string][] = [
+  ["frank", "Can I afford an iPhone 17?"],
+  ["frank", "Can I afford a 65-inch Samsung QLED TV?"],
+  ["frank", "Can I afford some wireless headphones?"],
   ["frank", "How much would a decent gaming PC cost?"],
+  ["frank", "What's the cheapest place to buy a MacBook?"],
 ];
-// more kinds of shop, for measuring how often a price is found: SMOKE_MORE=1 adds them, SMOKE_MORE=only asks just these
+// more kinds of shop: SMOKE_MORE=1 adds them, SMOKE_MORE=only asks just these
 const MORE: [Who, string][] = [
-  ["frank", "Can I afford a Samsung 55 inch TV?"],
+  ["tim", "Find me a decent laptop under £500"],
   ["frank", "Could I get a PS5?"],
   ["tim", "Can I afford a Dyson cordless vacuum?"],
   ["frank", "Should I buy AirPods Pro?"],
 ];
-const PURCHASE_QUESTIONS = process.env.SMOKE_MORE === "only" ? MORE : process.env.SMOKE_MORE ? [...FIRST_FOUR, ...MORE] : FIRST_FOUR;
+// SMOKE_ASK="frank:Can I afford an iPhone 17?|tim:…": only these
+const ASKED = process.env.SMOKE_ASK?.split("|").map((s: string) => { const [w, ...q] = s.split(":"); return [w.trim() as Who, q.join(":").trim()] as [Who, string]; });
+const PURCHASE_QUESTIONS: [Who, string][] = ASKED ?? (process.env.SMOKE_MORE === "only" ? MORE : process.env.SMOKE_MORE ? [...FIVE, ...MORE] : FIVE);
 // what tokens and searches cost on the accountant's model, in dollars (claude-opus-5-5: a million tokens in, read from the cache,
-// written to it, and out; a search)
-const PRICE = {in: 4, read: 0.2, write: 5, out: 20, search: 0.01};
+// written to it, and out; Anthropic's web search), and Brave's search ($5 a thousand)
+const PRICE = {in: 4, read: 0.2, write: 5, out: 20, search: 0.01, brave: 0.005};
 
-// Prints what each question found and what it cost, to read through: what the pages backed and turned away, each page he tried and
-// whether it opened, what the engine ran on, the rounds, the time and the money. Trust before count: a question with no card isn't
-// a failure; the engine running on a price no shop's page backed is.
-test("buying something: he finds the prices himself, the app checks them on the shops' own pages, and the engine runs on what they back, in one question", async () => {
-  const totals = {cards: 0, headlines: 0, offers: 0, dollars: 0, ms: 0};
+type Run = {a: Awaited<ReturnType<typeof converse>>; ms: number; dollars: number; brave: number; rounds: number; clock: string; shopMs: number[]};
+// One question to him, through the real function, Claude, /shop and Brave, counting what it cost
+async function buy(who: Who, q: string, transcript: Transcript = [], context: string[] = []): Promise<Run> {
+  const clock = stopwatch(), started = Date.now(), shopMs: number[] = [];
+  let rounds = 0, dollars = 0, brave = 0;
+  const a = await converse(transcript, q, {
+    send: async m => {
+      const turn = await send(who, m), u = turn.usage;
+      clock.mark(roundOf(++rounds, turn));
+      if (u) dollars += ((u.input_tokens ?? 0) * PRICE.in + (u.cache_read_input_tokens ?? 0) * PRICE.read + (u.cache_creation_input_tokens ?? 0) * PRICE.write + (u.output_tokens ?? 0) * PRICE.out) / 1e6
+        + (u.server_tool_use?.web_search_requests ?? 0) * PRICE.search;
+      return turn;
+    },
+    shop: async args => {
+      const t = Date.now(), got = await shop(args);
+      shopMs.push(Date.now() - t);
+      brave += Number((got.stats as {brave?: number} | undefined)?.brave ?? 0);
+      clock.mark(`shop ${got.products.length} found`);
+      return got;
+    },
+    // the fixtures' date for your money, the real one for how old a price is
+    env: () => ({ctx: money, notes: [], who, newId: () => "n_buy", regulars: {scan, answers: {}}, now: new Date()}), apply: () => {},
+  }, new Date(2026, 9, 5, 12, 0), context);
+  return {a, ms: Date.now() - started, dollars: dollars + brave * PRICE.brave, brave, rounds, clock: clock.line(), shopMs};
+}
+// what the engine ran on, and what it may run on: a show_products pick's price or total, or a figure that isn't a shop's
+function engineOf(a: Run["a"]) {
+  const blocks = a.transcript.flatMap(m => Array.isArray(m.content) ? m.content as unknown as Record<string, any>[] : []);
+  const results = new Map(blocks.filter(b => b.type === "tool_result").map(b => [b.tool_use_id, b]));
+  const calls = (name: string) => blocks.filter(b => b.type === "tool_use" && b.name === name).map(b => ({input: b.input, result: results.get(b.id)}));
+  const body = (c: {result?: {content?: string}}) => { try { return JSON.parse(c.result?.content ?? "{}") as Record<string, any>; } catch { return {}; } };
+  const picks = calls("show_products").map(body).flatMap(r => r.went_by ? [r.went_by.price, r.went_by.with_delivery] : []);
+  const catalogue = [...catalogueIn(a.transcript).values()].flatMap(p => p.price === null ? [] : [p.price, totalOf(p)]);
+  const tries = calls("what_if").map(c => ({amount: c.input.amount as number, ran: !c.result?.is_error}));
+  return {picks, catalogue, tries, shows: calls("show_products").map(c => ({input: c.input, body: body(c)})), finds: calls("find_products").map(c => c.input)};
+}
+const productLine = (p: Product, pick?: string) =>
+  `  ${p.id === pick ? "*" : " "} ${p.id} ${(p.confidence ?? "no price").padEnd(13)} ${p.price === null ? "-" : `${p.from ? "from " : ""}£${p.price}`} ${p.retailer} · ${p.name}${p.condition !== "new" ? ` · ${p.condition}` : ""}${p.inStock === false ? " · out of stock" : ""} · photo ${p.image ? "yes" : "no"}`;
+
+// Prints each question's card, to read through: every product with how sure its price is and whether it has a photo, what the
+// engine ran on, the rounds, the time and the money; then the measures across them. What fails it: no answer, a price reaching
+// the engine any way but show_products' pick, links or markup in his words, talk of how the app checks, or asking you the price.
+test("buying something: five or more products from the shops on a card, each price labelled, and the engine only on a pick", async () => {
+  const m = {cards: 0, five: 0, products: 0, photos: 0, priced: 0, verified: 0, listed: 0, estimated: 0, ms: [] as number[], dollars: 0, brave: 0};
   for (const [who, q] of PURCHASE_QUESTIONS) {
-    const clock = stopwatch(), started = Date.now();
-    let round = 0, bytes = 0, searches = 0, fetches = 0, dollars = 0, tokens = 0;
-    const a = await converse([], q, {
-      send: async m => {
-        bytes = Math.max(bytes, new TextEncoder().encode(JSON.stringify({who, messages: m})).length);
-        const turn = await send(who, m), u = turn.usage;
-        clock.mark(roundOf(++round, turn));
-        if (u) {
-          searches += u.server_tool_use?.web_search_requests ?? 0;
-          fetches += u.server_tool_use?.web_fetch_requests ?? 0;
-          tokens += (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
-          dollars += ((u.input_tokens ?? 0) * PRICE.in + (u.cache_read_input_tokens ?? 0) * PRICE.read + (u.cache_creation_input_tokens ?? 0) * PRICE.write + (u.output_tokens ?? 0) * PRICE.out) / 1e6
-            + (u.server_tool_use?.web_search_requests ?? 0) * PRICE.search;
-        }
-        return turn;
-      },
-      // the fixtures' date for your money, the real one for how old a page is: pages are read today
-      env: () => ({ctx: money, notes: [], who, newId: () => "n_buy", regulars: {scan, answers: {}}, now: new Date()}), apply: () => {},
-    }, new Date(2026, 9, 5, 12, 0));
-    const ms = Date.now() - started, r = a.research, pick = r?.offers.find(o => o.pick);
-    // SMOKE_DUMP=<folder>: each conversation as it went, to check every card price against the page it came from
-    if (process.env.SMOKE_DUMP) writeFileSync(`${process.env.SMOKE_DUMP}/buy-${PURCHASE_QUESTIONS.findIndex(x => x[1] === q)}.json`, JSON.stringify({q, who, ms, dollars, research: r, estimate: a.estimate, text: a.text, transcript: a.transcript}, null, 1));
-    // his turns: what he asked for, and how each went
-    const blocks = a.transcript.flatMap(m => Array.isArray(m.content) ? m.content as unknown as Record<string, any>[] : []);
-    const asked = new Map(blocks.filter(b => b.type === "server_tool_use" && b.name === "web_fetch").map(b => [b.id, b.input.url as string]));
-    const opened = blocks.filter(b => b.type === "web_fetch_tool_result").map(b => b.content.type === "web_fetch_result"
-      ? `  opened ${b.content.url} (${b.content.content?.source?.data?.length ?? 0} characters)` : `  REFUSED ${asked.get(b.tool_use_id)}: ${b.content.error_code}`);
-    const results = new Map(blocks.filter(b => b.type === "tool_result").map(b => [b.tool_use_id, b]));
-    const calls = (name: string) => blocks.filter(b => b.type === "tool_use" && b.name === name).map(b => ({input: b.input, result: results.get(b.id)}));
-    const checks = calls("check_purchase").map(c => { try { return JSON.parse(c.result?.content ?? "{}") as Record<string, any>; } catch { return {}; } });
-    const turned = checks.flatMap(c => c.not_confirmed ?? []) as {seller: string; why: string}[], left = [...new Set(checks.flatMap(c => c.opened_not_passed ?? []))];
-    const backed = (x: number) => (r?.offers ?? []).some(o => Math.abs(o.price - x) < 0.005 || Math.abs(totalOf(o) - x) < 0.005);
-    const tries = calls("what_if").map(c => ({amount: c.input.amount as number, ran: !c.result?.is_error}));
-    const looks = a.transcript.filter(m => m.role === "user" && Array.isArray(m.content) && m.content.some(b => b.type === "text" && b.text.startsWith("<app_check>"))).length;
-    totals.cards += r ? 1 : 0; totals.headlines += pick ? 1 : 0; totals.offers += r?.offers.length ?? 0; totals.dollars += dollars; totals.ms += ms;
+    const run = await buy(who, q), {a} = run, r = a.research, e = engineOf(a);
+    // SMOKE_DUMP=<folder>: each conversation as it went
+    if (process.env.SMOKE_DUMP) writeFileSync(`${process.env.SMOKE_DUMP}/buy-${PURCHASE_QUESTIONS.findIndex(x => x[1] === q)}.json`, JSON.stringify({q, who, ...run, a: {...a, transcript: undefined}, transcript: a.transcript}, null, 1));
+    const ps = r?.products ?? [];
+    m.cards += r ? 1 : 0; m.five += ps.length >= 5 ? 1 : 0; m.products += ps.length; m.photos += ps.filter(p => p.image).length;
+    m.priced += ps.filter(p => p.price !== null).length; m.verified += ps.filter(p => p.confidence === "verified").length;
+    m.listed += ps.filter(p => p.confidence === "search_listed").length; m.estimated += ps.filter(p => p.confidence === "estimated").length;
+    m.ms.push(run.ms); m.dollars += run.dollars; m.brave += run.brave;
     console.log([`${who.toUpperCase()}: ${q}`, a.text, `tools: ${a.used.join(", ") || "none"}`,
-      `card: ${r ? `${r.product}${r.note ? ` (${r.note})` : ""}` : "none"}`,
-      `verified offers (${r?.offers.length ?? 0}):`,
-      ...(r?.offers ?? []).map(o => `  ${o.pick ? "*" : " "} ${o.seller}: ${o.from ? "from " : ""}£${o.price} ${o.condition}${o.delivery !== undefined ? `, delivery ${o.delivery}` : ""}, ${isExact(o) ? "exact" : o.from ? "starting price" : "spec"}${o.unshown ? ` (not shown with it: ${o.unshown.join(", ")})` : ""}, read ${o.checked} ${o.url}`),
-      `not confirmed (${turned.length}):`, ...turned.map(x => `  ${x.seller}: ${x.why}`),
-      `pages (${fetches}):`, ...opened, `opened, not passed: ${left.join(", ") || "none"}; check_purchase calls: ${checks.length}`,
-      `headline verified: ${pick ? `yes, ${pick.from ? "from " : ""}£${pick.price} at ${pick.seller}, ${isExact(pick) ? "exact match" : pick.from ? "starting price" : `spec not shown: ${pick.unshown?.join(", ")}`}` : "no"}${a.estimate ? " (said to be an estimate)" : ""}`,
-      `engine: ${pick ? `check_purchase ran it on £${totalOf(pick)}` : "not run by check_purchase"}${tries.length ? `; what_if ${tries.map(t => `£${t.amount} ${t.ran ? "ran" : "refused"}`).join(", ")}` : ""}`,
-      `calculate: ${calls("calculate").map(c => `${c.input.expression} ${c.result?.is_error ? "refused" : "ran"}`).join("; ") || "none"}`,
-      `searches: ${searches}, rounds: ${round}, second looks: ${looks}, total: ${(ms / 1000).toFixed(1)}s, sent at most: ${Math.round(bytes / 1000)} KB, tokens: ${tokens}, cost: $${dollars.toFixed(3)}`,
-      `times: ${clock.line()}`, `sources: ${(a.sources ?? []).map(s => s.host).join(", ") || "none"}`,
-      `said: ${a.spoken ?? "nothing"}`, ...a.unchecked.length ? [`UNCHECKED: ${a.unchecked.join(", ")}`] : [], ...a.ended ? [`ENDED: ${a.ended}`] : []].join("\n"));
+      `asked the shops: ${e.finds.map(f => JSON.stringify(f)).join(" ; ") || "never"}`,
+      `card: ${r ? `${r.title}${r.note ? ` (${r.note})` : ""}, ${ps.length} products${r.partial ? `, "${r.partial}"` : ""}` : "none"}`,
+      ...ps.map(p => productLine(p, r?.pick)),
+      `engine: ${e.tries.map(t => `£${t.amount} ${t.ran ? "ran" : "refused"}`).join(", ") || "not run"}`,
+      `rounds: ${run.rounds}, total: ${(run.ms / 1000).toFixed(1)}s (shop ${run.shopMs.map(x => `${(x / 1000).toFixed(1)}s`).join(", ") || "-"}), Brave requests: ${run.brave}, cost: $${run.dollars.toFixed(3)}`,
+      `times: ${run.clock}`, `said: ${a.spoken ?? "nothing"}`, ...a.unchecked.length ? [`UNCHECKED: ${a.unchecked.join(", ")}`] : [], ...a.ended ? [`ENDED: ${a.ended}`] : []].join("\n"));
     expect(a.ended).toBeUndefined();
-    expect(a.searched).toBe(true);
-    // the engine never ran on a price no shop's own page backed
-    expect(tries.filter(t => t.ran && !backed(t.amount))).toEqual([]);
+    // the engine only ever ran on a pick's price, or a figure that isn't a shop's
+    expect(e.tries.filter(t => t.ran && e.catalogue.some(x => Math.abs(x - t.amount) < 0.005) && !e.picks.some(x => Math.abs(x - t.amount) < 0.005))).toEqual([]);
     expect(a.text).not.toMatch(/https?:\/\/|<\/?(research|offer|figure|split|say|next)\b/);
-    // the app's checking is never his to talk about
-    expect(`${a.text}\n${a.spoken ?? ""}`).not.toMatch(/\bbacked\b|the app marks|check_purchase|verified by|confirmed by the app/i);
+    // how the app finds and checks prices is never his to talk about
+    expect(`${a.text}\n${a.spoken ?? ""}`).not.toMatch(/find_products|show_products|search[-_ ]listed|verified by|the app (marks|confirmed|checked)/i);
     // the price is his to find, never yours to give
     expect(a.text).not.toMatch(/how much (is|does|would) it cost\?|what('s| is) the price\?|tell me the price/i);
   }
-  const n = PURCHASE_QUESTIONS.length;
-  console.log(`Buying: ${totals.cards}/${n} cards, ${totals.headlines}/${n} verified headlines, ${totals.offers} offers, ${(totals.ms / n / 1000).toFixed(1)}s and $${(totals.dollars / n).toFixed(3)} a question`);
+  const n = PURCHASE_QUESTIONS.length, ms = [...m.ms].sort((x, y) => x - y);
+  console.log([`Buying, ${n} questions:`,
+    `  discovery: ${m.five}/${n} cards with 5 or more products (${m.cards}/${n} cards, ${m.products} products)`,
+    `  photos: ${m.photos}/${m.products} (${Math.round(100 * m.photos / Math.max(1, m.products))}%)`,
+    `  prices: ${m.priced}/${m.products} priced; ${m.verified} on the shop's page (${Math.round(100 * m.verified / Math.max(1, m.priced))}% of priced), ${m.listed} listed in search, ${m.estimated} estimates`,
+    `  time: median ${(ms[Math.floor(n / 2)] / 1000).toFixed(1)}s, longest ${(ms[n - 1] / 1000).toFixed(1)}s`,
+    `  cost: $${(m.dollars / n).toFixed(3)} a question (Brave ${m.brave} requests in all)`].join("\n"));
 });
 
-// An app from before the card (TestFlight build 3) doesn't say it can show one, so it's never given the tools for one: no card tags,
-// no page opened, no check_purchase, however it's asked. Here the request goes out as that app sends it, without `research`.
+// A tap on a product: the app tells him which, by its id; show_products tries it against your money, and his answer says how sure
+// its price is. One whose price was on the shop's page, and one only listed in search.
+test("a tap: a product from the card tried against your money, its label carried into his answer", async () => {
+  const first = await buy("frank", "Can I afford some wireless headphones?"), card = first.a.research;
+  console.log(["CARD:", ...(card?.products ?? []).map(p => productLine(p))].join("\n"));
+  expect(card?.products.length).toBeGreaterThan(0);
+  const pickable = (card?.products ?? []).filter(p => p.price !== null);
+  const verified = pickable.find(p => p.confidence === "verified"), listed = pickable.find(p => p.confidence !== "verified");
+  for (const p of [verified, listed].filter((x): x is Product => !!x)) {
+    const run = await buy("frank", `Can I afford the ${p.name} from ${p.retailer}?`, first.a.transcript,
+      [`They tapped ${p.id} on your card: ${p.name} at ${p.retailer}. Call show_products with ids ["${p.id}"] and pick "${p.id}", then answer whether they can afford it, and whether waiting for payday would be better.`]);
+    const e = engineOf(run.a), shown = e.shows.at(-1);
+    console.log([`TAP ${p.id} (${p.confidence}, £${p.price} at ${p.retailer}):`, run.a.text, `went by: ${JSON.stringify(shown?.body.went_by)}`,
+      `engine: ${e.tries.map(t => `£${t.amount} ${t.ran ? "ran" : "refused"}`).join(", ") || "not run"}`, `card: ${run.a.research?.products.map(x => x.id).join(", ")} pick ${run.a.research?.pick}`,
+      `total: ${(run.ms / 1000).toFixed(1)}s, cost: $${run.dollars.toFixed(3)}`, ...run.a.unchecked.length ? [`UNCHECKED: ${run.a.unchecked.join(", ")}`] : []].join("\n"));
+    expect(run.a.ended).toBeUndefined();
+    expect(shown?.input).toMatchObject({ids: [p.id], pick: p.id});
+    expect(shown?.body.went_by).toMatchObject({id: p.id, price: p.price, with_delivery: totalOf(p)});
+    expect(run.a.research?.pick).toBe(p.id);
+    // a price only listed in search, or an estimate, is said to be one
+    if (p.confidence !== "verified") expect(run.a.text).toMatch(/list|couldn't check|check (their|the shop's|its) page|estimate|around/i);
+  }
+});
+
+// An app from before find_products (TestFlight build 3, or a dev build not yet reloaded) doesn't say it can show the card, so it's
+// never given the tools for it, however it's asked. Here the request goes out as that app sends it, without `shop`.
 test("an app from before the card never gets its tags or its tools", async () => {
   const real = globalThis.fetch;
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     if (typeof init?.body !== "string" || !String(url).endsWith("/chat")) return real(url, init);
-    const {research, ...before} = JSON.parse(init.body);
-    expect(research).toBe(true);
+    const {shop: card, ...before} = JSON.parse(init.body);
+    expect(card).toBe(true);
     return real(url, {...init, body: JSON.stringify(before)});
   }) as typeof fetch;
   try {
     const a = await converse([], "Can I afford a new iPhone?", {
       send: m => send("frank", m), env: () => ({ctx: money, notes: [], who: "frank", newId: () => "n_old", regulars: {scan, answers: {}}}), apply: () => {},
     }, new Date(2026, 9, 5, 12, 0));
-    const written = a.transcript.flatMap(m => m.role === "assistant" && Array.isArray(m.content) ? m.content.flatMap(b => b.type === "text" ? [b.text] : []) : []).join("\n");
     console.log(["OLD APP, FRANK: Can I afford a new iPhone?", a.text, `tools: ${a.used.join(", ")}`, `searched: ${!!a.searched}`].join("\n"));
     expect(a.ended).toBeUndefined();
-    expect(written).not.toMatch(/<\/?(research|offer)\b/);
     expect(a.research).toBeUndefined();
     const blocks = a.transcript.flatMap(m => Array.isArray(m.content) ? m.content as unknown as {type: string; name?: string}[] : []);
-    expect(blocks.filter(b => b.type === "web_fetch_tool_result" || b.name === "web_fetch" || b.name === "check_purchase")).toEqual([]);
+    expect(blocks.filter(b => b.name === "find_products" || b.name === "show_products" || b.name === "check_purchase" || b.name === "web_fetch")).toEqual([]);
   } finally { globalThis.fetch = real; }
 });
 

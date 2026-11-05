@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
 import Svg, {Circle, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "wave" | "stop" | "speaker" | "incognito" | "camera" | "photo" | "file";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "wave" | "stop" | "speaker" | "incognito" | "camera" | "photo" | "file" | "out";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -45,6 +45,8 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
       {name === "photo" && <><Rect x={3} y={4} width={18} height={16} rx={3} {...p} /><Circle cx={9} cy={9.5} r={1.5} {...p} /><Path d="M21 15.5l-5-5-9.5 9.5" {...p} /></>}
       {name === "file" && <><Path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" {...p} /><Path d="M14 3v5h5M9 13h6M9 17h4" {...p} /></>}
       {name === "close" && <Path d="M6 6l12 12M18 6L6 18" {...p} />}
+      {/* out of the app, to a website: an arrow up and to the right */}
+      {name === "out" && <Path d="M7 17L17 7M9 7h8v8" {...p} />}
       {name === "check" && <Path d="M5 12.5l4.5 4.5L19 7.5" {...p} />}
       {name === "back" && <Path d="M15 5l-7 7 7 7" {...p} />}
       {name === "forward" && <Path d="M9 5l7 7-7 7" {...p} />}

@@ -42,15 +42,16 @@ const fromText = (t: string) => {
 
 /**
  * Every figure a reply may use: each tool result in the conversation, and everything you said (and your notes, and text files you added).
- * His own earlier words don't count: a figure is only as good as where it came from.
+ * His own earlier words don't count: a figure is only as good as where it came from. `skip`: tool calls whose results aren't figures
+ * about your money (find_products' prices: they count only to the penny, as prices, lib/ai/converse.ts).
  */
-export function knownIn(messages: Message[]): number[] {
+export function knownIn(messages: Message[], skip: ReadonlySet<string> = new Set()): number[] {
   const out: number[] = [];
   for (const m of messages) {
     if (m.role !== "user") continue;
     if (typeof m.content === "string") { out.push(...fromText(m.content)); continue; }
     for (const b of m.content) {
-      if (b.type === "tool_result") fromResult(b.content, out);
+      if (b.type === "tool_result") { if (!skip.has(b.tool_use_id)) fromResult(b.content, out); }
       else if (b.type === "text") out.push(...fromText(b.text));
       // a text file you added (lib/ai/attach.ts): the phone read it, so it counts as your words. A photo or PDF it couldn't read never counts
       else if (b.type === "document" && b.source.type === "text") out.push(...[...b.source.data.matchAll(ANY)].map(x => num(x[0])));

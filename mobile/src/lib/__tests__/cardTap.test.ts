@@ -1,5 +1,6 @@
 import {calc, hero} from "../calc";
-import {cardTapFor, cardTapOf, newCardPayment} from "../cardTap";
+import {cardTapFor, cardTapOf, ISLAND_HOLD, islandCaptions, islandFacts, islandFits, lineOk, newCardPayment} from "../cardTap";
+import {untagged} from "../timSpeech";
 import type {Ctx, Tx} from "../types";
 import {ctx as makeCtx, TODAY, tx} from "./fixtures";
 
@@ -18,9 +19,45 @@ test("a grocery payment shows what's left of the groceries budget this pay, as t
     pot: true, icon: "cart.fill", where: "Tesco", paid: "£14.20", when: "just now",
     compact: "£38", minimal: "£38", headline: "Left for groceries until payday",
     title: "Left for groceries", big: "£38", spent: "£161.70 spent", of: "£200 this pay",
-    from: "Wed 30", until: "Lasts until payday",
+    from: "Wed 30", until: "Lasts until payday", voice: false, caption: "",
   });
   expect(p.fill).toBeCloseTo(38.3 / 200);
+});
+
+describe("Frank's line in the open island", () => {
+  const t = bank({amount: 14.2, date: TODAY, cat: "groceries", note: "Tesco"});
+  const p = cardTapOf(makeCtx({txs: [tx({amount: 147.5, date: "2026-10-02", cat: "groceries"}), t]}), new Set(), NOW)!;
+
+  test("Claude is told only what the island shows", () => {
+    expect(islandFacts(p)).toEqual({where: "Tesco", paid: "£14.20", left: "£38", what: "left for groceries until payday"});
+  });
+
+  test("it's said only when every £ in it is one the island shows", () => {
+    expect(lineOk("[flatly] Tesco, £14.20. [dryly] £38 left for groceries until payday.", p)).toBe(true);
+    expect(lineOk("[sighs] Another shop. Make it last.", p)).toBe(true);
+    expect(lineOk("£38.30 left for groceries.", p)).toBe(false);
+    expect(lineOk("£14.20 down, £200 to start with.", p)).toBe(false);
+  });
+
+  const line = "[flatly] Tesco, £14.20. [dryly] £38 left for groceries until payday... make it last.";
+  const words = untagged(line).split(" ");
+  const take = {ms: 6000, words: words.map((_, j) => ({start: 300 + j * 500, end: 300 + j * 500 + 400}))};
+
+  test("his words take the headline's place a caption at a time, as he says them, then the headline's back", () => {
+    const caps = islandCaptions(line, take);
+    expect(caps[0].at).toBe(0);
+    expect(caps.slice(0, -1).map(c => c.text).join(" ")).toBe(untagged(line));
+    for (const c of caps.slice(0, -1)) expect(islandFits(c.text)).toBe(true);
+    for (let n = 1; n < caps.length; n++) expect(caps[n].at).toBeGreaterThan(caps[n - 1].at);
+    expect(caps[caps.length - 1]).toEqual({text: "", at: take.ms + ISLAND_HOLD});
+  });
+
+  test("a take whose words don't line up with the line still runs over its length", () => {
+    const caps = islandCaptions(line, {ms: 6000, words: []});
+    expect(caps.slice(0, -1).map(c => c.text).join(" ")).toBe(untagged(line));
+    expect(caps[caps.length - 2].at).toBeLessThan(6000);
+    expect(islandCaptions("[sighs]", take)).toEqual([]);
+  });
 });
 
 test("any other payment shows what's safe to spend today, the same as Today", () => {

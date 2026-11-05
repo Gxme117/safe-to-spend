@@ -333,7 +333,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         // a new card payment today: Frank shows it in the Dynamic Island (lib/cardTap.ts, services/island.ts)
         const s = get().state;
         const tap = !failed && s ? cardTapOf({state: s, txs: get().txs, today: today()}, seen, Date.now()) : null;
-        if (tap) void showCardTap(tap);
+        if (tap) void showCardTap(tap, {speaks: get().speaks && get().aiConsent});
         return failed ?? {added: results.reduce((a, r) => a + ("added" in r ? r.added : 0), 0)};
       } finally { set({syncing: false}); }
     },

@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 __pycache__/
 .env*.local
+
+# Supabase CLI cache
+supabase/.temp/

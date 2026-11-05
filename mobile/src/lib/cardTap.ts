@@ -1,6 +1,7 @@
 import {calc, catGroup, hero} from "./calc";
 import {parseD} from "./dates";
 import {money, newestFirst} from "./money";
+import {bubbleFits, captionsOf, type Take, untagged} from "./timSpeech";
 import type {Ctx, Tx} from "./types";
 
 /**
@@ -26,6 +27,8 @@ export interface CardTapProps {
   of: string;        // "£200 this pay" / "£25 today"
   from: string;      // under the bar, left: "Wed 30 Sep" / "Today"
   until: string;     // under the bar, right: "Lasts until payday" / "Resets at midnight"
+  voice: boolean;    // Frank has a line ready: the open island shows a play button
+  caption: string;   // what he's saying now, in the headline's place while he speaks; "" shows the headline
 }
 
 /** A symbol for each category the app knows; one of your own gets a card. */
@@ -51,7 +54,8 @@ export function newCardPayment(ctx: Ctx, seen: ReadonlySet<string>): Tx | null {
 export function cardTapFor(ctx: Ctx, t: Tx, now: number): CardTapProps | null {
   const c = calc(ctx);
   const at = t.paidAt ?? t.created;
-  const base = {face: "", peek: "", where: t.note.trim() || "A payment", paid: money(t.amount), when: now - at < 10 * 60e3 ? "just now" : `at ${hhmm(at)}`};
+  const base = {face: "", peek: "", where: t.note.trim() || "A payment", paid: money(t.amount), when: now - at < 10 * 60e3 ? "just now" : `at ${hhmm(at)}`,
+    voice: false, caption: ""};
   const cat = ctx.state.categories.find(x => x.id === t.cat);
   const e = cat && catGroup(cat) === "everyday" && cat.budget > 0 ? c.everyday.find(x => x.x.id === cat.id) : undefined;
   if (cat && e) {
@@ -71,6 +75,36 @@ export function cardTapFor(ctx: Ctx, t: Tx, now: number): CardTapProps | null {
     title: "Safe to spend today", big: floorMoney(h.left), fill: h.perDay ? clamp01(h.left / h.perDay) : 0,
     spent: `${money(h.spentToday)} spent`, of: `${money(h.perDay)} today`,
     from: "Today", until: "Resets at midnight"};
+}
+
+// Frank's line about the payment, said when the play button in the open island is pressed: Claude writes it (the accountant
+// function's /line) from what the island shows, and his words take the headline's place a caption at a time while he says it.
+
+/** What Claude is told: only what the island already shows. */
+export const islandFacts = (p: CardTapProps) =>
+  ({where: p.where, paid: p.paid, left: p.compact, what: p.headline.charAt(0).toLowerCase() + p.headline.slice(1)});
+
+/** His line can be said only if every £ in it is one the island shows (what was paid, what's left). */
+export function lineOk(line: string, p: CardTapProps): boolean {
+  return [...line.matchAll(/£[\d,]+(?:\.\d+)?/g)].every(m => m[0] === p.paid || m[0] === p.compact);
+}
+
+// The headline's one line: 17pt semibold in about 300pt on the narrowest Dynamic Island phone, less the play button. Hanken's
+// widths (lib/textWidth.ts) run a little narrower than the island's SF, so with room to spare; minimumScaleFactor covers the rest
+export const islandFits = bubbleFits(260, 17, 1);
+// the last caption stays up this long after he's done, then the headline comes back
+export const ISLAND_HOLD = 1200;
+
+/** What the headline says while he speaks: each caption at the moment (ms into the take) he starts it, cut the way his other
+ *  captions are (`captionsOf`), and "" (the headline again) once he's done. If the take's words don't line up with the
+ *  line's, they're spread over it evenly. */
+export function islandCaptions(line: string, take: Pick<Take, "ms" | "words">): {text: string; at: number}[] {
+  const words = untagged(line).split(" ").filter(Boolean);
+  if (!words.length) return [];
+  const times = take.words.length === words.length ? take.words
+    : words.map((_, j) => ({start: j * take.ms / words.length, end: (j + 1) * take.ms / words.length}));
+  const caps = captionsOf(words, times, islandFits).map((c, n) => ({text: c.text, at: n ? times[c.from].start : 0}));
+  return [...caps, {text: "", at: take.ms + ISLAND_HOLD}];
 }
 
 /** The island for the newest new card payment, or null. */

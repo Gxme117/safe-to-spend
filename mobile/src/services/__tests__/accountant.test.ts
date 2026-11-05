@@ -1,4 +1,4 @@
-import {AccountantFail, send} from "@/services/accountant";
+import {AccountantFail, send, shop} from "@/services/accountant";
 import {accessToken} from "@/services/session";
 
 const mockKeychain = new Map<string, string>();
@@ -45,8 +45,26 @@ test("sends the conversation with the token, and brings back Claude's turn", asy
   expect(url(1)).toBe("https://sgchailpcwkffckwnazp.supabase.co/functions/v1/accountant/chat");
   const init = fetchMock.mock.calls[1][1];
   expect(init.headers.Authorization).toBe("Bearer a1");
-  // this app shows something to buy as a card, so he's told how to write one
-  expect(JSON.parse(init.body)).toEqual({who: "frank", messages: q, research: true});
+  // this app can look round the shops and show what it finds as a card, so he's given the tools for it
+  expect(JSON.parse(init.body)).toEqual({who: "frank", messages: q, shop: true});
+});
+
+test("looking round the shops: what find_products asked for goes to /shop, and what it found comes back; a failure is one he can say", async () => {
+  const args = {queries: ["wireless headphones UK"], match: ["headphones"], exclude: [], max_price: 0};
+  const found = {products: [{name: "Sony WH-1000XM6", price: 349.99, confidence: "search_listed"}], partial: "Only 1 product came back that fit.", stats: {brave: 2}};
+  fetchMock.mockResolvedValueOnce(session(1)).mockResolvedValueOnce(res(200, found));
+  expect(await shop(args)).toEqual(found);
+  expect(url(1)).toBe("https://sgchailpcwkffckwnazp.supabase.co/functions/v1/accountant/shop");
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(args);
+  const fails = async () => { try { await shop(args); } catch (e) { return e instanceof AccountantFail ? e.kind : e; } return "found"; };
+  fetchMock.mockResolvedValueOnce(res(429, {error: "limit"}));
+  expect(await fails()).toBe("limit");
+  fetchMock.mockResolvedValueOnce(res(502, {error: "unavailable"}));
+  expect(await fails()).toBe("unavailable");
+  fetchMock.mockResolvedValueOnce(res(500, {error: "not_configured"}));
+  expect(await fails()).toBe("not-set-up");
+  fetchMock.mockResolvedValueOnce(res(401)).mockResolvedValueOnce(session(2)).mockResolvedValueOnce(res(200, found));
+  expect(await shop(args)).toEqual(found);
 });
 
 test("a token the server doesn't know gets one more go with a new one", async () => {

@@ -8,7 +8,9 @@ import {NO_BRIEFS} from "@/lib/briefing";
 import {whatIf} from "@/lib/today";
 import {ON_TWOS} from "@/lib/timEyes";
 import {frankFrames, introFrames, linesOf, speechMs, TIM_OPENING, timFrames, untagged} from "@/lib/timSpeech";
-import {AccountantFail, photo, say, send} from "@/services/accountant";
+import {AccountantFail, say, send, shop} from "@/services/accountant";
+import {ResearchCard} from "@/components/ResearchCard";
+import type {OldResearchView, Product} from "@/lib/ai/research";
 import {useMoney} from "@/store/useMoney";
 
 // a dev build, not Expo Go, so the native modules the shims look for (the keyboard, the microphone) are there
@@ -48,7 +50,7 @@ jest.mock("@/services/accountant", () => {
     kind: string;
     constructor(why: string) { super(why); this.kind = why; }
   }
-  return {AccountantFail: MockFail, send: jest.fn(), say: jest.fn(), photo: jest.fn(async () => null)};
+  return {AccountantFail: MockFail, send: jest.fn(), say: jest.fn(), photo: jest.fn(async () => null), shop: jest.fn()};
 });
 // Frank's voice: his first opening recorded (each word 300ms, 50ms between), played by a player the test can see. Its sound
 // starts `late` ms after play(), or never if it's `stuck` (the ringer's off), and it says how far in it is.
@@ -322,96 +324,120 @@ describe("what he found on the web", () => {
   });
 
   describe("something to buy he looked up", () => {
-    const ARGOS = "https://www.argos.co.uk/product/iphone-17-128gb", APPLE = "https://www.apple.com/uk/shop/buy-iphone/iphone-17";
-    const iphones = {type: "server_tool_use", id: "s9", name: "web_search", input: {query: "buy iphone 17 128gb uk"}};
-    const shops = {type: "web_search_tool_result", tool_use_id: "s9",
-      content: [ARGOS, APPLE, "https://www.currys.co.uk/x", "https://www.johnlewis.com/x"].map(url => ({type: "web_search_result", url, title: "iPhone 17", encrypted_content: "x"}))};
-    const opened = (id: string, url: string, data: string) => [{type: "server_tool_use", id, name: "web_fetch", input: {url}},
-      {type: "web_fetch_tool_result", tool_use_id: id, content: {type: "web_fetch_result", url, retrieved_at: new Date().toISOString(), content: {type: "document", title: "iPhone 17 128GB", source: {type: "text", media_type: "text/plain", data}}}}];
-    const offer = (seller: string, url: string, price: number, pick: boolean, delivery: number | null = null) => ({seller, url, price, condition: "new", delivery, pick});
-    const check = (...offers: object[]) => ({type: "tool_use", id: "tu_c", name: "check_purchase", input: {product: "iPhone 17, 128GB", assumed: "The newest standard model", identifies: ["iPhone 17", "128GB"], offers}});
-    const pages = [...opened("f1", ARGOS, "Apple iPhone 17 128GB £799.00 Free delivery"), ...opened("f2", APPLE, "iPhone 17 128GB £829.00")];
-    const round1 = {stop_reason: "tool_use", content: [iphones, shops, ...pages, check(offer("Argos", ARGOS, 799, true, 0), offer("Apple", APPLE, 829, false))]};
-    const answer = says("Not today: it'd come out of what rent needs.");
+    const shopMock = shop as jest.Mock;
+    beforeEach(() => { shopMock.mockReset(); });
+    const seen = new Date().toISOString();
+    const item = (over: Partial<Product>): Omit<Product, "id"> => ({name: "Sony WH-1000XM6 Headphones", brand: "Sony", model: "WH-1000XM6", group: "sony", retailer: "Argos", host: "argos.co.uk",
+      url: "https://www.argos.co.uk/product/1", price: 349.99, confidence: "search_listed", priceSource: "https://www.argos.co.uk/product/1", image: "https://imgs.search.brave.com/sony.jpg",
+      condition: "new", delivery: "free", checked: seen, ...over});
+    const SHOPPED = {products: [
+      item({}),
+      item({name: "Bose QuietComfort Ultra Headphones", group: "bose", retailer: "John Lewis", host: "johnlewis.com", url: "https://www.johnlewis.com/bose/p2", price: 449.95, confidence: "verified", delivery: null, image: null}),
+      item({name: "Sony WH-CH720N Headphones", group: "ch720n", retailer: "Very", host: "very.co.uk", url: "https://www.very.co.uk/3.prd", price: 79.99, delivery: 3.99}),
+      item({name: "JBL Tune 770NC Headphones", group: "jbl", retailer: "AO", host: "ao.com", url: "https://ao.com/p4", price: 69.49, confidence: "estimated"}),
+      item({name: "Sennheiser Momentum 4 Headphones", group: "senn", retailer: "Richer Sounds", host: "richersounds.com", url: "https://www.richersounds.com/p5", price: null, confidence: null, priceSource: null}),
+    ]};
+    const find = asks("find_products", {queries: ["wireless headphones UK"], match: ["headphones"], exclude: [], max_price: 0});
+    const QUESTION = "Can I afford some wireless headphones?";
 
-    test("a card leads his answer: the price he went by, each shop a tap from its page, and what buying it today does, as Today says it", async () => {
-      sendMock.mockResolvedValueOnce(round1).mockResolvedValueOnce(answer);
+    test("a card leads his answer: the products as tiles, each its price and how sure that price is; the small arrow opens the shop", async () => {
+      shopMock.mockResolvedValueOnce(SHOPPED);
+      sendMock.mockResolvedValueOnce(find).mockResolvedValueOnce(says("Here are five pairs."));
       await show();
-      await ask("Can I afford a new iPhone?");
-      expect(await screen.findByLabelText("Tim says: Not today: it'd come out of what rent needs.")).toBeOnTheScreen();
+      await ask(QUESTION);
+      expect(await screen.findByLabelText("Tim says: Here are five pairs.")).toBeOnTheScreen();
       expect(screen.getByTestId("research-card")).toBeOnTheScreen();
-      expect(screen.queryByText(/estimate|Only one shop/)).toBeNull();
-      expect(screen.getByRole("header", {name: "iPhone 17, 128GB"})).toBeOnTheScreen();
-      expect(screen.getByText("The newest standard model")).toBeOnTheScreen();
-      expect(screen.getByLabelText("Best price: £799.00, at Argos · New · Free delivery")).toBeOnTheScreen();
+      expect(screen.getByRole("header", {name: "Headphones"})).toBeOnTheScreen();
+      for (const t of ["£349.99", "£449.95", "About £69", "No price found"]) expect(screen.getByText(t)).toBeOnTheScreen();
+      // how sure each price is: an icon on the card, the words read out with the tile
+      expect(screen.queryByText("On the shop's page")).toBeNull();
+      expect(screen.getAllByLabelText(/On the shop's page/).length).toBeGreaterThan(0);
+      expect(screen.getAllByLabelText(/Listed in search/).length).toBeGreaterThan(0);
+      expect(screen.queryByText("New · £3.99 delivery")).toBeNull(); // the tiles are minimal: condition and delivery aren't on them
+      expect(screen.getByText(/^Prices as of \d\d:\d\d\. Tap one to ask about it$/)).toBeOnTheScreen();
+      // a photo each, the shop's letter where there's none
+      expect(screen.getAllByTestId("research-photo")).toHaveLength(4);
+      await fireEvent.press(screen.getByRole("link", {name: "Open John Lewis's page for Bose QuietComfort Ultra Headphones"})); // the arrow; a tile asks him
+      expect(openBrowserAsync).toHaveBeenCalledWith("https://www.johnlewis.com/bose/p2");
+      // the card holds the shops, so there's no list of them under his words, and no estimate line
+      expect(screen.queryByText(/From the web|nothing to cite|estimate\./)).toBeNull();
+      expect(shopMock).toHaveBeenCalledWith({queries: ["wireless headphones UK"], match: ["headphones"], exclude: [], max_price: 0});
+    });
+
+    test("tap a product: you ask whether it fits, he's told which by its id (never its price), and his answer's card tries it against your money", async () => {
+      shopMock.mockResolvedValueOnce(SHOPPED);
+      sendMock.mockResolvedValueOnce(find).mockResolvedValueOnce(says("Here are five pairs."))
+        .mockResolvedValueOnce(asks("show_products", {title: "Bose QuietComfort Ultra Headphones", note: "", ids: ["p2"], pick: "p2"}))
+        .mockResolvedValueOnce(says("John Lewis has it at £449.95."));
+      await show();
+      await ask(QUESTION);
+      await screen.findByLabelText("Tim says: Here are five pairs.");
+      await fireEvent.press(screen.getByTestId("tile-p2"));
+      expect(await screen.findByLabelText("Tim says: John Lewis has it at £449.95.")).toBeOnTheScreen();
+      expect(screen.getByText("Can I afford the Bose QuietComfort Ultra Headphones from John Lewis?")).toBeOnTheScreen();
+      const asked = sendMock.mock.calls[2][1] as {role: string; content: string | {type: string; text?: string}[]}[];
+      const context = asked.flatMap(m => m.role === "user" && Array.isArray(m.content) ? m.content : []).map(b => b.text ?? "").find(t => t.includes("They tapped"))!;
+      expect(context).toContain("They tapped p2 on your card");
+      expect(context).not.toContain("£");
       const st = useMoney.getState();
-      expect(screen.getByText(whatIf({state: st.state!, txs: st.txs, today: st.today}, 799)!.line)).toBeOnTheScreen();
-      expect(screen.getByText(/^Prices as listed, checked \d\d:\d\d$/)).toBeOnTheScreen();
-      await fireEvent.press(screen.getByRole("link", {name: "Open Apple's listing, £829.00, New, on apple.com"}));
-      expect(openBrowserAsync).toHaveBeenCalledWith(APPLE);
-      // the card holds the pages, so there's no list of them under his words; your figures are still what was checked
-      expect(screen.queryByText(/From the web|nothing to cite/)).toBeNull();
-      expect(screen.getByText("Your figures checked against a what if (your balance from Thu 1 Oct)")).toBeOnTheScreen();
+      // what buying it would do is in his words, not repeated on the card
+      expect(screen.queryByText(whatIf({state: st.state!, txs: st.txs, today: st.today}, 449.95)!.line)).toBeNull();
+      expect(screen.queryByText("If you bought it today")).toBeNull();
+      expect(screen.getByLabelText("Going by: Bose QuietComfort Ultra Headphones, £449.95, at John Lewis · On the shop's page")).toBeOnTheScreen();
     });
 
-    test("each shop is a tile with its own photo of it; one whose page had none shows one looked up by its name", async () => {
-      const OWN = "https://www.argos.co.uk/i/iphone-17-128gb-black.jpg", PIC = "https://imgs.search.brave.com/iphone-17.jpg";
-      (photo as jest.Mock).mockClear().mockResolvedValueOnce(PIC);
-      const withPhoto = [...opened("f1", ARGOS, `![Apple iPhone 17 Pro](https://www.argos.co.uk/i/iphone-17-pro.jpg)\n![Apple iPhone 17 128GB Black](${OWN})\nApple iPhone 17 128GB £799.00 Free delivery`),
-        ...opened("f2", APPLE, "iPhone 17 128GB £829.00")];
-      sendMock.mockResolvedValueOnce({...round1, content: [iphones, shops, ...withPhoto, round1.content[round1.content.length - 1]]}).mockResolvedValueOnce(answer);
+    test("a product with no price found isn't one to tap; nor is any while he's working", async () => {
+      shopMock.mockResolvedValueOnce(SHOPPED);
+      sendMock.mockResolvedValueOnce(find).mockResolvedValueOnce(says("Here are five pairs."));
       await show();
-      await ask("Can I afford a new iPhone?");
-      await screen.findByTestId("research-card");
-      await waitFor(() => expect(screen.getAllByTestId("research-photo").map(p => p.props.source.uri)).toEqual([OWN, PIC]));
-      expect(photo).toHaveBeenCalledTimes(1);
-      expect(photo).toHaveBeenCalledWith("iPhone 17");
+      await ask(QUESTION);
+      await screen.findByLabelText("Tim says: Here are five pairs.");
+      await fireEvent.press(screen.getByTestId("tile-p5")); // no price, nothing to ask about
+      expect(sendMock).toHaveBeenCalledTimes(2);
+      await ask("And which is quietest?");
+      await fireEvent.press(screen.getByTestId("tile-p1")); // not while he's working
+      expect(sendMock).toHaveBeenCalledTimes(3);
     });
 
-    test("one shop's page is one shop: the card says so rather than padding it out", async () => {
-      sendMock.mockResolvedValueOnce({stop_reason: "tool_use", content: [iphones, shops, ...opened("f1", ARGOS, "Apple iPhone 17 128GB £799.00"), check(offer("Argos", ARGOS, 799, true))]}).mockResolvedValueOnce(answer);
+    test("the shops couldn't be reached: no card, and he says so; prices talked about with no card are marked as an estimate", async () => {
+      shopMock.mockRejectedValueOnce(new Error("unavailable"));
+      sendMock.mockResolvedValueOnce(find).mockResolvedValueOnce(says("I couldn't look round the shops just now."));
       await show();
-      await ask("Can I afford a new iPhone?");
-      expect(await screen.findByTestId("research-card")).toBeOnTheScreen();
-      expect(screen.getByText("Only one shop's own page could be checked.")).toBeOnTheScreen();
-    });
-
-    test("a starting price reads \"From\", and the spec the page doesn't show with it is said under it", async () => {
-      const big = {...check(offer("Argos", ARGOS, 799, true))};
-      big.input = {...big.input, product: "iPhone 17, 128GB, 1TB"};
-      sendMock.mockResolvedValueOnce({stop_reason: "tool_use", content: [iphones, shops, ...opened("f1", ARGOS, "Apple iPhone 17 from £799.00"), big]})
-        .mockResolvedValueOnce(answer);
-      await show();
-      await ask("Can I afford a new iPhone?");
-      expect(await screen.findByTestId("research-card")).toBeOnTheScreen();
-      expect(screen.getByLabelText("Best price: From £799.00, at Argos · New. The page doesn't show 1TB at this price, so that spec may cost more.")).toBeOnTheScreen();
-      expect(screen.getByRole("link", {name: "Open Argos's listing, From £799.00, New · Starting price, on argos.co.uk"})).toBeOnTheScreen();
-      expect(screen.getByText("If you paid the starting price today")).toBeOnTheScreen();
-    });
-
-    test("no shop's own page backed a price: no card, and his words are marked as an estimate", async () => {
-      sendMock.mockResolvedValueOnce({stop_reason: "tool_use", content: [iphones, shops, check(offer("Currys", "https://www.currys.co.uk/x", 789, true))]})
-        .mockResolvedValueOnce(says("I couldn't confirm a shop's price, so no verdict yet."));
-      await show();
-      await ask("Can I afford a new iPhone?");
-      expect(await screen.findByLabelText("Tim says: I couldn't confirm a shop's price, so no verdict yet.")).toBeOnTheScreen();
+      await ask(QUESTION);
+      expect(await screen.findByLabelText("Tim says: I couldn't look round the shops just now.")).toBeOnTheScreen();
       expect(screen.queryByTestId("research-card")).toBeNull();
-      expect(screen.getByText("No shop's own page showed the price, so any price here is an estimate.")).toBeOnTheScreen();
+      await screen.unmount();
+      const searched = {stop_reason: "end_turn", content: [{type: "server_tool_use", id: "s9", name: "web_search", input: {query: "iphone 17 price uk"}},
+        {type: "web_search_tool_result", tool_use_id: "s9", content: [{type: "web_search_result", url: "https://www.argos.co.uk/x", title: "iPhone 17", encrypted_content: "x"}]},
+        {type: "text", text: "Around £799."}]};
+      sendMock.mockReset();
+      sendMock.mockResolvedValueOnce(searched).mockResolvedValueOnce(says("Around £799, but I couldn't find a shop's listing."));
+      await show();
+      await ask("Can I afford a new iPhone?");
+      expect(await screen.findByText("No shop's listing was found for this, so any price here is an estimate.")).toBeOnTheScreen();
     });
 
-    test("while he works: he's looking up prices, then the sites he found, then trying it against your money", async () => {
+    test("while he works: he's looking up prices, then round the shops, then the shops he found, then trying one against your money", async () => {
+      let found: (v: unknown) => void = () => {};
+      shopMock.mockImplementationOnce(() => new Promise(r => { found = r; }));
+      sendMock.mockResolvedValueOnce(find).mockImplementationOnce(() => new Promise(() => {}));
       await show();
-      await ask("Can I afford a new iPhone?");
-      expect(await screen.findByText("Looking up prices…")).toBeOnTheScreen();
-      expect(screen.queryByTestId("looked", {includeHiddenElements: true})).toBeNull();
-      await screen.unmount();
+      await ask(QUESTION);
+      expect(await screen.findByText("Looking round the shops…")).toBeOnTheScreen();
+      await act(async () => { found(SHOPPED); });
+      expect(await screen.findByTestId("looked", {includeHiddenElements: true})).toHaveTextContent("argos.co.uk · johnlewis.com · very.co.uk +2");
+    });
 
-      sendMock.mockReset();
-      sendMock.mockResolvedValueOnce(round1).mockImplementationOnce(() => new Promise(() => {}));
-      await show();
-      await ask("Can I afford a new iPhone?");
-      expect(await screen.findByText("Checking it against your money…")).toBeOnTheScreen();
-      expect(screen.getByTestId("looked", {includeHiddenElements: true})).toHaveTextContent("argos.co.uk · apple.com · currys.co.uk +1");
+    test("a card kept from before is drawn as it was: one product, each shop a tile that opens its page", async () => {
+      const old: OldResearchView = {product: "iPhone 17, 128GB", note: "The newest standard model", best: {label: "Best price", price: "£799.00", by: "at Argos · New"},
+        rows: [{seller: "Argos", meta: "New", price: "£799.00", url: "https://www.argos.co.uk/x", host: "argos.co.uk", pick: true, label: "Open Argos's listing, £799.00, New, on argos.co.uk"}],
+        ifLabel: "If you bought it today", ifToday: null, checked: "Prices as listed, checked 09:12"};
+      const opened = jest.fn();
+      await render(<ResearchCard view={old} box="#fff" edge="#eee" onOpen={opened} />);
+      expect(screen.getByRole("header", {name: "iPhone 17, 128GB"})).toBeOnTheScreen();
+      await fireEvent.press(screen.getByRole("link", {name: "Open Argos's listing, £799.00, New, on argos.co.uk"}));
+      expect(opened).toHaveBeenCalledWith("https://www.argos.co.uk/x");
+      expect(screen.queryByText(/Tap one/)).toBeNull();
     });
   });
 
@@ -699,7 +725,7 @@ test("he stops talking before the microphone opens, and the app's sound is put b
   await fireEvent.press(screen.getByRole("button", {name: "Speak your question"}));
   expect(mockPlayer.pause).toHaveBeenCalled(); // he isn't the one being heard
   await fireEvent.press(screen.getByRole("button", {name: "Stop listening"}));
-  expect(audio.setAudioModeAsync).toHaveBeenCalledWith({playsInSilentMode: false, interruptionMode: "mixWithOthers"});
+  expect(audio.setAudioModeAsync).toHaveBeenCalledWith({playsInSilentMode: true, interruptionMode: "mixWithOthers"});
 });
 
 test("asked for the microphone and told no, he says where to turn it on and stops offering it", async () => {

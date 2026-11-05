@@ -1,19 +1,96 @@
 // Something to buy that Tim or Frank looked up (lib/ai/research.ts), as a card leading his answer: what it is and what he
-// assumed, the price he went by, each shop as a tile to swipe through and compare (its own photo of it, its price, a tap opens its
-// page), what buying it today would do in the engine's own words, and when the prices were read. Every price on it is one the app
-// read on that shop's own page; with only one, it says so rather than padding it out. His words under it are the advice. Prices
-// aren't money that's yours, so no accent here. A tile whose shop page had no photo of it shows one looked up by its name
-// (services/accountant.ts `photo`).
+// assumed, the one he tried against your money with what buying it today would do (in the engine's own words, as Today's "What
+// if I spend…" says them), and the products as tiles to swipe through: each its photo, name, shop, price and how sure that price
+// is (on the shop's page, listed in search, or an estimate; an icon and words, never colour alone), condition and delivery. Tap a
+// tile to ask whether it fits your money; the small arrow opens the shop's page. Prices aren't money that's yours, so no accent.
+// A card from before (one product at a few shops, kept in a saved chat) is drawn as it was (OldResearchCard).
 import {useEffect, useState} from "react";
 import {Image, Pressable, ScrollView, StyleSheet, Text, View} from "react-native";
-import {photoQuery, type OfferRow, type ResearchView} from "@/lib/ai/research";
+import {isNewView, photoQuery, type OfferRow, type OldResearchView, type ResearchView, type Tile} from "@/lib/ai/research";
 import {photo} from "@/services/accountant";
 import {hanken, s} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
 import {Icon} from "./Icon";
 import {MerchantLogo} from "./TxRow";
 
-const TILE = 160;
+const TILE = 168, PHOTO = 120;
+
+type Props = {view: ResearchView | OldResearchView; box: string; edge: string; onOpen: (url: string) => void; onSelect?: (tile: Tile) => void; disabled?: boolean};
+
+export function ResearchCard(props: Props) {
+  return isNewView(props.view) ? <ProductsCard {...props} view={props.view} /> : <OldResearchCard {...props} view={props.view} />;
+}
+
+function ProductsCard({view, box, edge, onOpen, onSelect, disabled}: Props & {view: ResearchView}) {
+  const {c} = useTheme();
+  const [broken, setBroken] = useState<string[]>([]);
+  // the row's width, card edge to card edge: its left padding, two tiles and their gaps, and half a third
+  const [row, setRow] = useState(0);
+  const tile = row ? Math.round((row - s[4] - 2 * s[3]) / 2.5) : TILE;
+  const body = {fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.ink};
+  const quiet = {fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted};
+  const best = view.best;
+  const canPick = !!onSelect && !disabled;
+  return (
+    <View testID="research-card" style={{alignSelf: "stretch", padding: s[4], gap: s[4], borderRadius: 20, borderWidth: 1, borderColor: edge, backgroundColor: box}}>
+      {/* only what draws the eye: the title, his price, the photos and prices, what it'd do today. What he assumed is in
+          his words under the card; the shop and how sure each price is are read out (each tile's label) and shown as an icon */}
+      <Text accessibilityRole="header" style={{fontFamily: hanken.semibold, fontSize: 17, lineHeight: 22, color: c.ink}}>{view.title}</Text>
+      {best ? (
+        <View accessible accessibilityLabel={`${best.label}: ${best.name}, ${best.price}, ${best.by}`}>
+          <Text style={{fontFamily: hanken.bold, fontSize: 34, lineHeight: 40, letterSpacing: -1, color: c.ink, fontVariant: ["tabular-nums"]}}
+            adjustsFontSizeToFit numberOfLines={1}>{best.price}</Text>
+          <Text style={quiet} numberOfLines={1}>{best.name}</Text>
+        </View>
+      ) : null}
+      {/* each product a tile, running to the card's edges, all alike (the one he went by is named above) */}
+      {/* sized so two tiles and half the next show, so it reads as something to swipe; it settles a tile at a time */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginHorizontal: -s[4]}} contentContainerStyle={{paddingHorizontal: s[4], gap: s[3]}}
+        onLayout={e => setRow(e.nativeEvent.layout.width)} snapToInterval={tile + s[3]} decelerationRate="fast">
+        {view.tiles.map(t => {
+          const uri = t.image && !broken.includes(t.image) ? t.image : null, selectable = canPick && t.selectable;
+          return (
+            // the tile asks him about it (the help is here, so it's the big target); the arrow in its corner opens the shop's page
+            <Pressable key={t.id} testID={`tile-${t.id}`} onPress={selectable ? () => onSelect!(t) : undefined} disabled={!selectable}
+              accessibilityRole={selectable ? "button" : undefined} accessibilityLabel={t.label} accessibilityHint={selectable ? "Asks whether it fits your money" : undefined}
+              accessibilityActions={[{name: "open", label: `Open ${t.retailer}'s page`}]} onAccessibilityAction={e => { if (e.nativeEvent.actionName === "open") onOpen(t.url); }}
+              style={{width: tile, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: edge}}>
+              {/* white, as shops show their photos; with none, the shop's letter, small, on a soft colour */}
+              <View style={{height: PHOTO, padding: s[2], alignItems: "center", justifyContent: "center", backgroundColor: uri ? "#FFFFFF" : c.soft}}>
+                {uri ? <Image testID="research-photo" source={{uri}} resizeMode="contain" onError={() => setBroken(b => b.includes(uri) ? b : [...b, uri])} style={{width: "100%", height: "100%"}} />
+                  : <MerchantLogo name={t.retailer} size={40} bg={box} />}
+                {/* the lowest price on the card: a black dot with a bright green £ in the photo's corner (its label says so for VoiceOver) */}
+                {t.lowest ? (
+                  <View testID={`lowest-${t.id}`} style={{position: "absolute", top: s[1], left: s[1], width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#000000"}}>
+                    <Text style={{fontFamily: hanken.heavy, fontSize: 15, lineHeight: 18, color: c.incoming}}>£</Text>
+                  </View>
+                ) : null}
+                {/* the shop's page: an arrow out of the app, small, since the help is here */}
+                <Pressable testID={`open-${t.id}`} onPress={() => onOpen(t.url)} hitSlop={10} accessibilityRole="link" accessibilityLabel={`Open ${t.retailer}'s page for ${t.name}`}
+                  style={{position: "absolute", top: s[1], right: s[1], width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: box, borderWidth: StyleSheet.hairlineWidth, borderColor: edge}}>
+                  <Icon name="out" color={c.ink} size={14} />
+                </Pressable>
+              </View>
+              {/* the price first, a small icon for how sure it is (an estimate already says "About"), then the name */}
+              <View style={{padding: s[3], gap: 2}}>
+                <View style={{flexDirection: "row", alignItems: "center", gap: s[1]}}>
+                  <Text style={{...body, fontFamily: hanken.semibold, fontVariant: ["tabular-nums"], flexShrink: 1, color: t.selectable ? c.ink : c.muted}} adjustsFontSizeToFit numberOfLines={1}>{t.price}</Text>
+                  {t.sureIcon === "check" || t.sureIcon === "search" ? <Icon name={t.sureIcon} color={c.muted} size={12} /> : null}
+                </View>
+                <Text style={quiet} numberOfLines={2}>{t.name}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      {/* what buying it would do isn't repeated here: his words under the card say it, worked out the same way */}
+      <Text style={quiet}>{view.checked}{onSelect && view.tiles.some(t => t.selectable) ? ". Tap one to ask about it" : ""}</Text>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// A card from before find_products, as a saved chat kept it: one product, each shop whose page backed a price a tile that opens it.
 
 // a photo looked up by its name, only when a tile needs one: undefined while it comes (or isn't asked for), null when there's none
 function usePhoto(product: string, wanted: boolean) {
@@ -27,7 +104,7 @@ function usePhoto(product: string, wanted: boolean) {
   return got?.product === product ? got.uri : undefined;
 }
 
-export function ResearchCard({view, box, edge, onOpen}: {view: ResearchView; box: string; edge: string; onOpen: (url: string) => void}) {
+export function OldResearchCard({view, box, edge, onOpen}: Props & {view: OldResearchView}) {
   const {c} = useTheme();
   const [broken, setBroken] = useState<string[]>([]);
   const lose = (uri: string) => setBroken(b => b.includes(uri) ? b : [...b, uri]);
@@ -53,15 +130,13 @@ export function ResearchCard({view, box, edge, onOpen}: {view: ResearchView; box
           {best.spec ? <Text style={{...quiet, marginTop: s[1]}}>{best.spec}</Text> : null}
         </View>
       ) : null}
-      {/* each shop a tile, the one he went by first, running to the card's edges; a tap opens the page the price is on */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginHorizontal: -s[4]}} contentContainerStyle={{paddingHorizontal: s[4], gap: s[3]}}>
         {view.rows.map(r => {
           const uri = own(r) ?? stand;
           return (
             <Pressable key={`${r.url} ${r.price}`} onPress={() => onOpen(r.url)} accessibilityRole="link" accessibilityLabel={r.label}
-              style={{width: TILE, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: edge}}>
-              {/* white, as shops show their photos; grey while one's being looked up; the shop's letter when there's none */}
-              <View style={{height: TILE, padding: s[3], alignItems: "center", justifyContent: "center", backgroundColor: uri ? "#FFFFFF" : c.soft}}>
+              style={{width: 160, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: edge}}>
+              <View style={{height: 160, padding: s[3], alignItems: "center", justifyContent: "center", backgroundColor: uri ? "#FFFFFF" : c.soft}}>
                 {uri ? <Image testID="research-photo" source={{uri}} resizeMode="contain" onError={() => lose(uri)} style={{width: "100%", height: "100%"}} />
                   : uri === null ? <MerchantLogo name={r.seller} size={48} bg={box} /> : null}
               </View>

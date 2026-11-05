@@ -3,6 +3,7 @@
 import {File, Paths} from "expo-file-system";
 import type {Transcript, Turn} from "@/lib/ai/converse";
 import type {ModelKey} from "@/lib/ai/models";
+import type {ShopArgs, Shopped} from "@/lib/ai/research";
 import type {Who} from "@/lib/ai/tools";
 import type {Take} from "@/lib/timSpeech";
 import {accessToken, PUBLIC_KEY, SessionFail, SUPABASE} from "./session";
@@ -21,7 +22,7 @@ export class AccountantFail extends Error {
   constructor(public kind: AccountantError, detail?: string) { super(detail ?? kind); }
 }
 
-async function post(door: "chat" | "say" | "photo", body: unknown, token: string, wait = WAIT_MS) {
+async function post(door: "chat" | "say" | "photo" | "line" | "shop", body: unknown, token: string, wait = WAIT_MS) {
   const stop = new AbortController(), t = setTimeout(() => stop.abort(), wait);
   try {
     return await fetch(`${FN}/${door}`, {
@@ -34,10 +35,10 @@ async function post(door: "chat" | "say" | "photo", body: unknown, token: string
   } finally { clearTimeout(t); }
 }
 
-/** Sends the conversation and returns Claude's turn: an answer, or the tools it wants run. `research`: this app can check what
- *  something costs on the shops' own pages and show it as a card (lib/ai/research.ts), so he's given the tools for it. */
+/** Sends the conversation and returns Claude's turn: an answer, or the tools it wants run. `shop`: this app can look round the
+ *  shops (find_products, show_products) and show what it finds as a card (lib/ai/research.ts), so he's given the tools for it. */
 export async function send(who: Who, messages: Transcript, model?: ModelKey): Promise<Turn> {
-  const body = {who, messages, research: true, ...model ? {model} : {}};
+  const body = {who, messages, shop: true, ...model ? {model} : {}};
   try {
     let r = await post("chat", body, await accessToken());
     // the server didn't know the token (it ran out, or the sign-in went): one more go with a new one
@@ -49,6 +50,27 @@ export async function send(who: Who, messages: Transcript, model?: ModelKey): Pr
     if (r.status === 413) throw new AccountantFail("too-big");
     if (j.error === "not_configured") throw new AccountantFail("not-set-up", "the function has no key");
     throw new AccountantFail("unavailable", `${r.status} ${j.error ?? ""} ${j.detail ?? ""}`.trim());
+  } catch (e) {
+    if (e instanceof SessionFail) throw new AccountantFail(e.kind, e.message);
+    throw e;
+  }
+}
+
+// the function gives itself about 18s to look round; a little over, so its answer gets here first
+const SHOP_MS = 25_000;
+
+/** Looks round the shops for find_products: the function's /shop searches (Brave) and reads the shops' own pages, and hands back
+ *  the products with their prices, each saying how sure it is, and photos. Fails as `send` does (AccountantFail); converse turns a
+ *  failure into his to say. */
+export async function shop(args: ShopArgs): Promise<Shopped> {
+  try {
+    let r = await post("shop", args, await accessToken(), SHOP_MS);
+    if (r.status === 401) r = await post("shop", args, await accessToken(true), SHOP_MS);
+    const j = await r.json().catch(() => ({})) as Partial<Shopped> & {error?: string};
+    if (r.ok && Array.isArray(j.products)) return {products: j.products, ...j.partial ? {partial: j.partial} : {}, ...j.stats ? {stats: j.stats} : {}};
+    if (r.status === 429) throw new AccountantFail(j.error === "limit" ? "limit" : "busy");
+    if (j.error === "not_configured") throw new AccountantFail("not-set-up", "the function has no Brave key");
+    throw new AccountantFail("unavailable", `${r.status} ${j.error ?? ""}`.trim());
   } catch (e) {
     if (e instanceof SessionFail) throw new AccountantFail(e.kind, e.message);
     throw e;
@@ -74,6 +96,21 @@ export async function say(who: Who, text: string, kind?: "brief"): Promise<Take 
     return {uri: file.uri, ms: j.ms, words: j.words as Take["words"]};
   } catch (e) {
     console.warn(`${who} couldn't say it:`, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/** Frank's line about a card payment, for the card island: Claude writes it (the function's /line) from what the island shows.
+ *  Null when anything goes wrong (the daily cap too): the island just has no play button. Its figures are checked by the
+ *  caller (`lineOk` in lib/cardTap.ts). */
+export async function islandLine(facts: {where: string; paid: string; left: string; what: string}): Promise<string | null> {
+  try {
+    let r = await post("line", facts, await accessToken(), SAY_MS);
+    if (r.status === 401) r = await post("line", facts, await accessToken(true), SAY_MS);
+    const j = await r.json().catch(() => ({})) as {text?: unknown};
+    return r.ok && typeof j.text === "string" && j.text.trim() ? j.text.trim() : null;
+  } catch (e) {
+    console.warn("Frank couldn't write his island line:", e instanceof Error ? e.message : e);
     return null;
   }
 }

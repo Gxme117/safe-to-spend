@@ -7,7 +7,7 @@ import * as SplashScreen from "expo-splash-screen";
 import {StatusBar} from "expo-status-bar";
 import {useEffect} from "react";
 import {AppState} from "react-native";
-import {endOldCardTap} from "@/services/island";
+import {endOldCardTap, listenToIsland} from "@/services/island";
 import {KeyboardProvider} from "@/services/keyboard";
 import {Toast} from "@/components/Toast";
 import {useMoney} from "@/store/useMoney";
@@ -28,13 +28,15 @@ export default function RootLayout() {
       useMoney.getState().notify("Couldn't read your payments. Close the app and open it again.");
     });
     // a new day when the app comes back: the daily number moves on. Leaving it is when Frank last saw you (his catch-ups)
-    // and a card island that's been up 15 minutes goes
+    // and a card island that's been up 5 minutes goes
     void endOldCardTap();
     const sub = AppState.addEventListener("change", st => {
       if (st === "active") { useMoney.getState().tick(); void endOldCardTap(); }
       else if (st === "background") useMoney.getState().seenAt(Date.now());
     });
-    return () => sub.remove();
+    // the open island's play button: Frank says his line about the payment
+    const unlisten = listenToIsland();
+    return () => { sub.remove(); unlisten(); };
   }, []);
   useEffect(() => { if (fontsLoaded && loaded) SplashScreen.hide(); }, [fontsLoaded, loaded]);
   if (!fontsLoaded || !loaded) return null;

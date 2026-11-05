@@ -5,6 +5,7 @@ import type {Regular, Scan} from "../../regulars";
 import {whatIf} from "../../today";
 import type {Bank, Bill, Ctx} from "../../types";
 import {knownIn} from "../check";
+import type {Product, Shopped} from "../research";
 import {appContext, clean, MAX_NOTES, receipt, runTool, TOOL_NAMES, type Note, type ToolEnv} from "../tools";
 
 // Mon 5 Oct 2026: £1,000, paid £1,800 on the last working day (Fri 30 Oct), rent £400 on the 15th, phone £20 on the 1st,
@@ -20,70 +21,82 @@ const monzo: Bank = {source: "Monzo", accountId: "acc_00009XYZ", main: 1000, asO
 
 test("the same tools as the server offers", () => {
   expect([...TOOL_NAMES]).toEqual(["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
-    "add_bill", "change_bill", "remove_bill", "check_purchase"]);
+    "add_bill", "change_bill", "remove_bill", "find_products", "show_products"]);
 });
 
-describe("check_purchase: a price from the web reaches your money only through here", () => {
-  const APPLE = "https://www.apple.com/uk/iphone-17";
-  const opened = {open: new Map([["apple.com/uk/iphone-17", {url: APPLE, host: "apple.com", title: "iPhone 17", text: "iPhone 17 256GB £899.00 Delivery £4.99", read: "2026-10-05T09:00:00Z"}]]), waiting: new Set<string>()};
-  const onPages: ToolEnv = {...env(), pages: opened, now: new Date(2026, 9, 5, 10, 0)};
-  const offer = {seller: "Apple", url: APPLE, price: 899, condition: "new", delivery: 4.99, pick: true};
-  const input = {product: "iPhone 17, 256GB", assumed: "", identifies: ["iPhone 17"], offers: [offer]};
+describe("find_products and show_products: a shop's price reaches your money only through show_products' pick", () => {
+  const NOW_10 = new Date(2026, 9, 5, 10, 0);
+  const item = (over: Partial<Product> = {}): Omit<Product, "id"> => ({name: "Apple iPhone 17 256GB £899 Black", brand: "Apple", model: "IPHONE 17", group: "apple|17|256gb",
+    retailer: "Apple", host: "apple.com", url: "https://www.apple.com/uk/shop/buy-iphone/iphone-17", price: 899, confidence: "verified", priceSource: "https://www.apple.com/uk/shop/buy-iphone/iphone-17",
+    image: "https://imgs.search.brave.com/i.jpg", condition: "new", delivery: 4.99, checked: "2026-10-05T09:00:00.000Z", ...over});
+  const shopped: Shopped = {products: [item(), item({retailer: "Argos", host: "argos.co.uk", url: "https://www.argos.co.uk/product/1", price: 879, confidence: "search_listed", delivery: "free"}),
+    item({retailer: "Currys", host: "currys.co.uk", url: "https://www.currys.co.uk/p.html", price: null, confidence: null, priceSource: null})]};
+  const ARGS = {queries: ["iPhone 17 UK"], match: ["iPhone 17"], exclude: [], max_price: 0};
+  const found = run("find_products", ARGS, {...env(), shopped, firstId: 4, now: NOW_10});
+  const catalogue = new Map(found.products!.map(p => [p.id, p]));
+  const onCard: ToolEnv = {...env(), catalogue, now: NOW_10};
 
-  test("the engine runs on what the page backs, delivery and all: the same as what_if and Today's What if", () => {
-    const out = run("check_purchase", input, onPages), r = out.result as Record<string, any>;
+  test("find_products numbers what /shop found from where the chat is, prices as numbers and nothing else, no £ in any words", () => {
+    const r = found.result as Record<string, any>;
+    expect(found.products!.map(p => p.id)).toEqual(["p4", "p5", "p6"]);
+    expect(r.products[0]).toMatchObject({id: "p4", name: "Apple iPhone 17 256GB Black", shop: "Apple", price: 899, price_is: "on the shop's own page now", delivery: 4.99, condition: "new"});
+    expect(r.products[1]).toMatchObject({id: "p5", same_thing_as: "p4", delivery: "free", price_is: "listed in search; the shop's page couldn't be checked"});
+    expect(r.products[2]).toMatchObject({id: "p6", price: null, price_is: "no price found"});
+    expect(JSON.stringify(r).replace(/"(?:url|photo|price_page)":"[^"]*"/g, "")).not.toContain("£");
+    // the only numbers in it are prices and delivery
+    expect(knownIn([{role: "user", content: [{type: "tool_result", tool_use_id: "t", content: JSON.stringify(r)}]}]).sort()).toEqual([4.99, 4.99, 879, 899].sort());
+  });
+
+  test("find_products that couldn't look, or arguments that make no sense, say so", () => {
+    expect(run("find_products", ARGS, {...env(), shopped: {error: "unavailable"}})).toMatchObject({error: true, result: {error: expect.stringMatching(/Couldn't look round the shops/)}});
+    expect(run("find_products", ARGS, env()).error).toBe(true);
+    expect(run("find_products", {...ARGS, queries: []}, {...env(), shopped}).error).toBe(true);
+    expect(run("find_products", {...ARGS, queries: Array(7).fill("tv")}, {...env(), shopped}).error).toBe(true);
+    expect(run("find_products", {...ARGS, max_price: -5}, {...env(), shopped}).error).toBe(true);
+  });
+
+  test("show_products with pick runs the engine on its price and delivery, the same as what_if and Today's What if, with how sure it is", () => {
+    const out = run("show_products", {title: "iPhone 17", note: "", ids: ["p4", "p5"], pick: "p4"}, onCard), r = out.result as Record<string, any>;
     expect(out.ran).toBe(true);
     expect(r.what_if).toEqual(res("what_if", {amount: 903.99}));
     expect(r.what_if.in_the_app).toBe(whatIf(ctx(), 903.99)!.line);
-    expect(r.went_by).toEqual({seller: "Apple", price: 899, with_delivery: 903.99});
+    expect(r.went_by).toEqual({id: "p4", name: "Apple iPhone 17 256GB Black", shop: "Apple", price: 899, with_delivery: 903.99, price_is: "on the shop's own page now"});
     expect(r.overview).toEqual(res("overview"));
-    expect(out.research?.offers[0]).toMatchObject({price: 899, delivery: 4.99, pick: true});
-    expect(r.do_next).toMatch(/Answer now/);
+    expect(out.research).toMatchObject({v: 2, title: "iPhone 17", pick: "p4"});
+    expect(out.research?.products.map(p => p.id)).toEqual(["p4", "p5"]);
+    expect(r.do_next).toMatch(/^Answer now/);
+    expect(r.do_next).not.toMatch(/couldn't be checked|estimate|may have changed/);
   });
 
-  test("what the page doesn't back never goes back as a figure, nor his £ in anything he named", () => {
-    const out = run("check_purchase", {...input, offers: [{...offer, price: 1234, seller: "Apple £777"}]}, onPages), text = JSON.stringify(out.result);
+  test("a listed price, an estimate, a starting price and an old one are each said to him so he says it too", () => {
+    const listed = run("show_products", {title: "iPhone 17", note: "", ids: ["p5"], pick: "p5"}, onCard).result as Record<string, any>;
+    expect(listed.do_next).toMatch(/Argos lists it in search; their page couldn't be checked/);
+    const odd = new Map([["p7", {...catalogue.get("p4")!, id: "p7", confidence: "estimated" as const, from: true as const, checked: "2026-10-01T09:00:00.000Z"}]]);
+    const est = run("show_products", {title: "iPhone 17", note: "", ids: ["p7"], pick: "p7"}, {...onCard, catalogue: odd}).result as Record<string, any>;
+    expect(est.do_next).toMatch(/only an estimate: say "around"/);
+    expect(est.do_next).toMatch(/starting price: write "from"/);
+    expect(est.do_next).toMatch(/That price was seen on 2026-10-01 Thu: say it may have changed/);
+  });
+
+  test("without pick: the card only, no engine, and the others are named, never priced", () => {
+    const out = run("show_products", {title: "iPhone 17 £899", note: "", ids: ["p5", "p4", "p5"], pick: ""}, onCard);
     expect(out.ran).toBeUndefined();
-    expect(out.research).toBeUndefined();
-    expect(text).not.toMatch(/£|1234/);
-    expect(knownIn([{role: "user", content: [{type: "tool_result", tool_use_id: "t", content: text}]}])).toEqual([]);
+    expect(out.research).toMatchObject({title: "iPhone 17"});
+    expect(out.research?.products.map(p => p.id)).toEqual(["p5", "p4"]);
+    expect(knownIn([{role: "user", content: [{type: "tool_result", tool_use_id: "t", content: JSON.stringify(out.result)}]}])).toEqual([]);
   });
 
-  test("no pages, and arguments that make no sense, say so", () => {
-    expect((run("check_purchase", input).result as Record<string, any>).not_confirmed[0].why).toBe("you haven't opened that page");
-    expect(run("check_purchase", {...input, offers: []}, onPages).error).toBe(true);
-    expect(run("check_purchase", {...input, offers: "lots"}, onPages).error).toBe(true);
-    expect(run("check_purchase", {...input, identifies: "iPhone"}, onPages).error).toBe(true);
-    expect(run("check_purchase", {...input, offers: [{...offer, price: "lots"}]}, onPages).error).toBe(true);
-  });
-
-  test("a starting price, or a spec the page doesn't show with it, is said to him so he says it too; no talk of backing", () => {
-    const from = {...opened, open: new Map([["apple.com/uk/iphone-17", {...opened.open.get("apple.com/uk/iphone-17")!, text: "iPhone 17 from £899.00"}]])};
-    const out = run("check_purchase", {...input, offers: [{...offer, delivery: null}]}, {...onPages, pages: from}), r = out.result as Record<string, any>;
-    expect(r.went_by).toEqual({seller: "Apple", price: 899, with_delivery: 899, starting_price: true, not_shown_with_price: ["256GB"]});
-    expect(r.confirmed[0]).toMatchObject({starting_price: true, not_shown_with_price: ["256GB"]});
-    expect(r.do_next).toMatch(/starting price: write "from"/);
-    expect(r.do_next).toMatch(/doesn't show 256GB with that price/);
-    expect(JSON.stringify(run("check_purchase", input, onPages).result)).not.toMatch(/backed|turned_away/i);
-  });
-
-  test("shops he opened for this question and left out are named; with nothing to go by he's asked once more for them, not twice", () => {
-    const argos = {url: "https://www.argos.co.uk/iphone-17", host: "argos.co.uk", title: "iPhone 17", text: "iPhone 17 256GB £879.00", read: "2026-10-05T09:00:00Z"};
-    const both = {open: new Map([...opened.open, ["argos.co.uk/iphone-17", argos]]), waiting: new Set<string>(), recent: new Set(["apple.com/uk/iphone-17", "argos.co.uk/iphone-17"])};
-    const kept = run("check_purchase", input, {...onPages, pages: both}).result as Record<string, any>;
-    expect(kept.opened_not_passed).toEqual(["argos.co.uk"]);
-    expect(kept.do_next).toMatch(/^Answer now/);
-    const none = {...input, offers: [{...offer, price: 1}]};
-    expect((run("check_purchase", none, {...onPages, pages: both}).result as Record<string, any>).do_next).toMatch(/Call check_purchase once more/);
-    expect((run("check_purchase", none, {...onPages, pages: both, checked: 1}).result as Record<string, any>).do_next).toMatch(/Don't call this again/);
-    // pages from an earlier question aren't this one's
-    expect((run("check_purchase", none, {...onPages, pages: {...both, recent: new Set(["apple.com/uk/iphone-17"])}}).result as Record<string, any>).opened_not_passed).toBeUndefined();
+  test("ids that don't exist, a pick not on the card or with no price, say so", () => {
+    expect(run("show_products", {title: "x", note: "", ids: ["p9"], pick: ""}, onCard)).toMatchObject({error: true, result: {error: expect.stringMatching(/There's no product p9: use ids find_products gave \(p4, p5, p6\)/)}});
+    expect(run("show_products", {title: "x", note: "", ids: ["p4"], pick: "p5"}, onCard).error).toBe(true);
+    expect(run("show_products", {title: "x", note: "", ids: ["p6"], pick: "p6"}, onCard)).toMatchObject({error: true, result: {error: expect.stringMatching(/p6 has no price found/)}});
+    expect(run("show_products", {title: "x", note: "", ids: [], pick: ""}, onCard).error).toBe(true);
   });
 
   test("the line under an answer says a what if only when the engine really ran", () => {
     const s = baseState();
-    expect(receipt(["check_purchase"], s, new Date(2026, 9, 5, 10, 0), true)).toBeNull();
-    expect(receipt(["check_purchase", "what_if"], s, new Date(2026, 9, 5, 10, 0), true)).toBe("Your figures checked against a what if (your balance from Thu 1 Oct)");
+    expect(receipt(["find_products", "show_products"], s, NOW_10, true)).toBeNull();
+    expect(receipt(["find_products", "show_products", "what_if"], s, NOW_10, true)).toBe("Your figures checked against a what if (your balance from Thu 1 Oct)");
   });
 });
 
