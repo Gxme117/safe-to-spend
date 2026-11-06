@@ -3,6 +3,7 @@
 import {accountKey, allBanks, anchor, ownAccounts} from "./banks";
 import {billSlot} from "./bills";
 import {bankCat, GENERAL} from "./categories";
+import {matchMerchantRule} from "./categoryChange";
 import {addDays, isoD} from "./dates";
 import {cycleStart, isReceived, occurrences} from "./income";
 import {r2} from "./money";
@@ -134,7 +135,8 @@ export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => st
       // a bill it paid is filed against it (each due date once: it sees the ones before it); otherwise the category Monzo's
       // points to (lib/categories.ts), or General and asked
       const bill = billMatch({...ctx, txs: [...ctx.txs, ...out]}, row);
-      const cat = bankCat(ctx.state.categories, t.category, note);
+      const ruleCat = matchMerchantRule(ctx.rules ?? [], note);
+      const cat = ruleCat ?? bankCat(ctx.state.categories, t.category, note);
       if (bill) Object.assign(row, paidBill(bill));
       else if (cat) row.cat = cat; else { row.cat = GENERAL; row.needsCat = true; }
     } else {

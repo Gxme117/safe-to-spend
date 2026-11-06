@@ -134,4 +134,15 @@ export interface Ctx {
   state: AppState;
   txs: Tx[];
   today: IsoDate;
+  rules?: MerchantRule[];  // merchant→category rules, checked before NAME_HINTS at import time
 }
+
+/** A payee name the user taught → the category to file future payments from them under. */
+export interface MerchantRule { payee: string; cat: string; created: number }
+
+/** A change to a category or filing that Frank or Tim proposes: nothing is saved until the user taps yes. */
+export type CategoryProposal =
+  | {kind: "refile"; txId: string; note: string; date: IsoDate; amount: number; fromCat: string; toCat: string}
+  | {kind: "merchant_rule"; payee: string; cat: string}
+  | {kind: "add_cat"; name: string}
+  | {kind: "rename_cat"; id: string; oldName: string; newName: string};

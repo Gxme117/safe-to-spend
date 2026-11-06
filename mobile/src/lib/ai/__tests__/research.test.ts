@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import {whatIf} from "../../today";
 import {baseState, ctx as makeCtx} from "../../__tests__/fixtures";
-import {catalogueIn, defaultCard, forTool, isNewView, nextIdIn, notSubscription, photoQuery, pickOf, priceOf, pricesLikely, researchView, lowestOf, titleOf, totalOf,
+import {catalogueIn, defaultCard, forTool, isNewView, nameParts, nextIdIn, notSubscription, photoQuery, pickOf, priceOf, pricesLikely, researchView, lowestOf, titleOf, totalOf,
   type OldResearchView, type Product, type Research} from "../research";
 
 type Message = Anthropic.Beta.Messages.BetaMessageParam;
@@ -80,7 +80,14 @@ describe("the card", () => {
     expect(v.tiles[3].meta).toBe("New · Free delivery · Starting price");
     expect(v.tiles[4].meta).toBe("Out of stock");
     expect(v.tiles[0].label).toBe("Sony WH-1000XM6 Headphones at Argos, £349.99, the lowest price, Listed in search, New · Free delivery");
-    expect(v.best).toEqual({label: "Going by", name: "Sony WH-1000XM6 Headphones", price: "£449.95", by: "at John Lewis · On the shop's page · £4.99 delivery"});
+    // dearer than the cheapest on the card: his best value, with how much more (the card's own sum, with delivery)
+    expect(v.best).toEqual({label: "Best value", name: "Sony WH-1000XM6 Headphones", price: "£449.95", by: "at John Lewis · On the shop's page · £4.99 delivery",
+      value: true, more: "£104.95 more than the cheapest, at Argos"});
+    expect(v.tiles.map(t => !!t.value)).toEqual([false, true, false, false, false]);
+    expect(v.tiles[1].label).toContain("best value");
+    expect(researchView(c, {...r, why: "A newer model"}, NOW).best?.why).toBe("A newer model");
+    // the cheapest picked: going by it, nothing more said
+    expect(researchView(c, {...r, pick: "p1"}, NOW).best).toEqual({label: "Going by", name: "Sony WH-1000XM6 Headphones", price: "£349.99", by: "at Argos · Listed in search · Free delivery"});
     expect(v.ifLabel).toBe("If you bought it today");
     expect(v.ifToday).toBe(whatIf(c, 454.94)!.line);
     expect(v.checked).toBe("Prices as of 09:00");
@@ -111,6 +118,35 @@ describe("the card", () => {
     expect(lowestOf([p("p1"), p("p2", {confidence: "estimated", price: 1})])).toBeNull(); // only one shop's price
   });
 
+  test("the cheapest is one that fits: new, in stock, a real price; on a tie, one on the shop's own page", () => {
+    const others = [p("p1", {price: 100, condition: "used"}), p("p2", {price: 100, condition: "refurbished"}), p("p3", {price: 100, inStock: false}),
+      p("p4", {price: 100, from: true}), p("p5", {price: 100, confidence: "estimated"})];
+    expect(lowestOf([...others, p("p6", {price: 300}), p("p7", {price: 200, condition: "unknown"})])?.id).toBe("p7");
+    expect(lowestOf([...others, p("p6", {price: 300})])).toBeNull(); // only one that fits
+    expect(lowestOf([p("p1", {price: 200}), p("p2", {price: 200, confidence: "verified"}), p("p3", {price: 250})])?.id).toBe("p2");
+    expect(lowestOf([p("p1", {price: 200, delivery: 5}), p("p2", {price: 204, delivery: "free"})])?.id).toBe("p2");
+  });
+
+  test("find_products' own card always has the cheapest that fits, even when it came back last", () => {
+    const many = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => p(`p${n}`, {price: n === 10 ? 99 : 300 + n}));
+    const card = defaultCard(many, "x");
+    expect(card.products).toHaveLength(8);
+    expect(card.products.map(x => x.id)).toEqual(["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p10"]);
+    // left off by the two-of-a-thing rule: added
+    const things = ["a", "b", "c"].flatMap(g => [1, 2, 3].map(n => p(`p${g}${n}`, {group: g, price: g === "c" && n === 3 ? 50 : 300})));
+    expect(defaultCard(things, "x").products.map(x => x.id)).toEqual(["pa1", "pa2", "pb1", "pb2", "pc1", "pc2", "pc3"]);
+  });
+
+  test("every shop tied for the lowest price is marked; none when every price is the same", () => {
+    const c = makeCtx({state: baseState()});
+    const tied = researchView(c, {v: 2, title: "x", products: [
+      p("p1", {retailer: "Currys", price: 749}), p("p2", {retailer: "John Lewis", price: 749}), p("p3", {price: 799}),
+    ]}, NOW);
+    expect(tied.tiles.map(t => t.lowest)).toEqual([true, true, false]);
+    const same = researchView(c, {v: 2, title: "x", products: [p("p1", {price: 749}), p("p2", {retailer: "Currys", price: 749})]}, NOW);
+    expect(same.tiles.map(t => t.lowest)).toEqual([false, false]);
+  });
+
   test("what a product costs to have: its price and any delivery charge; the price as the card says it", () => {
     expect(totalOf(p("p1", {price: 899, delivery: 4.99}))).toBe(903.99);
     expect(totalOf(p("p1", {price: 899, delivery: "free"}))).toBe(899);
@@ -134,6 +170,21 @@ test("a question for the shops: the first thing the line says, and whether a pri
   }
   expect(notSubscription("And an Xbox Series X?")).toBe(true);
   expect(notSubscription("And what about Netflix?")).toBe(false);
+});
+
+test("a product is named by its model and size, the rest of the shop's listing under it", () => {
+  expect(nameParts("Apple Watch Ultra 4 GPS + Cell 49mm Titanium Burgundy Alpine Loop"))
+    .toEqual({title: "Apple Watch Ultra 4 49mm", specs: "GPS + Cell Titanium Burgundy Alpine Loop"});
+  expect(nameParts("Sony WH-1000XM6 Wireless Noise Cancelling Headphones, Black"))
+    .toEqual({title: "Sony WH-1000XM6", specs: "Wireless Noise Cancelling Headphones · Black"});
+  expect(nameParts("Apple iPhone 17 Pro 256GB Cosmic Orange")).toEqual({title: "Apple iPhone 17 Pro 256GB", specs: "Cosmic Orange"});
+  expect(nameParts("Samsung 65 Inch QN90F Neo QLED 4K HDR Smart TV")).toEqual({title: "Samsung QN90F 65″", specs: "Neo QLED 4K HDR Smart TV"});
+  expect(nameParts('LG OLED65C5 65" 4K Smart TV (2025)')).toEqual({title: "LG OLED65C5 65″", specs: "4K Smart TV · 2025"});
+  expect(nameParts("Apple AirPods Pro (3rd generation)")).toEqual({title: "Apple AirPods Pro (3rd generation)", specs: ""});
+  expect(nameParts("Bose QuietComfort Ultra Headphones")).toEqual({title: "Bose QuietComfort Ultra Headphones", specs: ""});
+  expect(nameParts("Apple Watch Series 11 GPS 42mm Jet Black Aluminium Case - Sport Band")).toEqual({title: "Apple Watch Series 11 42mm", specs: "GPS Jet Black Aluminium Case · Sport Band"});
+  // "2 in 1" isn't a size
+  expect(nameParts("Lenovo Yoga 7 2 in 1 Laptop").title).not.toContain("″");
 });
 
 test("an old card's photo is looked up by its name without his asides, as live runs named them", () => {

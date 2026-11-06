@@ -8,6 +8,7 @@
 // The names and arguments match supabase/functions/accountant/prompt.ts.
 import {allBanks, aside} from "../banks";
 import {cardLine, FREQS, proposeAdd, proposeChange, proposeRemove, Refused, type BillArgs, type Proposal} from "../billChange";
+import {catCardLine, proposeAddCategory, proposeRefile, proposeRenameCategory, proposeTeachMerchant, Refused as CatRefused} from "../categoryChange";
 import {BILL_FREQ, billDated, billDates, billMonthly, billPaid, billWhenLong, METHOD_META, nextBill} from "../bills";
 import {budgetHint} from "../budget";
 import {calc, expected, forecast, gapLine, hero, type Hero} from "../calc";
@@ -17,9 +18,9 @@ import {ciKey, FREQ, isReceived, lowAmt, mainIncome, occurrences, usualAmt} from
 import {money, newestFirst, r2} from "../money";
 import {unsorted} from "../payments";
 import {billChanges, regularsView, sameKind, type Answers, type Scan} from "../regulars";
-import type {AppState, Bill, BillFreq, Ctx, Income, IsoDate, Tx} from "../types";
+import type {AppState, Bill, BillFreq, CategoryProposal, Ctx, Income, IsoDate, MerchantRule, Tx} from "../types";
 import {whatIf} from "../today";
-import {clip, forTool, MAX_SHOWN, PRICE_IS, totalOf, type Product, type Research, type ShopArgs, type Shopped} from "./research";
+import {cheaperOf, clip, forTool, lowestOf, MAX_SHOWN, PRICE_IS, totalOf, type Product, type Research, type ShopArgs, type Shopped} from "./research";
 import {sum} from "./sum";
 
 export type Who = "tim" | "frank";
@@ -31,7 +32,8 @@ export const NOTE_KINDS: NoteKind[] = ["goal", "plan", "preference", "circumstan
 export const MAX_NOTES = 50, NOTE_LEN = 120;
 
 export const TOOL_NAMES = ["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
-  "add_bill", "change_bill", "remove_bill", "find_products", "show_products"] as const;
+  "add_bill", "change_bill", "remove_bill", "find_products", "show_products",
+  "refile_payment", "teach_merchant", "add_category", "rename_category"] as const;
 export type ToolName = typeof TOOL_NAMES[number];
 export const isTool = (name: string): name is ToolName => (TOOL_NAMES as readonly string[]).includes(name);
 
@@ -42,6 +44,7 @@ export const DOING: Record<ToolName, string> = {
   forecast: "Looking at the days ahead…", calculate: "Doing the sums…", remember: "Making a note…", forget: "Crossing out a note…",
   add_bill: "Writing it up…", change_bill: "Writing it up…", remove_bill: "Writing it up…", find_products: "Looking round the shops…",
   show_products: "Checking it against your money…",
+  refile_payment: "Filing it…", teach_merchant: "Saving that…", add_category: "Writing it up…", rename_category: "Writing it up…",
 };
 // what an answer was checked against, for the line under it; notes and shops' prices aren't your money. show_products counts as the
 // what_if it ran, when it ran one
@@ -49,19 +52,21 @@ const CHECKED: Record<ToolName, string | null> = {
   overview: "your numbers", upcoming: "what's due", bills: "your bills", regulars: "your bank's payments", everyday: "your budgets",
   spending: "your spending", payments: "your payments", what_if: "a what if", forecast: "the days ahead", calculate: "a sum", remember: null, forget: null,
   add_bill: "your bills", change_bill: "your bills", remove_bill: "your bills", find_products: null, show_products: null,
+  refile_payment: "your payments", teach_merchant: null, add_category: null, rename_category: null,
 };
 
 /** The bank's payments looked through for regular ones (lib/regulars.ts), and what you've said about them. */
 export interface RegularsEnv { scan: Scan | null; answers: Answers }
 /** Everything a tool needs. `newId` names a new note. For find_products, what /shop found (`shopped`, converse asks it first) and
  *  the first id to number its products from; for show_products, every product found in the conversation (`catalogue`). `now`: the
- *  time, for how old a price is. */
+ *  time, for how old a price is. `rules`: merchant→category rules, for refile_payment and teach_merchant. */
 export interface ToolEnv {
   ctx: Ctx; notes: Note[]; who: Who; newId: () => string; regulars: RegularsEnv; now?: Date;
   shopped?: Shopped | {error: string}; firstId?: number; catalogue?: ReadonlyMap<string, Product>;
+  rules: MerchantRule[];
 }
-/** A note to save or remove: the tool only says so, the store does it. A change to your bills: only ever a card for you to say yes to. */
-export type ToolEffect = {add: Note} | {remove: Note} | {propose: Proposal};
+/** A note to save or remove: the tool only says so, the store does it. A change to your bills or categories: only ever a card for you to say yes to. */
+export type ToolEffect = {add: Note} | {remove: Note} | {propose: Proposal} | {proposeCategory: CategoryProposal};
 /** A tool's answer for the accountant, whether it went wrong (`error`: his arguments didn't make sense), and a note to save or remove.
  *  `products`: what find_products found, numbered; `research`: the card show_products made; `ran`: it ran the engine on the pick. */
 export interface ToolOut { result: unknown; error?: true; effect?: ToolEffect; research?: Research; ran?: true; products?: Product[] }
@@ -370,21 +375,25 @@ function findProducts(env: ToolEnv, a: Args): ToolOut {
   const first = env.firstId ?? 1;
   const products: Product[] = got.products.map((p, i) => ({...p, id: `p${first + i}`, name: clip(p.name, 100), retailer: clip(p.retailer, 40)}));
   const same = (p: Product) => products.find(o => o !== p && o.group === p.group && products.indexOf(o) < products.indexOf(p))?.id;
+  // the cheapest that fits, worked out here so he never compares prices in his head (a flag, so no new figure)
+  const low = lowestOf(products);
+  const cheapest = low ? ` The cheapest that fits is ${low.id} at ${low.retailer} (new, in stock, with delivery): unless they named a model, shop or condition, that's the one to pick, and say plainly which shop has it cheapest.` : "";
   return {
     result: {
       found: `${products.length} ${products.length === 1 ? "product" : "products"}`, ...got.partial ? {partial: got.partial} : {},
-      products: products.map(p => ({...forTool(p), ...same(p) ? {same_thing_as: same(p)} : {}})),
+      products: products.map(p => ({...forTool(p), ...same(p) ? {same_thing_as: same(p)} : {}, ...p === low ? {cheapest: true} : {}})),
       note: "Each price is what a shop lists, not their money. url, price_page and photo are for the card: never write them.",
       do_next: products.length
-        ? `The best ${Math.min(products.length, MAX_SHOWN)} are on the card now. Call show_products only to choose differently, or with pick to try one against their money.${got.partial ? " Fewer than five fit: say so, and don't pad it." : ""}`
+        ? `The best ${Math.min(products.length, MAX_SHOWN)} are on the card now. Call show_products only to choose differently, or with pick to try one against their money.${cheapest}${got.partial ? " Fewer than five fit: say so, and don't pad it." : ""}`
         : "Nothing fits. Say so plainly, and don't give a price or a yes or no on one. Ask what they'd like instead if it would help.",
     },
     products,
   };
 }
 
-// The card, and the engine on the one picked: its price and delivery, with how sure that price is. Only the pick's figures come
-// back as numbers (they count as known); the others are named, not priced, since they never reach your money.
+// The card, and the engine on the one picked: its price and delivery, with how sure that price is. With a pick, every other priced
+// product on the card is tried against your money too (the cheapest, and `others`), so "which of these can I afford?" is answered
+// from the engine's figures, which count as known. Without a pick, they're named, not priced.
 function showProducts(env: ToolEnv, a: Args): ToolOut {
   const catalogue = env.catalogue ?? new Map<string, Product>();
   const noPounds = (s: string) => s.replace(/£\s?[\d,.]+/g, "").replace(/£/g, "").replace(/\s+/g, " ").trim();
@@ -396,7 +405,10 @@ function showProducts(env: ToolEnv, a: Args): ToolOut {
   const products = ids.map(id => catalogue.get(id)!), pick = pickId ? products.find(p => p.id === pickId) : undefined;
   if (pickId && !pick) throw new Bad("pick must be one of ids, or empty.");
   if (pick && pick.price === null) throw new Bad(`${pick.id} has no price found, so it can't be tried against their money: pick another, or none.`);
-  const research: Research = {v: 2, title, ...note ? {note} : {}, products, ...pick ? {pick: pick.id} : {}};
+  // best value: a pick dearer than the card's cheapest that fits needs a reason, and the cheapest is tried too, so he can weigh both
+  const why = typeof a.why === "string" ? noPounds(a.why).slice(0, 80) : "", low = pick ? cheaperOf(products, pick) : null;
+  if (low && !why) throw new Bad(`${low.id} at ${low.retailer} is cheaper. Say in why what makes ${pick!.id} worth more for them, or pick ${low.id}.`);
+  const research: Research = {v: 2, title, ...note ? {note} : {}, products, ...pick ? {pick: pick.id} : {}, ...low ? {why} : {}};
   const shown = products.map(p => `${p.id}: ${p.name} at ${p.retailer}`);
   if (!pick) return {result: {shown, do_next: "Answer now. The card shows them, their prices and links, so don't list them."}, research};
   const now = env.now ?? new Date(), amount = totalOf(pick), seen = new Date(pick.checked), old = now.getTime() - seen.getTime() > DAY_MS;
@@ -405,12 +417,29 @@ function showProducts(env: ToolEnv, a: Args): ToolOut {
     pick.confidence === "estimated" ? "Its price is only an estimate: say \"around\", and that it isn't a shop's current price." : "",
     pick.from ? "It's a starting price: write \"from\" with it, and say the one they'd want may cost more." : "",
     old && !isNaN(seen.getTime()) ? `That price was seen on ${day(isoD(seen))}: say it may have changed since.` : "",
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean);
+  const whatIfPick = whatIfTool(env, {amount}), lowAmount = low ? totalOf(low) : 0, whatIfLow = low ? whatIfTool(env, {amount: lowAmount}) : null;
+  if (low) {
+    const short = (w: ReturnType<typeof whatIfTool>) => !!w.after_it && "still_needed_for_bills_and_everyday" in w.after_it;
+    caveats.push(short(whatIfPick) && !short(whatIfLow!)
+      ? `The cheaper one, ${low.id} at ${low.retailer}, fits their money and this doesn't: go by the cheaper one, and say what they'd give up.`
+      : `You went by ${pick.id} for best value over the cheapest, ${low.id} at ${low.retailer}: say what the extra buys and how much more it is (calculate the difference), and that the cheaper one is there if they'd rather.`);
+  } else if (lowestOf(products)) caveats.push("It's the cheapest on the card that fits: say which shop has it cheapest.");
+  // the rest of the card, each tried against their money (now is the same for all, in the pick's what_if)
+  const others = products.filter(p => p !== pick && p !== low && p.price !== null).map(p => {
+    const total = totalOf(p), w = whatIfTool(env, {amount: total});
+    return {id: p.id, name: p.name, shop: p.retailer, price: p.price, with_delivery: total, price_is: PRICE_IS[p.confidence!], ...p.from ? {starting_price: true} : {},
+      ...w.after_it ? {fits: !("still_needed_for_bills_and_everyday" in w.after_it), after_it: w.after_it} : {none: w.none}};
+  });
+  if (others.length) caveats.push("others has the rest of the card tried against their money: when they ask which they can afford, or to compare, go by those.");
   return {
     result: {
       shown, went_by: {id: pick.id, name: pick.name, shop: pick.retailer, price: pick.price, with_delivery: amount, price_is: PRICE_IS[pick.confidence!], ...pick.from ? {starting_price: true} : {}},
-      what_if: whatIfTool(env, {amount}), overview: overview(env),
-      do_next: `Answer now: the card shows ${products.length === 1 ? "it" : "them"} and links the shop${products.length === 1 ? "" : "s"}, so don't list them. ${caveats ? `${caveats} ` : ""}Answer can, afford and should from these figures, and whether waiting for payday would be better.`,
+      what_if: whatIfPick,
+      ...low ? {cheapest: {id: low.id, name: low.name, shop: low.retailer, price: low.price, with_delivery: lowAmount, price_is: PRICE_IS[low.confidence!], what_if: whatIfLow}} : {},
+      ...others.length ? {others} : {},
+      overview: overview(env),
+      do_next: `Answer now: the card shows ${products.length === 1 ? "it" : "them"} and links the shop${products.length === 1 ? "" : "s"}, so don't list them. ${caveats.length ? `${caveats.join(" ")} ` : ""}Answer can, afford and should from these figures, and whether waiting for payday would be better.`,
     },
     research, ran: true,
   };
@@ -492,10 +521,31 @@ export function runTool(name: string, input: unknown, env: ToolEnv): ToolOut {
       case "remove_bill": return propose(env.ctx, proposeRemove(env.ctx, strArg(a, "bill_id")!));
       case "find_products": return findProducts(env, a);
       case "show_products": return showProducts(env, a);
+      case "refile_payment": {
+        const payee = strArg(a, "payee")!, date = dateArg(a, "date", false)!;
+        const amount = numArg(a, "amount", 0.01, 1_000_000)!, cat = strArg(a, "cat")!;
+        const p = proposeRefile(env.ctx, {payee, date, amount, cat});
+        return {result: {card: catCardLine(env.ctx.state.categories, p), saved: false, note: "Shown to the person as a card. Nothing is saved until they tap it or say yes, so don't say it's done: ask them to check it."}, effect: {proposeCategory: p}};
+      }
+      case "teach_merchant": {
+        const payee = strArg(a, "payee")!, cat = strArg(a, "cat")!;
+        const p = proposeTeachMerchant(env.ctx, env.rules, payee, cat);
+        return {result: {card: catCardLine(env.ctx.state.categories, p), saved: false, note: "Shown to the person as a card. Nothing is saved until they tap it or say yes, so don't say it's done: ask them to check it."}, effect: {proposeCategory: p}};
+      }
+      case "add_category": {
+        const name = strArg(a, "name")!;
+        const p = proposeAddCategory(env.ctx.state.categories, name);
+        return {result: {card: catCardLine(env.ctx.state.categories, p), saved: false, note: "Shown to the person as a card. Nothing is saved until they tap it or say yes, so don't say it's done: ask them to check it."}, effect: {proposeCategory: p}};
+      }
+      case "rename_category": {
+        const id = strArg(a, "id")!, newName = strArg(a, "new_name")!;
+        const p = proposeRenameCategory(env.ctx.state.categories, id, newName);
+        return {result: {card: catCardLine(env.ctx.state.categories, p), saved: false, note: "Shown to the person as a card. Nothing is saved until they tap it or say yes, so don't say it's done: ask them to check it."}, effect: {proposeCategory: p}};
+      }
       default: return {result: {error: `There's no tool called ${name}.`}, error: true};
     }
   } catch (e) {
-    if (e instanceof Bad || e instanceof Refused) return {result: {error: e.message}, error: true};
+    if (e instanceof Bad || e instanceof Refused || e instanceof CatRefused) return {result: {error: e.message}, error: true};
     console.warn(`${name} failed:`, e instanceof Error ? e.message : e);
     return {result: {error: "That didn't work. Try another way."}, error: true};
   }

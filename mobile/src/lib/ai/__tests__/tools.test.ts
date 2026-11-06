@@ -11,7 +11,7 @@ import {appContext, clean, MAX_NOTES, receipt, runTool, TOOL_NAMES, type Note, t
 // Mon 5 Oct 2026: £1,000, paid £1,800 on the last working day (Fri 30 Oct), rent £400 on the 15th, phone £20 on the 1st,
 // a £200 groceries budget
 const env = (over: Partial<Ctx> = {}, notes: Note[] = [], regulars: ToolEnv["regulars"] = {scan: null, answers: {}}): ToolEnv =>
-  ({ctx: ctx(over), notes, who: "frank", newId: () => "n_new", regulars});
+  ({ctx: ctx(over), notes, who: "frank", newId: () => "n_new", regulars, rules: []});
 const run = (name: string, input: object = {}, e = env()) => runTool(name, input, e);
 // what the accountant gets
 const res = (name: string, input: object = {}, e = env()) => run(name, input, e).result as Record<string, any>;
@@ -21,7 +21,8 @@ const monzo: Bank = {source: "Monzo", accountId: "acc_00009XYZ", main: 1000, asO
 
 test("the same tools as the server offers", () => {
   expect([...TOOL_NAMES]).toEqual(["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
-    "add_bill", "change_bill", "remove_bill", "find_products", "show_products"]);
+    "add_bill", "change_bill", "remove_bill", "find_products", "show_products",
+    "refile_payment", "teach_merchant", "add_category", "rename_category"]);
 });
 
 describe("find_products and show_products: a shop's price reaches your money only through show_products' pick", () => {
@@ -47,6 +48,54 @@ describe("find_products and show_products: a shop's price reaches your money onl
     expect(knownIn([{role: "user", content: [{type: "tool_result", tool_use_id: "t", content: JSON.stringify(r)}]}]).sort()).toEqual([4.99, 4.99, 879, 899].sort());
   });
 
+  test("find_products says which is the cheapest that fits (a flag, no new figure), and that it's the one to pick", () => {
+    const r = found.result as Record<string, any>;
+    expect(r.products.filter((x: any) => x.cheapest).map((x: any) => x.id)).toEqual(["p5"]); // £879, free delivery, beats £899 + £4.99
+    expect(r.do_next).toMatch(/The cheapest that fits is p5 at Argos/);
+    const one = run("find_products", ARGS, {...env(), shopped: {products: [item()]}, firstId: 1, now: NOW_10}).result as Record<string, any>;
+    expect(one.products[0].cheapest).toBeUndefined();
+    expect(one.do_next).not.toMatch(/cheapest/);
+  });
+
+  test("best value: a pick dearer than the card's cheapest needs a reason, and the cheapest is tried against their money too", () => {
+    const bare = run("show_products", {title: "iPhone 17", note: "", ids: ["p4", "p5"], pick: "p4", why: ""}, onCard);
+    expect(bare).toMatchObject({error: true, result: {error: expect.stringMatching(/p5 at Argos is cheaper\. Say in why what makes p4 worth more/)}});
+    const out = run("show_products", {title: "iPhone 17", note: "", ids: ["p4", "p5"], pick: "p4", why: "Apple's own warranty £1"}, onCard), r = out.result as Record<string, any>;
+    expect(out.research?.why).toBe("Apple's own warranty");
+    expect(r.cheapest).toEqual({id: "p5", name: "Apple iPhone 17 256GB Black", shop: "Argos", price: 879, with_delivery: 879, price_is: "listed in search; the shop's page couldn't be checked",
+      what_if: res("what_if", {amount: 879})});
+    expect(r.do_next).toMatch(/You went by p4 for best value over the cheapest, p5 at Argos: say what the extra buys and how much more/);
+    // the cheapest picked: no second run, and he says it's the cheapest
+    const cheapest = run("show_products", {title: "iPhone 17", note: "", ids: ["p4", "p5"], pick: "p5", why: ""}, onCard);
+    expect((cheapest.result as Record<string, any>).cheapest).toBeUndefined();
+    expect(cheapest.research?.why).toBeUndefined();
+    expect((cheapest.result as Record<string, any>).do_next).toMatch(/It's the cheapest on the card that fits/);
+    // nothing to compare: nothing said
+    const alone = run("show_products", {title: "iPhone 17", note: "", ids: ["p4"], pick: "p4"}, onCard).result as Record<string, any>;
+    expect(alone.do_next).not.toMatch(/cheap/);
+  });
+
+  test("best value: when the cheaper one fits their money and the pick doesn't, he's told to go by the cheaper one", () => {
+    const big = new Map([["p1", {...catalogue.get("p4")!, id: "p1", price: 90_000}], ["p2", {...catalogue.get("p5")!, id: "p2", price: 1}]]);
+    const r = run("show_products", {title: "x", note: "", ids: ["p1", "p2"], pick: "p1", why: "Better"}, {...onCard, catalogue: big}).result as Record<string, any>;
+    expect(r.what_if.after_it.still_needed_for_bills_and_everyday).toBeGreaterThan(0);
+    expect(r.do_next).toMatch(/The cheaper one, p2 at Argos, fits their money and this doesn't: go by the cheaper one/);
+  });
+
+  test("with pick, the rest of the card is tried against their money too, so he can say which they can afford", () => {
+    const card = new Map([["p1", {...catalogue.get("p4")!, id: "p1"}], ["p2", {...catalogue.get("p5")!, id: "p2"}],
+      ["p3", {...catalogue.get("p4")!, id: "p3", retailer: "Currys", price: 90_000, delivery: null, confidence: "estimated" as const}], ["p6", catalogue.get("p6")!]]);
+    const r = run("show_products", {title: "x", note: "", ids: ["p1", "p2", "p3", "p6"], pick: "p1", why: "Apple's own"}, {...onCard, catalogue: card}).result as Record<string, any>;
+    // not the pick, not the cheapest (it has its own), not one with no price
+    expect(r.others.map((o: any) => o.id)).toEqual(["p3"]);
+    expect(r.others[0]).toMatchObject({shop: "Currys", price: 90_000, with_delivery: 90_000, price_is: "an estimate, not a shop's current listing", fits: false,
+      after_it: res("what_if", {amount: 90_000}).after_it});
+    expect(r.do_next).toMatch(/others has the rest of the card tried against their money/);
+    // one that fits
+    const ok = run("show_products", {title: "x", note: "", ids: ["p1", "p2", "p3"], pick: "p2"}, {...onCard, catalogue: new Map([...card].map(([k, p]) => [k, k === "p3" ? {...p, price: 5} : p]))}).result as Record<string, any>;
+    expect(ok.others.find((o: any) => o.id === "p3").fits).toBe(true);
+  });
+
   test("find_products that couldn't look, or arguments that make no sense, say so", () => {
     expect(run("find_products", ARGS, {...env(), shopped: {error: "unavailable"}})).toMatchObject({error: true, result: {error: expect.stringMatching(/Couldn't look round the shops/)}});
     expect(run("find_products", ARGS, env()).error).toBe(true);
@@ -56,7 +105,7 @@ describe("find_products and show_products: a shop's price reaches your money onl
   });
 
   test("show_products with pick runs the engine on its price and delivery, the same as what_if and Today's What if, with how sure it is", () => {
-    const out = run("show_products", {title: "iPhone 17", note: "", ids: ["p4", "p5"], pick: "p4"}, onCard), r = out.result as Record<string, any>;
+    const out = run("show_products", {title: "iPhone 17", note: "", ids: ["p4", "p5"], pick: "p4", why: "Apple's own"}, onCard), r = out.result as Record<string, any>;
     expect(out.ran).toBe(true);
     expect(r.what_if).toEqual(res("what_if", {amount: 903.99}));
     expect(r.what_if.in_the_app).toBe(whatIf(ctx(), 903.99)!.line);

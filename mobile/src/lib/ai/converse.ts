@@ -9,6 +9,7 @@
 // server, the tools' view of your money and where notes go are passed in.
 import type Anthropic from "@anthropic-ai/sdk";
 import {idOf, type Proposal} from "../billChange";
+import type {CategoryProposal} from "../types";
 import {blocksOf, hasUnread, unreadIn, type Attachment} from "./attach";
 import {mentionedOf} from "../briefing";
 import {r2} from "../money";
@@ -61,6 +62,8 @@ export interface Answer {
   next?: string[];
   /** Changes to your bills he proposed, each a card for you to say yes to (lib/billChange.ts): the latest for each bill. Only on an answer. */
   proposals?: Proposal[];
+  /** Category changes he proposed, each a card for you to say yes to (lib/categoryChange.ts). Only on an answer. */
+  categoryProposals?: CategoryProposal[];
   /** A briefing (`whole`): the facts he says he mentioned (lib/briefing.ts), and whether he said there was nothing worth saying. */
   mentioned?: string[];
   nothing?: true;
@@ -145,7 +148,7 @@ export async function converse(transcript: Transcript, question: string, deps: D
   ]}];
   // something in the conversation only he could read (a photo, a PDF): a figure from it can't be checked here
   const unread = unreadIn(msgs);
-  const used: ToolName[] = [], cards = new Map<string, Proposal>(), hosts: string[] = [];
+  const used: ToolName[] = [], cards = new Map<string, Proposal>(), catCards: CategoryProposal[] = [], hosts: string[] = [];
   let searched = false, attempted = false, refused = false, research: Research | null = null;
   // this question's last find_products: its card, unless show_products makes another
   let found: Found | null = null;
@@ -233,9 +236,12 @@ export async function converse(transcript: Transcript, question: string, deps: D
         const out = runTool(call.name, call.input, s ? {...env, ...s} : env);
         if (out.effect && "propose" in out.effect) {
           const p = out.effect.propose, key = target(p);
-          if (!cards.has(key) && cards.size >= MAX_CARDS) return result(call, TOO_MANY, true);
+          if (!cards.has(key) && (cards.size + catCards.length) >= MAX_CARDS) return result(call, TOO_MANY, true);
           cards.delete(key);
           cards.set(key, p);
+        } else if (out.effect && "proposeCategory" in out.effect) {
+          if ((cards.size + catCards.length) >= MAX_CARDS) return result(call, TOO_MANY, true);
+          catCards.push(out.effect.proposeCategory);
         } else if (out.effect) deps.apply(out.effect);
         if (!out.error && isTool(call.name)) used.push(call.name);
         if (call.name === "find_products" && !out.error && out.products) {
@@ -289,7 +295,7 @@ export async function converse(transcript: Transcript, question: string, deps: D
     const card = made ?? (lastFound?.products.length ? defaultCard(lastFound.products, lastFound.title, lastFound.partial) : null);
     const estimate = buying() && !card && (attempted || searched) && poundsIn(text).length > 0;
     return {...done(text, undefined, bad), ...sayIt ? {spoken: said.spoken} : {}, ...visual && !bad.length && !card ? {visual} : {}, ...next ? {next} : {},
-      ...cards.size ? {proposals: [...cards.values()]} : {}, ...marks ? {mentioned: marks.mentioned} : {}, ...sources.length ? {sources} : {},
+      ...cards.size ? {proposals: [...cards.values()]} : {}, ...catCards.length ? {categoryProposals: catCards} : {}, ...marks ? {mentioned: marks.mentioned} : {}, ...sources.length ? {sources} : {},
       ...card ? {research: card} : {}, ...estimate ? {estimate: true as const} : {}, ...bad.length && unread ? {readFrom: unread} : {}};
   }
 }

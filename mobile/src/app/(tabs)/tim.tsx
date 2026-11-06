@@ -22,8 +22,11 @@ import {bodyOf, cutoff, fromSaved, titleOf, toSaved, type ChatRow} from "@/lib/c
 import {keyboardCover} from "@/components/Setup";
 import {AnswerFigure} from "@/components/AnswerFigure";
 import {BillCard, type CardStatus} from "@/components/BillCard";
+import {CategoryCard} from "@/components/CategoryCard";
 import {ResearchCard} from "@/components/ResearchCard";
 import {doneLine, leftLine, outcomeLine, proposalView, type Proposal, type ProposalView} from "@/lib/billChange";
+import {catDoneLine, catLeftLine, catOutcomeLine} from "@/lib/categoryChange";
+import type {CategoryProposal} from "@/lib/types";
 import {isNewView, researchView, type OldResearchView, type ResearchView, type Tile} from "@/lib/ai/research";
 import {yesNo} from "@/lib/ai/yesNo";
 import {converse, type Answer, type Deps, type Ended, type Transcript} from "@/lib/ai/converse";
@@ -102,7 +105,8 @@ const PEOPLE: Record<Accountant, {name: string; button: string; fails: Record<Fa
 // for it, so any price in his words is an estimate, and this says so under them.
 // `attached`, on yours: the photos and files you sent with it (a small picture of each photo; the things themselves are in the transcript).
 type Card = {p: Proposal; view: ProposalView; status: CardStatus; note?: string};
-type Said = {id: number; who: Accountant; mine: boolean; text: string; attached?: Shown[]; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; web?: Source[]; research?: ResearchView | OldResearchView; estimate?: string};
+type CatCard = {p: CategoryProposal; status: CardStatus; note?: string};
+type Said = {id: number; who: Accountant; mine: boolean; text: string; attached?: Shown[]; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; catCards?: CatCard[]; web?: Source[]; research?: ResearchView | OldResearchView; estimate?: string};
 const ESTIMATE = "No shop's listing was found for this, so any price here is an estimate.";
 // a chat to keep, from your first question in it
 const newChatId = () => ({id: uid(), made: Date.now()});
@@ -142,6 +146,7 @@ function saidOf(who: Accountant, a: Answer, now: Date): Omit<Said, "id"> {
     ...a.visual ? {visual: a.visual} : {},
     ...a.next ? {next: a.next} : {},
     ...a.proposals && ctx ? {cards: a.proposals.map(p => ({p, view: proposalView(ctx, p), status: "open" as const}))} : {},
+    ...a.categoryProposals?.length ? {catCards: a.categoryProposals.map(p => ({p, status: "open" as const}))} : {},
   };
 }
 // The sites his searches brought back while he works, under what he's doing: a few, then how many more. They fade in once
@@ -163,7 +168,7 @@ function Looked({hosts, color, reduced}: {hosts: string[]; color: string; reduce
 
 // what a toast says once a card's change is made
 const toastOf = (p: Proposal) => p.kind === "add" ? `${p.bill.name} added` : p.kind === "change" ? `${p.after.name} updated` : `${p.bill.name} removed`;
-const waits = (k: Card) => k.status === "open" || k.status === "failed";
+const waits = (k: Card | CatCard) => k.status === "open" || k.status === "failed";
 // The box grows with what you type, up to this many lines, then scrolls inside itself.
 const BOX_LINE = 22, BOX_LINES = 5;
 
@@ -519,6 +524,7 @@ function Tim() {
   const insets = useSafeAreaInsets();
   const who = useMoney(st => st.accountant);
   const {name} = PEOPLE[who];
+  const cats = useMoney(st => st.state?.categories ?? []);
   // his picture for this mode; `blends`: its background is the page's (light, and dark where he has a dark picture)
   const blends = !dark || !!ART[who].dark, art = (dark && ART[who].dark) || ART[who].light, {pic: src, alt} = art;
   // the room around him, when it's chosen in Settings (plain black at first)
@@ -648,8 +654,8 @@ function Tim() {
       send: async m => { const turn = await send(to, m, useMoney.getState().models[to]); clock?.mark(roundOf(++round, turn)); return turn; },
       env: () => {
         const st = useMoney.getState();
-        return {ctx: {state: st.state!, txs: st.txs, today: st.today}, notes: tempRef.current ? [] : st.notes, who: to, newId: () => "n_" + uid(),
-          regulars: {scan: st.scan, answers: st.answers}};
+        return {ctx: {state: st.state!, txs: st.txs, today: st.today, rules: st.merchantRules ?? []}, notes: tempRef.current ? [] : st.notes, who: to, newId: () => "n_" + uid(),
+          regulars: {scan: st.scan, answers: st.answers}, rules: st.merchantRules ?? []};
       },
       apply: effect => { if (!tempRef.current) note(effect, to); },
       doing: doing => { if (current()) setWorking(w => w && {...w, doing}); },
@@ -865,6 +871,8 @@ function Tim() {
   // done, with Undo on the toast; no leaves everything as it was. Either way he's told on your next message.
   const setCard = (id: number, i: number, k: Partial<Card>) =>
     setThread(th => th.map(s => s.id === id && s.cards ? {...s, cards: s.cards.map((x, j) => j === i ? {...x, ...k} : x)} : s));
+  const setCatCard = (id: number, i: number, k: Partial<CatCard>) =>
+    setThread(th => th.map(s => s.id === id && s.catCards ? {...s, catCards: s.catCards.map((x, j) => j === i ? {...x, ...k} : x)} : s));
   const decide = async (s: Said, i: number, yes: boolean) => {
     const by = s.who, card = s.cards![i], st = useMoney.getState(), chat = chats.current[by], still = () => chats.current[by] === chat;
     const ctx = {state: st.state!, txs: st.txs, today: st.today};
@@ -891,8 +899,35 @@ function Tim() {
     const text = doneLine(card.p, by), id = say({who: by, mine: false, text});
     if (useMoney.getState().speaks) voice(by, id, text, still, null);
   };
+  const decideCat = async (s: Said, i: number, yes: boolean) => {
+    const by = s.who, card = s.catCards![i], st = useMoney.getState(), chat = chats.current[by], still = () => chats.current[by] === chat;
+    const cats = st.state?.categories ?? [];
+    if (!yes) {
+      setCatCard(s.id, i, {status: "declined"});
+      outcomes.current[by].push(catOutcomeLine(cats, card.p, "declined"));
+      say({who: by, mine: false, text: catLeftLine(by)});
+      return;
+    }
+    setCatCard(s.id, i, {status: "saving"});
+    const line = catOutcomeLine(cats, card.p, "done");
+    const r = await st.applyCategoryProposal(card.p);
+    if (!still()) return;
+    if ("error" in r) { setCatCard(s.id, i, {status: r.stale ? "stale" : "failed", note: r.error}); return; }
+    setCatCard(s.id, i, {status: "done"});
+    outcomes.current[by].push(line);
+    st.notify(catDoneLine(cats, card.p, by), true, () => {
+      void r.undo();
+      setCatCard(s.id, i, {status: "undone"});
+      outcomes.current[by].push(catOutcomeLine(cats, card.p, "undone"));
+    });
+    const text = catDoneLine(cats, card.p, by), id = say({who: by, mine: false, text});
+    if (useMoney.getState().speaks) voice(by, id, text, still, null);
+  };
   // the cards still waiting for your yes, in this accountant's chat
-  const openCards = (w: Accountant) => thread.filter(s => s.who === w && s.cards).flatMap(s => s.cards!.map((k, i) => ({s, i, k}))).filter(x => waits(x.k));
+  const openCards = (w: Accountant) => [
+    ...thread.filter(s => s.who === w && s.cards).flatMap(s => s.cards!.map((k, i) => ({s, i, k}))).filter(x => waits(x.k)),
+    ...thread.filter(s => s.who === w && s.catCards).flatMap(s => s.catCards!.map((k, i) => ({s, i, k}))).filter(x => waits(x.k)),
+  ];
   // `extra`: what the app tells him with this question only (a product you tapped on his card)
   const go = (text: string, extra: string[] = []) => {
     const to = who, chat = chats.current[to], still = () => chats.current[to] === chat;
@@ -901,9 +936,10 @@ function Tim() {
     const clock = __DEV__ ? stopwatch() : null;
     // a card you answered with words instead: it closes, nothing changed, and he reads what you said
     const st0 = useMoney.getState();
-    for (const {s, i, k} of openCards(to)) {
-      setCard(s.id, i, {status: "unanswered"});
-      if (st0.state) outcomes.current[to].push(outcomeLine({state: st0.state, txs: st0.txs, today: st0.today}, k.p, "unanswered"));
+    const ctx0 = st0.state ? {state: st0.state, txs: st0.txs, today: st0.today} : null;
+    for (const s of thread.filter(x => x.who === to)) {
+      s.cards?.forEach((k, i) => { if (waits(k)) { setCard(s.id, i, {status: "unanswered"}); if (ctx0) outcomes.current[to].push(outcomeLine(ctx0, k.p, "unanswered")); } });
+      s.catCards?.forEach((k, i) => { if (waits(k)) { setCatCard(s.id, i, {status: "unanswered"}); if (ctx0) outcomes.current[to].push(catOutcomeLine(ctx0.state.categories, k.p, "unanswered")); } });
     }
     const context = [...outcomes.current[to].splice(0), ...extra, ...tempRef.current ? [TEMP_CHAT] : []];
     if (!chatId.current[to]) { const n = newChatId(); setChatId(to, n.id); made.current[to] = n.made; }
@@ -938,7 +974,13 @@ function Tim() {
     Keyboard.dismiss(); // sent: the keyboard goes down so his answer has the room
     // a plain yes or no to the one card he's showing is the same as tapping it: no need to ask him (never with a photo or file)
     const open = openCards(who), reply = !tapped && !attach.length && open.length === 1 ? yesNo(text) : "reply";
-    if (reply !== "reply") { say({who, mine: true, text}); void decide(open[0].s, open[0].i, reply === "yes"); return; }
+    if (reply !== "reply") {
+      say({who, mine: true, text});
+      const oc = open[0];
+      if ("view" in oc.k) void decide(oc.s, oc.i, reply === "yes");
+      else void decideCat(oc.s, oc.i, reply === "yes");
+      return;
+    }
     // the first time, he asks before looking at your numbers
     if (!useMoney.getState().aiConsent) { waitingExtra.current = extra; setWaiting(text); }
     else go(text, extra);
@@ -1103,6 +1145,13 @@ function Tim() {
                 <View key={i} style={{marginTop: 8}}>
                   <BillCard view={k.view} status={k.status} note={k.note} color={PEOPLE[s.who].button} box={box} edge={edge} disabled={!!working}
                     onYes={() => { void decide(s, i, true); }} onNo={() => { void decide(s, i, false); }} />
+                </View>
+              ))}
+              {/* a category or filing change he proposed */}
+              {s.catCards?.map((k, i) => (
+                <View key={i} style={{marginTop: 8}}>
+                  <CategoryCard proposal={k.p} cats={cats} status={k.status} note={k.note} color={PEOPLE[s.who].button} box={box} edge={edge} disabled={!!working}
+                    onYes={() => { void decideCat(s, i, true); }} onNo={() => { void decideCat(s, i, false); }} />
                 </View>
               ))}
               {/* the icon row under an answer, as ChatGPT's: here, hear it again */}

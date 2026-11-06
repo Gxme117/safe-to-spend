@@ -1,6 +1,6 @@
 import type {SQLiteDatabase} from "expo-sqlite";
 
-const VERSION = 6;
+const VERSION = 7;
 
 /** Brings the database up to VERSION, one step at a time (pattern from the expo-sqlite docs). */
 export async function migrate(db: SQLiteDatabase) {
@@ -69,6 +69,17 @@ export async function migrate(db: SQLiteDatabase) {
     `);
     v = 6;
   }
-  // if (v === 6) { next migration; v = 7; }
+  if (v === 6) {
+    // Merchant-category rules: a payee name the user taught (normalised) → the category to file it under.
+    // Checked before NAME_HINTS at import time, so corrections stick for future payments.
+    await db.execAsync(`
+      CREATE TABLE merchant_rule (
+        payee   TEXT PRIMARY KEY NOT NULL,
+        cat     TEXT NOT NULL,
+        created INTEGER NOT NULL
+      );
+    `);
+    v = 7;
+  }
   await db.execAsync(`PRAGMA user_version = ${VERSION}`);
 }

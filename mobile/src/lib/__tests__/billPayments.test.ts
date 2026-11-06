@@ -169,7 +169,7 @@ test("a recognised payment comes off what's held back, isn't today's spending, a
   const item = livingItems(now.c, now.k).find(x => x.ref === "energy")!;
   expect(item.paid).toBe(true);
   expect(livingAction(now.c, now.k, item)).toBeNull();
-  const up = runTool("upcoming", {to: null}, {ctx: now.c, notes: [], who: "frank", newId: () => "x", regulars: {scan: null, answers: {}}}).result as {bills: {name: string; paid: boolean}[]; held_back_now_for_bills: number};
+  const up = runTool("upcoming", {to: null}, {ctx: now.c, notes: [], who: "frank", newId: () => "x", regulars: {scan: null, answers: {}}, rules: []}).result as {bills: {name: string; paid: boolean}[]; held_back_now_for_bills: number};
   expect(up.bills.find(b => b.name === "Octopus Energy")?.paid).toBe(true);
   expect(up.held_back_now_for_bills).toBe(0);
 });

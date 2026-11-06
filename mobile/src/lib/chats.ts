@@ -12,7 +12,7 @@ export type ChatRow = {id: string; who: Who; title: string; created: number; upd
 export type Chat<S = unknown, T = unknown> = ChatRow & {said: S[]; transcript: T};
 
 /** The least of what's on screen these rules need to know about. */
-type Saidish = {id: number; mine: boolean; text: string; voiced?: unknown; cards?: {status: string}[]};
+type Saidish = {id: number; mine: boolean; text: string; voiced?: unknown; cards?: {status: string}[]; catCards?: {status: string}[]};
 
 /** The chat's name: your first question, on one line, cut at a word if it's long. A photo or file sent with no words: what it was. */
 export function titleOf(question: string, max = 80, attached: readonly {kind: string; name: string}[] = []): string {
@@ -35,8 +35,11 @@ export const cutoff = (now: number) => now - KEEP_DAYS * DAY;
 /** What's kept of what's on screen. His voice isn't (its recording is only in the phone's cache), and a card still waiting
  *  for your answer is closed as "Not answered", so an old proposal can never be tapped through. */
 export function toSaved<S extends Saidish>(said: S[]): S[] {
+  const closeOpen = (k: {status: string}) => k.status === "open" || k.status === "saving" ? {...k, status: "unanswered"} : k;
   return said.map(({voiced: _voiced, ...s}) => ({
-    ...s, ...(s.cards ? {cards: s.cards.map(k => k.status === "open" || k.status === "saving" ? {...k, status: "unanswered"} : k)} : {}),
+    ...s,
+    ...(s.cards ? {cards: s.cards.map(closeOpen)} : {}),
+    ...(s.catCards ? {catCards: s.catCards.map(closeOpen)} : {}),
   }) as S);
 }
 

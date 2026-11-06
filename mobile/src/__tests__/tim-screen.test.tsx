@@ -3,14 +3,14 @@ import {openBrowserAsync} from "expo-web-browser";
 import {Alert, Dimensions, StyleSheet} from "react-native";
 import {SafeAreaProvider} from "react-native-safe-area-context";
 import TimScreen from "@/app/(tabs)/tim";
-import {baseState, TODAY, tx} from "@/lib/__tests__/fixtures";
+import {baseState, ctx as makeCtx, TODAY, tx} from "@/lib/__tests__/fixtures";
 import {NO_BRIEFS} from "@/lib/briefing";
 import {whatIf} from "@/lib/today";
 import {ON_TWOS} from "@/lib/timEyes";
 import {frankFrames, introFrames, linesOf, speechMs, TIM_OPENING, timFrames, untagged} from "@/lib/timSpeech";
 import {AccountantFail, say, send, shop} from "@/services/accountant";
 import {ResearchCard} from "@/components/ResearchCard";
-import type {OldResearchView, Product} from "@/lib/ai/research";
+import {researchView, type OldResearchView, type Product} from "@/lib/ai/research";
 import {useMoney} from "@/store/useMoney";
 
 // a dev build, not Expo Go, so the native modules the shims look for (the keyboard, the microphone) are there
@@ -384,6 +384,7 @@ describe("what he found on the web", () => {
       expect(screen.queryByText(whatIf({state: st.state!, txs: st.txs, today: st.today}, 449.95)!.line)).toBeNull();
       expect(screen.queryByText("If you bought it today")).toBeNull();
       expect(screen.getByLabelText("Going by: Bose QuietComfort Ultra Headphones, £449.95, at John Lewis · On the shop's page")).toBeOnTheScreen();
+      expect(screen.getByLabelText(/^Bose QuietComfort Ultra Headphones at John Lewis, £449\.95.*the one he went by$/)).toBeOnTheScreen();
     });
 
     test("a product with no price found isn't one to tap; nor is any while he's working", async () => {
@@ -426,6 +427,23 @@ describe("what he found on the web", () => {
       expect(await screen.findByText("Looking round the shops…")).toBeOnTheScreen();
       await act(async () => { found(SHOPPED); });
       expect(await screen.findByTestId("looked", {includeHiddenElements: true})).toHaveTextContent("argos.co.uk · johnlewis.com · very.co.uk +2");
+    });
+
+    test("best value: the pick dearer than the cheapest says so over its price, with why and how much more, and its tile is tagged", async () => {
+      const p = (id: string, retailer: string, price: number): Product => ({id, name: "Samsung Q60D 65 inch QLED TV", brand: "Samsung", model: "Q60D", group: id, retailer,
+        host: "x.co.uk", url: `https://x.co.uk/${id}`, price, confidence: "search_listed", priceSource: `https://x.co.uk/${id}`, image: null, condition: "new", delivery: null, checked: new Date().toISOString()});
+      const view = researchView(makeCtx({state: baseState()}), {v: 2, title: "Samsung 65-inch QLED TV", products: [p("p7", "Appliances Direct", 460), p("p1", "Currys", 391.97)],
+        pick: "p7", why: "Newer 2024 model; the cheaper one is an older Frame"}, new Date());
+      await render(<ResearchCard view={view} box="#fff" edge="#eee" onOpen={() => {}} />);
+      expect(screen.getAllByText("Best value")).toHaveLength(2); // over the headline price, and the tile's tag
+      expect(screen.getAllByText("£460.00")).toHaveLength(1); // the headline only: the tile says "Going by"
+      expect(screen.getByText("Going by")).toBeOnTheScreen();
+      expect(screen.getByLabelText(/^Samsung Q60D 65 inch QLED TV at Appliances Direct.*the one he went by$/)).toBeOnTheScreen();
+      expect(screen.getByTestId("best-why")).toHaveTextContent("Newer 2024 model; the cheaper one is an older Frame");
+      expect(screen.getByTestId("best-more")).toHaveTextContent("£68.03 more than the cheapest, at Currys");
+      expect(screen.getByTestId("value-p7")).toBeOnTheScreen();
+      expect(screen.queryByTestId("value-p1")).toBeNull();
+      expect(screen.getByTestId("lowest-p1")).toBeOnTheScreen();
     });
 
     test("a card kept from before is drawn as it was: one product, each shop a tile that opens its page", async () => {

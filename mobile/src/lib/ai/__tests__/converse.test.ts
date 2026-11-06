@@ -19,7 +19,7 @@ function server(...turns: Turn[]) {
   const sent: Transcript[] = [], effects: ToolEffect[] = [], doing: string[] = [];
   const deps: Deps = {
     send: jest.fn(async (m: Transcript) => { sent.push(JSON.parse(JSON.stringify(m))); const t = turns.shift(); if (!t) throw new Error("no more turns"); return t; }),
-    env: () => ({ctx: x, notes: [tv], who: "frank", newId: () => "n_new", regulars: {scan: null, answers: {}}}),
+    env: () => ({ctx: x, notes: [tv], who: "frank", newId: () => "n_new", regulars: {scan: null, answers: {}}, rules: []}),
     apply: e => { effects.push(e); },
     doing: d => { doing.push(d); },
   };

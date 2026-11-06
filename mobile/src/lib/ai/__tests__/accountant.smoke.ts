@@ -81,7 +81,7 @@ test("real answers: each one ends in an answer, every figure checked", async () 
     let round = 0;
     const a = await converse(more ? transcript : [], q, {
       send: async m => { const turn = await send(who, m); clock.mark(roundOf(++round, turn)); return turn; },
-      env: () => ({ctx: money, notes, who, newId: () => `n_${notes.length + 1}`, regulars: {scan, answers: {}}}), apply,
+      env: () => ({ctx: money, notes, who, newId: () => `n_${notes.length + 1}`, regulars: {scan, answers: {}}, rules: []}), apply,
     }, new Date(2026, 9, 5, 12, 0));
     transcript = a.transcript;
     console.log([`${who.toUpperCase()}: ${q}`, a.text, `tools: ${a.used.join(", ") || "none"}`, `times: ${clock.line()}`,
@@ -120,7 +120,7 @@ test("the web: he searches for what's out in the world, cites it, and leaves you
         clock.mark(roundOf(++round, turn));
         return turn;
       },
-      env: () => ({ctx: money, notes: [], who, newId: () => "n_web", regulars: {scan, answers: {}}}), apply: () => {},
+      env: () => ({ctx: money, notes: [], who, newId: () => "n_web", regulars: {scan, answers: {}}, rules: []}), apply: () => {},
     }, new Date(2026, 9, 5, 12, 0));
     transcript = a.transcript;
     flagged += a.unchecked.length;
@@ -191,7 +191,7 @@ async function buy(who: Who, q: string, transcript: Transcript = [], context: st
       return got;
     },
     // the fixtures' date for your money, the real one for how old a price is
-    env: () => ({ctx: money, notes: [], who, newId: () => "n_buy", regulars: {scan, answers: {}}, now: new Date()}), apply: () => {},
+    env: () => ({ctx: money, notes: [], who, newId: () => "n_buy", regulars: {scan, answers: {}}, rules: [], now: new Date()}), apply: () => {},
   }, new Date(2026, 9, 5, 12, 0), context);
   return {a, ms: Date.now() - started, dollars: dollars + brave * PRICE.brave, brave, rounds, clock: clock.line(), shopMs};
 }
@@ -284,7 +284,7 @@ test("an app from before the card never gets its tags or its tools", async () =>
   }) as typeof fetch;
   try {
     const a = await converse([], "Can I afford a new iPhone?", {
-      send: m => send("frank", m), env: () => ({ctx: money, notes: [], who: "frank", newId: () => "n_old", regulars: {scan, answers: {}}}), apply: () => {},
+      send: m => send("frank", m), env: () => ({ctx: money, notes: [], who: "frank", newId: () => "n_old", regulars: {scan, answers: {}}, rules: []}), apply: () => {},
     }, new Date(2026, 9, 5, 12, 0));
     console.log(["OLD APP, FRANK: Can I afford a new iPhone?", a.text, `tools: ${a.used.join(", ")}`, `searched: ${!!a.searched}`].join("\n"));
     expect(a.ended).toBeUndefined();
@@ -315,7 +315,7 @@ function receiptPdf(): string {
 
 describe("+ card", () => {
   const ask = (who: Who, q: string, model: ModelKey, attach?: Attachment[]) => converse([], q, {
-    send: m => send(who, m, model), env: () => ({ctx: money, notes: [], who, newId: () => "n_plus", regulars: {scan, answers: {}}}), apply: () => {},
+    send: m => send(who, m, model), env: () => ({ctx: money, notes: [], who, newId: () => "n_plus", regulars: {scan, answers: {}}, rules: []}), apply: () => {},
   }, new Date(2026, 9, 5, 12, 0), [], attach ? {attach} : {});
 
   for (const {key} of MODEL_CHOICES) {

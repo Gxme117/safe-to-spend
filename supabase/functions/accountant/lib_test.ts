@@ -155,7 +155,7 @@ Deno.test("find_products and show_products: strict, every field required, closed
     eq(/"(minimum|maximum|minLength|maxLength|minItems|maxItems|anyOf)"/.test(JSON.stringify(s)), false);
   }
   eq(Object.keys((FIND_PRODUCTS.input_schema as {properties: object}).properties), ["queries", "match", "exclude", "max_price"]);
-  eq(Object.keys((SHOW_PRODUCTS.input_schema as {properties: object}).properties), ["title", "note", "ids", "pick"]);
+  eq(Object.keys((SHOW_PRODUCTS.input_schema as {properties: object}).properties), ["title", "note", "ids", "pick", "why"]);
 });
 
 Deno.test("a shop's page: Anthropic's own tool, called directly, a few a request, only from search results or a link you paste", () => {
@@ -199,11 +199,12 @@ Deno.test("the strict tools stay within Claude's limits, or every question comes
   eq(most.length <= 16, true);
 });
 
-Deno.test("the tools: the ones the phone runs, strict but for change_bill, every field required, objects closed", () => {
+Deno.test("the tools: the ones the phone runs, strict but for change_bill and the 4 category tools, every field required, objects closed", () => {
   eq(TOOLS.map(t => t.name), ["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
-    "add_bill", "change_bill", "remove_bill"]);
+    "add_bill", "change_bill", "remove_bill", "refile_payment", "teach_merchant", "add_category", "rename_category"]);
+  const NON_STRICT = new Set(["change_bill", "refile_payment", "teach_merchant", "add_category", "rename_category"]);
   for (const t of TOOLS) {
-    eq(t.strict, t.name === "change_bill" ? undefined : true);
+    eq(t.strict, NON_STRICT.has(t.name) ? undefined : true);
     const s = t.input_schema as {additionalProperties?: boolean; properties?: Record<string, unknown>; required?: string[]};
     eq(s.additionalProperties, false);
     eq([...(s.required ?? [])].sort(), Object.keys(s.properties ?? {}).sort());

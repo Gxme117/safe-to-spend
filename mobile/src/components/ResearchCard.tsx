@@ -1,12 +1,12 @@
-// Something to buy that Tim or Frank looked up (lib/ai/research.ts), as a card leading his answer: what it is and what he
-// assumed, the one he tried against your money with what buying it today would do (in the engine's own words, as Today's "What
-// if I spend…" says them), and the products as tiles to swipe through: each its photo, name, shop, price and how sure that price
-// is (on the shop's page, listed in search, or an estimate; an icon and words, never colour alone), condition and delivery. Tap a
+// Something to buy that Tim or Frank looked up (lib/ai/research.ts), as a card leading his answer: what it is, and the products
+// as tiles to swipe through, the one he tried against your money saying "Going by" in its price's place (his words say what buying it would do): each its photo,
+// model and size, shop, price and how sure that price is (on the shop's page, listed in search, or an estimate; an icon and words,
+// never colour alone). Best value adds what the extra buys and how much more it is, which is nowhere else. Tap a
 // tile to ask whether it fits your money; the small arrow opens the shop's page. Prices aren't money that's yours, so no accent.
 // A card from before (one product at a few shops, kept in a saved chat) is drawn as it was (OldResearchCard).
 import {useEffect, useState} from "react";
 import {Image, Pressable, ScrollView, StyleSheet, Text, View} from "react-native";
-import {isNewView, photoQuery, type OfferRow, type OldResearchView, type ResearchView, type Tile} from "@/lib/ai/research";
+import {isNewView, nameParts, photoQuery, type OfferRow, type OldResearchView, type ResearchView, type Tile} from "@/lib/ai/research";
 import {photo} from "@/services/accountant";
 import {hanken, s} from "@/theme/tokens";
 import {useTheme} from "@/theme/useTheme";
@@ -29,30 +29,35 @@ function ProductsCard({view, box, edge, onOpen, onSelect, disabled}: Props & {vi
   const tile = row ? Math.round((row - s[4] - 2 * s[3]) / 2.5) : TILE;
   const body = {fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.ink};
   const quiet = {fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted};
-  const best = view.best;
+  const best = view.best, bestName = best ? nameParts(best.name) : null;
   const canPick = !!onSelect && !disabled;
   return (
     <View testID="research-card" style={{alignSelf: "stretch", padding: s[4], gap: s[4], borderRadius: 20, borderWidth: 1, borderColor: edge, backgroundColor: box}}>
-      {/* only what draws the eye: the title, his price, the photos and prices, what it'd do today. What he assumed is in
-          his words under the card; the shop and how sure each price is are read out (each tile's label) and shown as an icon */}
+      {/* the title, his price for the one he went by (the headline), then the tiles. The price is said once: here, not on that tile,
+          which says "Going by" in its price's place. Best value adds what the extra buys and costs */}
       <Text accessibilityRole="header" style={{fontFamily: hanken.semibold, fontSize: 17, lineHeight: 22, color: c.ink}}>{view.title}</Text>
-      {best ? (
-        <View accessible accessibilityLabel={`${best.label}: ${best.name}, ${best.price}, ${best.by}`}>
+      {best && bestName ? (
+        <View accessible accessibilityLabel={[`${best.label}: ${best.name}, ${best.price}, ${best.by}`, best.why, best.more].filter(Boolean).join(". ")}>
+          {best.value ? <Text style={{...quiet, fontFamily: hanken.semibold, color: c.ink}}>{best.label}</Text> : null}
           <Text style={{fontFamily: hanken.bold, fontSize: 34, lineHeight: 40, letterSpacing: -1, color: c.ink, fontVariant: ["tabular-nums"]}}
             adjustsFontSizeToFit numberOfLines={1}>{best.price}</Text>
-          <Text style={quiet} numberOfLines={1}>{best.name}</Text>
+          <Text style={{...quiet, color: c.ink}} numberOfLines={1}>{bestName.title}</Text>
+          {bestName.specs ? <Text style={quiet} numberOfLines={1}>{bestName.specs}</Text> : null}
+          <Text style={quiet} numberOfLines={1}>{best.by}</Text>
+          {best.why ? <Text testID="best-why" style={{...body, marginTop: s[2]}} numberOfLines={2}>{best.why}</Text> : null}
+          {best.more ? <Text testID="best-more" style={quiet} numberOfLines={1}>{best.more}</Text> : null}
         </View>
       ) : null}
-      {/* each product a tile, running to the card's edges, all alike (the one he went by is named above) */}
+      {/* each product a tile, running to the card's edges, all alike (the one he went by says "Going by" in its price's place) */}
       {/* sized so two tiles and half the next show, so it reads as something to swipe; it settles a tile at a time */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginHorizontal: -s[4]}} contentContainerStyle={{paddingHorizontal: s[4], gap: s[3]}}
         onLayout={e => setRow(e.nativeEvent.layout.width)} snapToInterval={tile + s[3]} decelerationRate="fast">
         {view.tiles.map(t => {
-          const uri = t.image && !broken.includes(t.image) ? t.image : null, selectable = canPick && t.selectable;
+          const uri = t.image && !broken.includes(t.image) ? t.image : null, selectable = canPick && t.selectable, named = nameParts(t.name);
           return (
             // the tile asks him about it (the help is here, so it's the big target); the arrow in its corner opens the shop's page
             <Pressable key={t.id} testID={`tile-${t.id}`} onPress={selectable ? () => onSelect!(t) : undefined} disabled={!selectable}
-              accessibilityRole={selectable ? "button" : undefined} accessibilityLabel={t.label} accessibilityHint={selectable ? "Asks whether it fits your money" : undefined}
+              accessibilityRole={selectable ? "button" : undefined} accessibilityLabel={t.pick ? `${t.label}, the one he went by` : t.label}accessibilityHint={selectable ? "Asks whether it fits your money" : undefined}
               accessibilityActions={[{name: "open", label: `Open ${t.retailer}'s page`}]} onAccessibilityAction={e => { if (e.nativeEvent.actionName === "open") onOpen(t.url); }}
               style={{width: tile, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: edge}}>
               {/* white, as shops show their photos; with none, the shop's letter, small, on a soft colour */}
@@ -65,19 +70,32 @@ function ProductsCard({view, box, edge, onOpen, onSelect, disabled}: Props & {vi
                     <Text style={{fontFamily: hanken.heavy, fontSize: 15, lineHeight: 18, color: c.incoming}}>£</Text>
                   </View>
                 ) : null}
+                {/* the one he went by for best value: a small tag along the photo's foot */}
+                {t.value ? (
+                  <View testID={`value-${t.id}`} style={{position: "absolute", bottom: s[1], left: s[1], paddingHorizontal: s[2], height: 22, borderRadius: 11, justifyContent: "center", backgroundColor: "#000000"}}>
+                    <Text style={{fontFamily: hanken.semibold, fontSize: 12, lineHeight: 16, color: "#FFFFFF"}}>Best value</Text>
+                  </View>
+                ) : null}
                 {/* the shop's page: an arrow out of the app, small, since the help is here */}
                 <Pressable testID={`open-${t.id}`} onPress={() => onOpen(t.url)} hitSlop={10} accessibilityRole="link" accessibilityLabel={`Open ${t.retailer}'s page for ${t.name}`}
                   style={{position: "absolute", top: s[1], right: s[1], width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: box, borderWidth: StyleSheet.hairlineWidth, borderColor: edge}}>
                   <Icon name="out" color={c.ink} size={14} />
                 </Pressable>
               </View>
-              {/* the price first, a small icon for how sure it is (an estimate already says "About"), then the name */}
+              {/* the price first, a small icon for how sure it is (an estimate already says "About"), then its model and size, and
+                  the rest of the shop's listing muted under it */}
               <View style={{padding: s[3], gap: 2}}>
                 <View style={{flexDirection: "row", alignItems: "center", gap: s[1]}}>
-                  <Text style={{...body, fontFamily: hanken.semibold, fontVariant: ["tabular-nums"], flexShrink: 1, color: t.selectable ? c.ink : c.muted}} adjustsFontSizeToFit numberOfLines={1}>{t.price}</Text>
+                  {/* the one he went by has its price in the headline above: here it says so instead */}
+                  <Text style={{...body, fontFamily: hanken.semibold, fontVariant: ["tabular-nums"], flexShrink: 1, color: t.selectable ? c.ink : c.muted}} adjustsFontSizeToFit numberOfLines={1}>{t.pick ? "Going by" : t.price}</Text>
+                </View>
+                {/* whose price it is, so the same price at two shops doesn't read as the same tile twice */}
+                <View testID={`shop-${t.id}`} style={{flexDirection: "row", alignItems: "center", gap: s[1]}}>
+                  <Text style={{...quiet, flexShrink: 1}} numberOfLines={1}>{t.retailer}</Text>
                   {t.sureIcon === "check" || t.sureIcon === "search" ? <Icon name={t.sureIcon} color={c.muted} size={12} /> : null}
                 </View>
-                <Text style={quiet} numberOfLines={2}>{t.name}</Text>
+                {/* its model and size only: the rest of the shop's listing mostly says what the title already does */}
+                <Text style={{...quiet, color: c.ink}} numberOfLines={2}>{named.title}</Text>
               </View>
             </Pressable>
           );

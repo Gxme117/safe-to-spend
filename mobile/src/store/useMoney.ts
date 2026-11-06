@@ -2,6 +2,7 @@ import Storage from "expo-sqlite/kv-store";
 import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
 import {backfill, deleteAllTx, deleteTx, fileBills, insertMany, insertTx, listSince, updateFiling} from "@/db/transactions";
+import {getMerchantRules, removeMerchantRule, setMerchantRule} from "@/db/merchantRules";
 import type {Note, Who} from "@/lib/ai/tools";
 import {cardTapOf} from "@/lib/cardTap";
 import {withCatalog} from "@/lib/categories";
@@ -14,11 +15,12 @@ import {r2} from "@/lib/money";
 import type {FilingPatch} from "@/lib/payments";
 import {type Answers, type Scan, scanOf, type Verdict} from "@/lib/regulars";
 import {billOf, filed, filingsFor, idOf, type Proposal, stale} from "@/lib/billChange";
+import {staleCat} from "@/lib/categoryChange";
 import {type BriefLog, NO_BRIEFS} from "@/lib/briefing";
 import {keyOf} from "@/lib/found";
 import {toBank, toRawTx, withLink, withoutLink} from "@/lib/truelayer";
 import {DEFAULT_MODEL, type ModelKey} from "@/lib/ai/models";
-import type {AppState, Bill, Category, Income, IsoDate, PotRole, Tx} from "@/lib/types";
+import type {AppState, Bill, Category, CategoryProposal, Income, IsoDate, MerchantRule, PotRole, Tx} from "@/lib/types";
 import {disconnect, fetchBank, fetchHistory, loggedIn, MonzoFail, type MonzoError} from "@/services/monzo";
 import {showCardTap} from "@/services/island";
 import {fetchLink, fetchLinkHistory, linkBank, unlink} from "@/services/truelayer";
@@ -55,6 +57,7 @@ interface MoneyStore {
   aiConsent: boolean;        // you've agreed to Tim and Frank looking at your numbers (what leaves the phone, in ConsentSheet)
   speaks: boolean;            // Tim and Frank say a line of each answer out loud (off: their voices are never asked for)
   notes: Note[];             // what you've told them that will still matter next time; kept through Start over
+  merchantRules: MerchantRule[];  // payee→category rules, loaded from SQLite and refreshed after each change
   scan: Scan | null;          // the bank's last 90 days, looked through for regular payments once a day (lib/regulars.ts)
   answers: Answers;           // what you've said about the regular payments it found; kept through Start over
   briefLog: BriefLog;         // what Frank's briefings have said, and when (lib/briefing.ts); Start over clears it
@@ -114,6 +117,8 @@ interface MoneyStore {
    * `stale`: the bill changed since the card was made, so nothing was done.
    */
   applyProposal(p: Proposal): Promise<{undo: () => Promise<void>} | {error: string; stale?: true}>;
+  /** Makes a category change that Frank or Tim proposed — refile, merchant rule, add, or rename — once you've tapped yes. */
+  applyCategoryProposal(p: CategoryProposal): Promise<{undo: () => Promise<void>} | {error: string; stale?: true}>;
   /** What you said about a regular payment it found; returns an undo. */
   answerRegular(key: string, verdict: Verdict, name: string): () => void;
   /** Link a bank through TrueLayer and read it once. null: you closed the login. */
@@ -159,7 +164,8 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   const saveNew = async (raw: RawTx[], now: number): Promise<Tx[] | null> => {
     const s = get().state;
     if (!s) return null;
-    try { return await insertMany(importTxs({state: s, txs: get().txs, today: today()}, raw, now, uid)); } catch { return null; }
+    const rules = await getMerchantRules().catch(() => []);
+    try { return await insertMany(importTxs({state: s, txs: get().txs, today: today(), rules}, raw, now, uid)); } catch { return null; }
   };
   // payments from the bank saved before they were recognised get filed against the bills they paid, and ones you logged for those
   // bills are replaced by the bank's. Saved first: if that fails everything stays as it was, and the next sync tries again
@@ -217,11 +223,14 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", livingView: "pit", accountant: "tim", models: {tim: DEFAULT_MODEL, frank: DEFAULT_MODEL}, aiConsent: false, speaks: true, notes: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", livingView: "pit", accountant: "tim", models: {tim: DEFAULT_MODEL, frank: DEFAULT_MODEL}, aiConsent: false, speaks: true, notes: [], merchantRules: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, setupBank: null, setupFound: null,
 
     async load() {
-      const txs = await listSince(addMonths(today().slice(0, 7), -11) + "-01");
-      set({txs, loaded: true, today: today()});
+      const [txs, merchantRules] = await Promise.all([
+        listSince(addMonths(today().slice(0, 7), -11) + "-01"),
+        getMerchantRules().catch(() => [] as MerchantRule[]),
+      ]);
+      set({txs, merchantRules, loaded: true, today: today()});
     },
     tick() { const t = today(); if (t !== get().today) set({today: t}); },
     notify(msg, good = false, undo) { set({toast: {id: Date.now(), msg, good, ...(undo ? {undo} : {})}}); },
@@ -382,6 +391,50 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         undoAnswer?.();
         try { await unfile(); } catch { st.notify(SAVE_FAILED); }
       }};
+    },
+    async applyCategoryProposal(p) {
+      const s = get().state;
+      if (!s) return {error: "The app isn't set up yet."};
+      const c = {state: s, txs: get().txs, today: today()};
+      const why = staleCat(s.categories, c.txs, p);
+      if (why) return {error: why, stale: true};
+
+      if (p.kind === "refile") {
+        // read the transaction before touching it so the undo can restore every filing field,
+        // and so we don't accidentally clear refundOf / forDate / srcId (refileTx deletes absent fields)
+        const tx = get().txs.find(t => t.id === p.txId);
+        if (!tx) return {error: "That payment's gone."};
+        const preserve = {refundOf: tx.refundOf, forDate: tx.forDate, srcId: tx.srcId};
+        const ok = await get().refileTx(p.txId, {cat: p.toCat, ...preserve});
+        if (!ok) return {error: SAVE_FAILED};
+        return {undo: async () => { await get().refileTx(p.txId, {cat: p.fromCat, ...preserve}); }};
+      }
+
+      if (p.kind === "merchant_rule") {
+        try { await setMerchantRule(p.payee, p.cat); } catch { return {error: SAVE_FAILED}; }
+        const refreshRules = () => getMerchantRules().then(merchantRules => set({merchantRules})).catch(() => {});
+        void refreshRules();
+        return {undo: async () => { await removeMerchantRule(p.payee).catch(() => {}); void refreshRules(); }};
+      }
+
+      if (p.kind === "add_cat") {
+        const newCat = {id: uid(), name: p.name, budget: 0, fixed: false, group: "everyday" as const};
+        get().saveCategories([...s.categories, newCat]);
+        const rollback = () => {
+          const cur = get().state;
+          if (cur) get().saveCategories(cur.categories.filter(x => x.id !== newCat.id));
+        };
+        return {undo: async () => rollback()};
+      }
+
+      // rename_cat
+      const updated = s.categories.map(x => x.id === p.id ? {...x, name: p.newName} : x);
+      get().saveCategories(updated);
+      const rollback = () => {
+        const cur = get().state;
+        if (cur) get().saveCategories(cur.categories.map(x => x.id === p.id ? {...x, name: p.oldName} : x));
+      };
+      return {undo: async () => rollback()};
     },
     answerRegular(key, verdict, name) {
       const was = get().answers[key];
