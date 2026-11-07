@@ -67,7 +67,11 @@
   "jest": {
     "preset": "jest-expo",
     "testMatch": [
-      "**/*.test.ts?(x)"
+      "**/*.test.ts?(x)",
+      "**/*.bench.ts"
+    ],
+    "setupFilesAfterEnv": [
+      "<rootDir>/jest.setup.bench.js"
     ],
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/src/$1"

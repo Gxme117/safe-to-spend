@@ -14,7 +14,8 @@ import {blocksOf, hasUnread, unreadIn, type Attachment} from "./attach";
 import {mentionedOf} from "../briefing";
 import {r2} from "../money";
 import {checkNote, isKnown, knownIn, poundsIn, unchecked, unknownIn, webFigures, withoutWeb} from "./check";
-import {appContext, DOING, isTool, runTool, shopArgs, type ToolEffect, type ToolEnv, type ToolName} from "./tools";
+import {appContext, DOING, isTool, runTool, shopArgs, type BuildOrgResult, type ToolEffect, type ToolEnv, type ToolName} from "./tools";
+import type {OrgProposal, PendingOrg} from "../orgProposal";
 import {nextOf} from "./next";
 import {callsOf, catalogueIn, CHECKING_IT, defaultCard, nextIdIn, notSubscription, PRICES_DOING, pricesLikely, SHOPPING, titleOf, totalOf, type Product, type Research,
   type ShopArgs, type Shopped} from "./research";
@@ -44,6 +45,10 @@ export interface Deps {
   looked?(hosts: string[]): void;
   /** Looks round the shops for find_products (the accountant function's /shop). Without it, find_products says it can't. */
   shop?(args: ShopArgs): Promise<Shopped>;
+  /** Runs bulk payment classification for preview_organisation. Without it, the tool says it can't. */
+  buildOrganisation?(): Promise<BuildOrgResult | null | string>;
+  /** Stores the pending org apply closure, so the OrgCard's confirm button can call it. */
+  setPendingOrg?(p: PendingOrg): void;
 }
 
 /** How a question ended when it didn't end in an answer: declined, cut off, or still looking things up after every round. */
@@ -78,6 +83,8 @@ export interface Answer {
   estimate?: true;
   /** Figures in `unchecked` with a photo or PDF in the conversation: most likely read off it, so they're said to be (lib/ai/attach.ts). */
   readFrom?: "photo" | "file";
+  /** An organisation preview he showed, as a card for you to confirm (lib/orgProposal.ts). */
+  orgProposal?: OrgProposal;
 }
 /** `whole`: a briefing, said in full. What's shown is what he says, audio tags taken out; he marks the facts he mentioned.
  *  `attach`: photos and files you added to this question (lib/ai/attach.ts), before your words. */
@@ -149,7 +156,7 @@ export async function converse(transcript: Transcript, question: string, deps: D
   // something in the conversation only he could read (a photo, a PDF): a figure from it can't be checked here
   const unread = unreadIn(msgs);
   const used: ToolName[] = [], cards = new Map<string, Proposal>(), catCards: CategoryProposal[] = [], hosts: string[] = [];
-  let searched = false, attempted = false, refused = false, research: Research | null = null;
+  let searched = false, attempted = false, refused = false, research: Research | null = null, orgProposal: OrgProposal | undefined;
   // this question's last find_products: its card, unless show_products makes another
   let found: Found | null = null;
   const done = (text: string, ended?: Ended, bad: string[] = []): Answer => ({transcript: msgs, text, used, unchecked: bad, ...ended ? {ended} : {}, ...searched ? {searched: true as const} : {}});
@@ -219,8 +226,12 @@ export async function converse(transcript: Transcript, question: string, deps: D
         }
       }
       if (first && !finding.length) deps.doing?.((searched || attempted) && TRYING.includes(first.name as ToolName) ? CHECKING_IT : DOING[first.name as ToolName]);
-      const env: ToolEnv = {now, ...deps.env(), catalogue: catalogueIn(msgs)};
-      const run = (call: ToolUse): BlockParam => {
+      const ops = deps.buildOrganisation ? {
+        buildOrganisation: deps.buildOrganisation,
+        setPendingOrg: deps.setPendingOrg ?? (() => {}),
+      } : undefined;
+      const env: ToolEnv = {now, ...deps.env(), catalogue: catalogueIn(msgs), ...ops ? {ops} : {}};
+      const run = async (call: ToolUse): Promise<BlockParam> => {
         const input = (call.input ?? {}) as {amount?: unknown; expression?: unknown};
         // show_products needs find_products' ids, which come with its results
         if (call.name === "show_products" && finding.length) return result(call, SHOP_WAIT, true);
@@ -233,7 +244,7 @@ export async function converse(transcript: Transcript, question: string, deps: D
         if (call.name === "calculate" && buying() && typeof input.expression === "string" && unknownIn(input.expression, [...known(), ...prices(), ...picked]).length) return result(call, SUM_NOT_BACKED, true);
         const s = shopped.get(call.id);
         if (s && "refused" in s) return result(call, s.refused, true);
-        const out = runTool(call.name, call.input, s ? {...env, ...s} : env);
+        const out = await runTool(call.name, call.input, s ? {...env, ...s} : env);
         if (out.effect && "propose" in out.effect) {
           const p = out.effect.propose, key = target(p);
           if (!cards.has(key) && (cards.size + catCards.length) >= MAX_CARDS) return result(call, TOO_MANY, true);
@@ -242,6 +253,8 @@ export async function converse(transcript: Transcript, question: string, deps: D
         } else if (out.effect && "proposeCategory" in out.effect) {
           if ((cards.size + catCards.length) >= MAX_CARDS) return result(call, TOO_MANY, true);
           catCards.push(out.effect.proposeCategory);
+        } else if (out.effect && "proposeOrg" in out.effect) {
+          orgProposal = out.effect.proposeOrg;
         } else if (out.effect) deps.apply(out.effect);
         if (!out.error && isTool(call.name)) used.push(call.name);
         if (call.name === "find_products" && !out.error && out.products) {
@@ -258,7 +271,10 @@ export async function converse(transcript: Transcript, question: string, deps: D
         }
         return result(call, out.result, out.error);
       };
-      const ran = new Map([...calls].sort((a, b) => rank(a.name) - rank(b.name)).map(call => [call.id, run(call)]));
+      // run in rank order (show_products=0, what_if=1, rest=2) sequentially so each result is available before the next
+      const sorted = [...calls].sort((a, b) => rank(a.name) - rank(b.name));
+      const ran = new Map<string, BlockParam>();
+      for (const call of sorted) ran.set(call.id, await run(call));
       const results = calls.map(call => ran.get(call.id)!);
       // with a search waiting, only the results may go: it runs on this next request, and the note would end his turn before it could
       msgs.push({role: "user", content: rounds === MAX_ROUNDS && !waiting ? [...results, {type: "text", text: LAST_ROUND}] : results});
@@ -296,6 +312,7 @@ export async function converse(transcript: Transcript, question: string, deps: D
     const estimate = buying() && !card && (attempted || searched) && poundsIn(text).length > 0;
     return {...done(text, undefined, bad), ...sayIt ? {spoken: said.spoken} : {}, ...visual && !bad.length && !card ? {visual} : {}, ...next ? {next} : {},
       ...cards.size ? {proposals: [...cards.values()]} : {}, ...catCards.length ? {categoryProposals: catCards} : {}, ...marks ? {mentioned: marks.mentioned} : {}, ...sources.length ? {sources} : {},
-      ...card ? {research: card} : {}, ...estimate ? {estimate: true as const} : {}, ...bad.length && unread ? {readFrom: unread} : {}};
+      ...card ? {research: card} : {}, ...estimate ? {estimate: true as const} : {}, ...bad.length && unread ? {readFrom: unread} : {},
+      ...orgProposal ? {orgProposal} : {}};
   }
 }

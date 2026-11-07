@@ -22,6 +22,8 @@ import type {AppState, Bill, BillFreq, CategoryProposal, Ctx, Income, IsoDate, M
 import {whatIf} from "../today";
 import {cheaperOf, clip, forTool, lowestOf, MAX_SHOWN, PRICE_IS, totalOf, type Product, type Research, type ShopArgs, type Shopped} from "./research";
 import {sum} from "./sum";
+import type {OrgPreview, OrgReport} from "../organise";
+import type {OrgProposal, PendingOrg} from "../orgProposal";
 
 export type Who = "tim" | "frank";
 
@@ -33,7 +35,8 @@ export const MAX_NOTES = 50, NOTE_LEN = 120;
 
 export const TOOL_NAMES = ["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
   "add_bill", "change_bill", "remove_bill", "find_products", "show_products",
-  "refile_payment", "teach_merchant", "add_category", "rename_category"] as const;
+  "refile_payment", "teach_merchant", "add_category", "rename_category",
+  "preview_organisation"] as const;
 export type ToolName = typeof TOOL_NAMES[number];
 export const isTool = (name: string): name is ToolName => (TOOL_NAMES as readonly string[]).includes(name);
 
@@ -45,6 +48,7 @@ export const DOING: Record<ToolName, string> = {
   add_bill: "Writing it up…", change_bill: "Writing it up…", remove_bill: "Writing it up…", find_products: "Looking round the shops…",
   show_products: "Checking it against your money…",
   refile_payment: "Filing it…", teach_merchant: "Saving that…", add_category: "Writing it up…", rename_category: "Writing it up…",
+  preview_organisation: "Looking at your payments…",
 };
 // what an answer was checked against, for the line under it; notes and shops' prices aren't your money. show_products counts as the
 // what_if it ran, when it ran one
@@ -53,20 +57,28 @@ const CHECKED: Record<ToolName, string | null> = {
   spending: "your spending", payments: "your payments", what_if: "a what if", forecast: "the days ahead", calculate: "a sum", remember: null, forget: null,
   add_bill: "your bills", change_bill: "your bills", remove_bill: "your bills", find_products: null, show_products: null,
   refile_payment: "your payments", teach_merchant: null, add_category: null, rename_category: null,
+  preview_organisation: null,
 };
 
 /** The bank's payments looked through for regular ones (lib/regulars.ts), and what you've said about them. */
 export interface RegularsEnv { scan: Scan | null; answers: Answers }
+export type BuildOrgResult = {preview: OrgPreview; apply: () => Promise<{report: OrgReport} | null>};
+
 /** Everything a tool needs. `newId` names a new note. For find_products, what /shop found (`shopped`, converse asks it first) and
  *  the first id to number its products from; for show_products, every product found in the conversation (`catalogue`). `now`: the
- *  time, for how old a price is. `rules`: merchant→category rules, for refile_payment and teach_merchant. */
+ *  time, for how old a price is. `rules`: merchant→category rules, for refile_payment and teach_merchant.
+ *  `ops`: async operations that reach the store (only needed for preview_organisation). */
 export interface ToolEnv {
   ctx: Ctx; notes: Note[]; who: Who; newId: () => string; regulars: RegularsEnv; now?: Date;
   shopped?: Shopped | {error: string}; firstId?: number; catalogue?: ReadonlyMap<string, Product>;
   rules: MerchantRule[];
+  ops?: {
+    buildOrganisation: () => Promise<BuildOrgResult | null | string>;
+    setPendingOrg: (p: PendingOrg) => void;
+  };
 }
 /** A note to save or remove: the tool only says so, the store does it. A change to your bills or categories: only ever a card for you to say yes to. */
-export type ToolEffect = {add: Note} | {remove: Note} | {propose: Proposal} | {proposeCategory: CategoryProposal};
+export type ToolEffect = {add: Note} | {remove: Note} | {propose: Proposal} | {proposeCategory: CategoryProposal} | {proposeOrg: OrgProposal};
 /** A tool's answer for the accountant, whether it went wrong (`error`: his arguments didn't make sense), and a note to save or remove.
  *  `products`: what find_products found, numbered; `research`: the card show_products made; `ran`: it ran the engine on the pick. */
 export interface ToolOut { result: unknown; error?: true; effect?: ToolEffect; research?: Research; ran?: true; products?: Product[] }
@@ -152,7 +164,7 @@ function payOf(src: Income) {
   };
 }
 
-function overview({ctx}: ToolEnv) {
+export function overviewData({ctx}: ToolEnv) {
   const c = calc(ctx), h = hero(ctx, c), src = mainIncome(ctx), s = ctx.state;
   const free = r2(c.balance - c.billsLeft - c.everydayLeft - c.savingHeld);
   return {
@@ -438,7 +450,7 @@ function showProducts(env: ToolEnv, a: Args): ToolOut {
       what_if: whatIfPick,
       ...low ? {cheapest: {id: low.id, name: low.name, shop: low.retailer, price: low.price, with_delivery: lowAmount, price_is: PRICE_IS[low.confidence!], what_if: whatIfLow}} : {},
       ...others.length ? {others} : {},
-      overview: overview(env),
+      overview: overviewData(env),
       do_next: `Answer now: the card shows ${products.length === 1 ? "it" : "them"} and links the shop${products.length === 1 ? "" : "s"}, so don't list them. ${caveats.length ? `${caveats.join(" ")} ` : ""}Answer can, afford and should from these figures, and whether waiting for payday would be better.`,
     },
     research, ran: true,
@@ -496,11 +508,11 @@ const propose = (ctx: Ctx, p: Proposal): ToolOut => ({
 });
 
 /** Runs one tool. A tool asked for with arguments that don't make sense says what's wrong, so he can try again. */
-export function runTool(name: string, input: unknown, env: ToolEnv): ToolOut {
+export async function runTool(name: string, input: unknown, env: ToolEnv): Promise<ToolOut> {
   const a = (input && typeof input === "object" ? input : {}) as Args;
   try {
     switch (isTool(name) ? name : null) {
-      case "overview": return {result: overview(env)};
+      case "overview": return {result: overviewData(env)};
       case "upcoming": return {result: upcoming(env, a)};
       case "bills": return {result: bills(env)};
       case "regulars": return {result: regulars(env)};
@@ -541,6 +553,26 @@ export function runTool(name: string, input: unknown, env: ToolEnv): ToolOut {
         const id = strArg(a, "id")!, newName = strArg(a, "new_name")!;
         const p = proposeRenameCategory(env.ctx.state.categories, id, newName);
         return {result: {card: catCardLine(env.ctx.state.categories, p), saved: false, note: "Shown to the person as a card. Nothing is saved until they tap it or say yes, so don't say it's done: ask them to check it."}, effect: {proposeCategory: p}};
+      }
+      case "preview_organisation": {
+        if (!env.ops) return {result: {error: "Organisation is not available here."}, error: true};
+        const result = await env.ops.buildOrganisation();
+        if (result === null) return {result: {status: "nothing_to_do", note: "The user is already organised. Tell them so."}};
+        if (typeof result === "string") return {result: {error: result}, error: true};
+        const {preview, apply} = result;
+        env.ops.setPendingOrg({runId: preview.runId, apply});
+        return {
+          result: {
+            status: "preview_ready",
+            high: preview.high,
+            medium: preview.medium,
+            low: preview.low,
+            total: preview.total,
+            ...preview.more > 0 ? {more: preview.more} : {},
+            card: "Preview card shown. Nothing is saved yet. Do not say the payments have been organised.",
+          },
+          effect: {proposeOrg: {preview}},
+        };
       }
       default: return {result: {error: `There's no tool called ${name}.`}, error: true};
     }

@@ -145,7 +145,7 @@ test("a bank payment you file under a typed-in bill teaches it who it's paid to,
   expect(fileUnder(ctx({txs: [hand, it]}), it, {kind: "bill", id: "rent"}).patch.forDate).toBe("2026-10-15");
 });
 
-test("a recognised payment comes off what's held back, isn't today's spending, and today's number is as if you'd marked it paid", () => {
+test("a recognised payment comes off what's held back, isn't today's spending, and today's number is as if you'd marked it paid", async () => {
   // synced just now: the bank's balance already has the £60 out
   const state = baseState({bills: [energy], balance: 940, balanceSetAt: NOW});
   const at = (txs: Tx[]) => { const c: Ctx = {state, txs, today: TODAY}, k = calc(c); return {c, k, h: hero(c, k)}; };
@@ -169,7 +169,7 @@ test("a recognised payment comes off what's held back, isn't today's spending, a
   const item = livingItems(now.c, now.k).find(x => x.ref === "energy")!;
   expect(item.paid).toBe(true);
   expect(livingAction(now.c, now.k, item)).toBeNull();
-  const up = runTool("upcoming", {to: null}, {ctx: now.c, notes: [], who: "frank", newId: () => "x", regulars: {scan: null, answers: {}}, rules: []}).result as {bills: {name: string; paid: boolean}[]; held_back_now_for_bills: number};
+  const up = (await runTool("upcoming", {to: null}, {ctx: now.c, notes: [], who: "frank", newId: () => "x", regulars: {scan: null, answers: {}}, rules: []})).result as {bills: {name: string; paid: boolean}[]; held_back_now_for_bills: number};
   expect(up.bills.find(b => b.name === "Octopus Energy")?.paid).toBe(true);
   expect(up.held_back_now_for_bills).toBe(0);
 });

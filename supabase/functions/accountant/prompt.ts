@@ -7,7 +7,7 @@ import type Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 export type Who = "tim" | "frank";
 
 /** Bumped whenever the rulebook, a voice or a tool changes, so a log line says which one answered. */
-export const PROMPT_VERSION = "2026-11-06.2";
+export const PROMPT_VERSION = "2026-11-07.1";
 
 export const RULES = `You are a personal accountant inside Pinch, a UK money app whose first job is answering "what can I spend today?". You talk with one person about their own money, in pounds. Your job is to help them understand where they stand, make good decisions about spending and saving, and see problems coming before they arrive.
 
@@ -272,7 +272,7 @@ export const TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
   {
     name: "refile_payment",
     description: "Shows the person a card to move ONE payment to a different category. Call payments first to find the right date and amount. Nothing moves until they tap it or say yes. Never say it's done: say what the card shows and ask them to check it.",
-    input_schema: {type: "object", required: ["payee", "date", "amount", "cat"], properties: {
+    input_schema: {type: "object", required: ["payee", "date", "amount", "cat"], additionalProperties: false, properties: {
       payee: {type: "string", description: "The merchant's name, as the payments tool gave it."},
       date: {type: "string", description: "The payment's date, as an ISO date (e.g. 2026-11-05)."},
       amount: {type: "number", description: "The payment's amount in pounds (positive)."},
@@ -282,7 +282,7 @@ export const TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
   {
     name: "teach_merchant",
     description: "Shows the person a card to save a rule: always file this merchant as a category from now on (future payments only). Call payments first to identify the merchant. Nothing is saved until they tap it or say yes. Never say it's done.",
-    input_schema: {type: "object", required: ["payee", "cat"], properties: {
+    input_schema: {type: "object", required: ["payee", "cat"], additionalProperties: false, properties: {
       payee: {type: "string", description: "The merchant's name, as the payments tool gave it."},
       cat: {type: "string", description: "The category name or id, from the everyday tool."},
     }},
@@ -290,17 +290,22 @@ export const TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
   {
     name: "add_category",
     description: "Shows the person a card to add a new spending category. Check the everyday tool first to avoid adding one they already have. Nothing is added until they tap it or say yes.",
-    input_schema: {type: "object", required: ["name"], properties: {
+    input_schema: {type: "object", required: ["name"], additionalProperties: false, properties: {
       name: {type: "string", description: "The category name to add."},
     }},
   },
   {
     name: "rename_category",
     description: "Shows the person a card to rename one of their spending categories. The id comes from the everyday tool. Nothing is renamed until they tap it or say yes.",
-    input_schema: {type: "object", required: ["id", "new_name"], properties: {
+    input_schema: {type: "object", required: ["id", "new_name"], additionalProperties: false, properties: {
       id: {type: "string", description: "The category's id, from the everyday tool."},
       new_name: {type: "string", description: "The new name."},
     }},
+  },
+  {
+    name: "preview_organisation",
+    description: "Preview how the person's unorganised payments would be categorised. Call this when they ask to organise, sort, categorise or clean up their payments — phrases like 'organise my payments', 'sort out my transactions', 'categorise everything'. Returns counts for high-confidence (automatic), medium-confidence (needs a check), and low-confidence (left alone) classifications. A preview card is shown to the person — do not say the payments have been organised until they confirm it. If status is 'nothing_to_do', they are already organised.",
+    input_schema: none,
   },
 ];
 

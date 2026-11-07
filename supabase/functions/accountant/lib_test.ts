@@ -201,8 +201,9 @@ Deno.test("the strict tools stay within Claude's limits, or every question comes
 
 Deno.test("the tools: the ones the phone runs, strict but for change_bill and the 4 category tools, every field required, objects closed", () => {
   eq(TOOLS.map(t => t.name), ["overview", "upcoming", "bills", "regulars", "everyday", "spending", "payments", "what_if", "forecast", "calculate", "remember", "forget",
-    "add_bill", "change_bill", "remove_bill", "refile_payment", "teach_merchant", "add_category", "rename_category"]);
-  const NON_STRICT = new Set(["change_bill", "refile_payment", "teach_merchant", "add_category", "rename_category"]);
+    "add_bill", "change_bill", "remove_bill", "refile_payment", "teach_merchant", "add_category", "rename_category",
+    "preview_organisation"]);
+  const NON_STRICT = new Set(["change_bill", "refile_payment", "teach_merchant", "add_category", "rename_category", "preview_organisation"]);
   for (const t of TOOLS) {
     eq(t.strict, NON_STRICT.has(t.name) ? undefined : true);
     const s = t.input_schema as {additionalProperties?: boolean; properties?: Record<string, unknown>; required?: string[]};

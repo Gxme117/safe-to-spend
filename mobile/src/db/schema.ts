@@ -1,6 +1,6 @@
 import type {SQLiteDatabase} from "expo-sqlite";
 
-const VERSION = 8;
+const VERSION = 9;
 
 /** Brings the database up to VERSION, one step at a time (pattern from the expo-sqlite docs). */
 export async function migrate(db: SQLiteDatabase) {
@@ -87,6 +87,46 @@ export async function migrate(db: SQLiteDatabase) {
       "ALTER TABLE tx ADD COLUMN sub_cat TEXT; ALTER TABLE merchant_rule ADD COLUMN sub_cat TEXT",
     );
     v = 8;
+  }
+  if (v === 8) {
+    // Organisation runs: Frank sorting your payment backlog. Each run is atomic; org_change records what changed and
+    // how, so the whole batch can be undone. org_guess caches AI merchant classifications for 30 days.
+    await db.execAsync(`
+      CREATE TABLE org_run (
+        id          TEXT PRIMARY KEY NOT NULL,
+        at          INTEGER NOT NULL,
+        state       TEXT NOT NULL CHECK (state IN ('applied', 'undone')),
+        reviewed    INTEGER NOT NULL DEFAULT 0,
+        auto        INTEGER NOT NULL DEFAULT 0,
+        provisional INTEGER NOT NULL DEFAULT 0,
+        left        INTEGER NOT NULL DEFAULT 0,
+        more        INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE org_change (
+        run_id     TEXT NOT NULL,
+        tx_id      TEXT NOT NULL,
+        from_cat   TEXT NOT NULL,
+        from_sub   TEXT,
+        from_needs INTEGER NOT NULL DEFAULT 0,
+        to_cat     TEXT NOT NULL,
+        to_sub     TEXT,
+        confidence TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+        source     TEXT NOT NULL CHECK (source IN ('rule', 'hint', 'ai')),
+        status     TEXT NOT NULL CHECK (status IN ('auto', 'provisional', 'confirmed', 'corrected', 'left', 'undone')),
+        rule_payee TEXT,
+        rule_prev  TEXT,
+        PRIMARY KEY (run_id, tx_id)
+      );
+      CREATE INDEX org_change_tx ON org_change (tx_id);
+      CREATE TABLE org_guess (
+        payee      TEXT PRIMARY KEY NOT NULL,
+        cat        TEXT NOT NULL,
+        sub        TEXT,
+        confidence TEXT NOT NULL,
+        at         INTEGER NOT NULL
+      );
+    `);
+    v = 9;
   }
   await db.execAsync(`PRAGMA user_version = ${VERSION}`);
 }

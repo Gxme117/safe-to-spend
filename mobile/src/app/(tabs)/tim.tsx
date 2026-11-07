@@ -23,6 +23,7 @@ import {keyboardCover} from "@/components/Setup";
 import {AnswerFigure} from "@/components/AnswerFigure";
 import {BillCard, type CardStatus} from "@/components/BillCard";
 import {CategoryCard} from "@/components/CategoryCard";
+import {OrgCard, type OrgCardStatus} from "@/components/OrgCard";
 import {ResearchCard} from "@/components/ResearchCard";
 import {doneLine, leftLine, outcomeLine, proposalView, type Proposal, type ProposalView} from "@/lib/billChange";
 import {catDoneLine, catLeftLine, catOutcomeLine} from "@/lib/categoryChange";
@@ -35,7 +36,9 @@ import {STARTERS} from "@/lib/ai/next";
 import type {Visual} from "@/lib/ai/visual";
 import type {Source} from "@/lib/ai/web";
 import {roundOf, stopwatch, type Stopwatch} from "@/lib/ai/timings";
-import {receipt, type ToolEffect} from "@/lib/ai/tools";
+import {receipt, type BuildOrgResult, type ToolEffect} from "@/lib/ai/tools";
+import {orgOutcomeLine, type OrgProposal, type PendingOrg} from "@/lib/orgProposal";
+import type {OrgReport} from "@/lib/organise";
 import {uid} from "@/lib/defaults";
 import {calmly, micRefused, micState, MIC_BUTTON, transcriptOf, withHeard} from "@/lib/dictation";
 import {pieceFor} from "@/lib/lipsync";
@@ -106,7 +109,8 @@ const PEOPLE: Record<Accountant, {name: string; button: string; fails: Record<Fa
 // `attached`, on yours: the photos and files you sent with it (a small picture of each photo; the things themselves are in the transcript).
 type Card = {p: Proposal; view: ProposalView; status: CardStatus; note?: string};
 type CatCard = {p: CategoryProposal; status: CardStatus; note?: string};
-type Said = {id: number; who: Accountant; mine: boolean; text: string; attached?: Shown[]; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; catCards?: CatCard[]; web?: Source[]; research?: ResearchView | OldResearchView; estimate?: string};
+type OrgCardState = {proposal: OrgProposal; status: OrgCardStatus; report?: OrgReport};
+type Said = {id: number; who: Accountant; mine: boolean; text: string; attached?: Shown[]; checked?: string | null; flag?: string; quiet?: boolean; voiced?: {line: string; take: Take}; visual?: Visual; next?: string[]; cards?: Card[]; catCards?: CatCard[]; orgCard?: OrgCardState; web?: Source[]; research?: ResearchView | OldResearchView; estimate?: string};
 const ESTIMATE = "No shop's listing was found for this, so any price here is an estimate.";
 // a chat to keep, from your first question in it
 const newChatId = () => ({id: uid(), made: Date.now()});
@@ -147,6 +151,7 @@ function saidOf(who: Accountant, a: Answer, now: Date): Omit<Said, "id"> {
     ...a.next ? {next: a.next} : {},
     ...a.proposals && ctx ? {cards: a.proposals.map(p => ({p, view: proposalView(ctx, p), status: "open" as const}))} : {},
     ...a.categoryProposals?.length ? {catCards: a.categoryProposals.map(p => ({p, status: "open" as const}))} : {},
+    ...a.orgProposal ? {orgCard: {proposal: a.orgProposal, status: "open" as OrgCardStatus}} : {},
   };
 }
 // The sites his searches brought back while he works, under what he's doing: a few, then how many more. They fade in once
@@ -555,6 +560,8 @@ function Tim() {
   const tempRef = useRef(false);
   // what you did with his cards since your last message, for him on your next one (inside <app_context>)
   const outcomes = useRef<Record<Accountant, string[]>>({tim: [], frank: []});
+  // the apply closure for the pending organisation run (set by preview_organisation, consumed by OrgCard confirm)
+  const orgApplyRef = useRef<PendingOrg | null>(null);
   // who's working out an answer, and what he's doing right now; one question at a time
   const [working, setWorking] = useState<{who: Accountant; doing: string} | null>(null);
   // the sites his searches brought back while he works, under that line (apart, so the line isn't read out again as they come)
@@ -667,6 +674,8 @@ function Tim() {
         clock?.mark(`shop (${got.products.length} found, ${st?.verified ?? 0} on the shops' pages, ${st?.brave ?? 0} searches)`);
         return got;
       },
+      buildOrganisation: () => useMoney.getState().buildOrganisation() as Promise<BuildOrgResult | null | string>,
+      setPendingOrg: (p: PendingOrg) => { orgApplyRef.current = p; },
     };
   };
   const briefed = useRef(false);
@@ -923,6 +932,33 @@ function Tim() {
     const text = catDoneLine(cats, card.p, by), id = say({who: by, mine: false, text});
     if (useMoney.getState().speaks) voice(by, id, text, still, null);
   };
+  const setOrgCard = (id: number, k: Partial<OrgCardState>) =>
+    setThread(th => th.map(s => s.id === id && s.orgCard ? {...s, orgCard: {...s.orgCard, ...k}} : s));
+  const decideOrg = async (s: Said, confirmed: boolean) => {
+    const by = s.who, chat = chats.current[by], still = () => chats.current[by] === chat;
+    if (!confirmed) {
+      setOrgCard(s.id, {status: "cancelled"});
+      outcomes.current[by].push(orgOutcomeLine(s.orgCard!.proposal.preview.runId, "cancelled"));
+      orgApplyRef.current = null;
+      return;
+    }
+    setOrgCard(s.id, {status: "saving"});
+    const apply = orgApplyRef.current;
+    orgApplyRef.current = null;
+    if (!apply) { setOrgCard(s.id, {status: "failed"}); return; }
+    const r = await apply.apply();
+    if (!still()) return;
+    if (!r) { setOrgCard(s.id, {status: "failed"}); return; }
+    setOrgCard(s.id, {status: "done", report: r.report});
+    outcomes.current[by].push(orgOutcomeLine(s.orgCard!.proposal.preview.runId, r));
+  };
+  const undoOrg = async (s: Said) => {
+    const runId = s.orgCard!.proposal.preview.runId;
+    const r = await useMoney.getState().undoOrganisation(runId);
+    if (!r) return;
+    setOrgCard(s.id, {status: "undone"});
+    outcomes.current[s.who].push(`Organisation undone (run ${runId}): ${r.restored} payment${r.restored === 1 ? "" : "s"} put back.`);
+  };
   // the cards still waiting for your yes, in this accountant's chat
   const openCards = (w: Accountant) => [
     ...thread.filter(s => s.who === w && s.cards).flatMap(s => s.cards!.map((k, i) => ({s, i, k}))).filter(x => waits(x.k)),
@@ -940,6 +976,11 @@ function Tim() {
     for (const s of thread.filter(x => x.who === to)) {
       s.cards?.forEach((k, i) => { if (waits(k)) { setCard(s.id, i, {status: "unanswered"}); if (ctx0) outcomes.current[to].push(outcomeLine(ctx0, k.p, "unanswered")); } });
       s.catCards?.forEach((k, i) => { if (waits(k)) { setCatCard(s.id, i, {status: "unanswered"}); if (ctx0) outcomes.current[to].push(catOutcomeLine(ctx0.state.categories, k.p, "unanswered")); } });
+      if (s.orgCard?.status === "open" || s.orgCard?.status === "saving" || s.orgCard?.status === "failed") {
+        setOrgCard(s.id, {status: "cancelled"});
+        outcomes.current[to].push(orgOutcomeLine(s.orgCard.proposal.preview.runId, "cancelled"));
+        orgApplyRef.current = null;
+      }
     }
     const context = [...outcomes.current[to].splice(0), ...extra, ...tempRef.current ? [TEMP_CHAT] : []];
     if (!chatId.current[to]) { const n = newChatId(); setChatId(to, n.id); made.current[to] = n.made; }
@@ -1154,6 +1195,15 @@ function Tim() {
                     onYes={() => { void decideCat(s, i, true); }} onNo={() => { void decideCat(s, i, false); }} />
                 </View>
               ))}
+              {/* a bulk organisation preview: nothing is saved until they confirm */}
+              {s.orgCard ? (
+                <View style={{marginTop: 8}}>
+                  <OrgCard proposal={s.orgCard.proposal} status={s.orgCard.status} report={s.orgCard.report}
+                    color={PEOPLE[s.who].button} box={box} edge={edge} disabled={!!working}
+                    onConfirm={() => { void decideOrg(s, true); }} onCancel={() => { void decideOrg(s, false); }}
+                    onUndo={() => { void undoOrg(s); }} />
+                </View>
+              ) : null}
               {/* the icon row under an answer, as ChatGPT's: here, hear it again */}
               {s.voiced ? (
                 <Pressable onPress={() => s.voiced && speech.speak(s.who, s.voiced.line, s.voiced.take, fits)} hitSlop={10}

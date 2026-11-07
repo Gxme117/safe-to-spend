@@ -15,9 +15,10 @@ import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import {type Cap, capFor, costCents, DAILY_CAP_CENTS, exemptOf, failure, lineOf, lineParams, logLine, newQuestion, params, photoOf, photoUrl, readAsk, readLine, readPhoto, readSay, sayBody, sayReply, sayUrl, signedInCache, ukDay, userOf} from "./lib.ts";
 import {PROMPT_VERSION} from "./prompt.ts";
 import {BRAVE_CENTS, readShop, runShop, shopLog} from "./shop.ts";
+import {classifyOf, classifyParams, readClassify} from "./classify.ts";
 
 const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const model = Deno.env.get("ACCOUNTANT_MODEL") || "claude-opus-5-5";
+const model = Deno.env.get("ACCOUNTANT_MODEL") || "claude-sonnet-5-5";
 const supabase = Deno.env.get("SUPABASE_URL") ?? "";
 const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const voiceKey = Deno.env.get("ELEVENLABS_API_KEY") ?? ""; // their voices, for /say
@@ -125,6 +126,36 @@ async function shop(req: Request, user: string, auth: number | "cached") {
   return json(out);
 }
 
+/** Classify merchant names for Smart Organisation (classify.ts): Haiku maps each normalised payee to a spend category.
+ *  On the daily cap like a question. Only counts and timing are logged — never the payee names. */
+async function classify(req: Request, user: string, auth: number | "cached") {
+  const ask = readClassify(await req.text());
+  if ("error" in ask) return json(ask, 400);
+  const free = exempt.has(user), spent = free ? null : await spend(user, 0);
+  if (spent !== null && capFor(spent, cap, true) === "limit") {
+    console.log(JSON.stringify({door: "classify", auth, stop: "limit"}));
+    return json({error: "limit"}, 429);
+  }
+  const started = Date.now();
+  try {
+    const msg = await client.messages.create(classifyParams(ask));
+    if (!free) await spend(user, costCents(msg.model, msg.usage));
+    const results = classifyOf(msg.content, ask);
+    console.log(JSON.stringify({
+      door: "classify", model: msg.model, ms: Date.now() - started, auth, stop: msg.stop_reason,
+      payees: ask.payees.length, returned: results.length, cents: costCents(msg.model, msg.usage),
+      cap: free ? "exempt" : spent === null ? "unchecked" : "ok",
+    }));
+    return json({results});
+  } catch (e) {
+    const status = e instanceof Anthropic.APIError ? e.status : undefined;
+    console.warn(JSON.stringify({door: "classify", ms: Date.now() - started, auth,
+      stop: `error ${status ?? (e instanceof Error ? e.name : "unknown")}`}));
+    const f = failure(status);
+    return json({error: f.error}, f.status);
+  }
+}
+
 /** A photo of something he priced: the first picture Brave's image search finds for its name. The name isn't logged. */
 async function photo(req: Request, auth: number | "cached") {
   if (!photoKey) return json({error: "not_configured"}, 500);
@@ -145,8 +176,8 @@ async function photo(req: Request, auth: number | "cached") {
 
 Deno.serve(async req => {
   const door = new URL(req.url).pathname.split("/").filter(Boolean).pop();
-  if (!supabase || !anon || ((door === "chat" || door === "line") && !key)) return json({error: "not_configured"}, 500);
-  if (req.method !== "POST" || !["chat", "say", "photo", "line", "shop"].includes(door ?? "")) return json({error: "not_found"}, 404);
+  if (!supabase || !anon || ((door === "chat" || door === "line" || door === "classify") && !key)) return json({error: "not_configured"}, 500);
+  if (req.method !== "POST" || !["chat", "say", "photo", "line", "shop", "classify"].includes(door ?? "")) return json({error: "not_found"}, 404);
   const checking = Date.now(), who = await signedIn(req);
   if (!who.user) return json({error: "signed_out"}, 401);
   const auth = who.cached ? "cached" : Date.now() - checking;
@@ -154,6 +185,7 @@ Deno.serve(async req => {
   if (door === "photo") return photo(req, auth);
   if (door === "line") return line(req, who.user, auth);
   if (door === "shop") return shop(req, who.user, auth);
+  if (door === "classify") return classify(req, who.user, auth);
 
   const ask = readAsk(await req.text());
   if ("error" in ask) return json(ask, ask.error === "too_big" ? 413 : 400);
@@ -166,7 +198,9 @@ Deno.serve(async req => {
     return json({error: "limit"}, 429);
   }
 
-  const started = Date.now(), request = params(ask, model);
+  // purchase questions need best-value judgment — bump to Opus unless the user picked something explicitly
+  const effectiveModel = ask.shop && !ask.model ? "claude-opus-5-5" : model;
+  const started = Date.now(), request = params(ask, effectiveModel);
   try {
     const msg = await client.beta.messages.create(request);
     const tools = msg.content.flatMap(b => b.type === "tool_use" ? [b.name] : []);

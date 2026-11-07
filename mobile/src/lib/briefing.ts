@@ -13,7 +13,7 @@ import {lowAmt} from "./income";
 import {r2} from "./money";
 import {unsorted} from "./payments";
 import {billChanges, regularsView, type Answers, type Scan} from "./regulars";
-import {clean, runTool} from "./ai/tools";
+import {clean, overviewData} from "./ai/tools";
 import type {Ctx, IsoDate, Tx} from "./types";
 
 export type BriefKind = "daily" | "return" | "alert";
@@ -63,7 +63,7 @@ export function briefingFacts(ctx: Ctx, regulars: {scan: Scan | null; answers: A
 
   // where you stand: the overview tool's own answer, so his figures are the ones the app shows
   const env = {ctx, notes: [], who: "frank" as const, newId: () => "", regulars: {scan: null, answers: {}}, rules: []};
-  out.push({key: "today", stage: t, level: "info", what: "where_you_stand", data: runTool("overview", {}, env).result as Record<string, unknown>});
+  out.push({key: "today", stage: t, level: "info", what: "where_you_stand", data: overviewData(env) as Record<string, unknown>});
   if (c.payday && r2(c.balance - c.billsLeft - c.everydayLeft - c.savingHeld) < 0)
     out.push({key: "gap", stage: "open", level: "alert", what: "not_enough_for_bills_and_everyday", data: {note: "See where_you_stand: still_needed_for_bills_and_everyday and in_the_app say how much more is needed and how to close it. Say it calmly."}});
   if (c.late && c.payday)

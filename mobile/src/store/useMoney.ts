@@ -3,6 +3,11 @@ import {create} from "zustand";
 import {createJSONStorage, persist} from "zustand/middleware";
 import {backfill, deleteAllTx, deleteTx, fileBills, insertMany, insertTx, listSince, updateFiling} from "@/db/transactions";
 import {getMerchantRules, removeMerchantRule, setMerchantRule} from "@/db/merchantRules";
+import {applyRun, pruneOldRuns, undoRun} from "@/db/organise";
+import {getCachedGuesses, saveCachedGuesses} from "@/db/classify";
+import {buildRun, eligible, orgReport, type Confidence, type OrgReport} from "@/lib/organise";
+import {sanitizeGuesses, unresolvedPayees} from "@/lib/classify";
+import {classifyPayees} from "@/services/classify";
 import type {Note, Who} from "@/lib/ai/tools";
 import {cardTapOf} from "@/lib/cardTap";
 import {subCatSlug, withCatalog} from "@/lib/categories";
@@ -12,6 +17,7 @@ import type {SetupFound} from "@/lib/found";
 import {allBanks, ownAccounts, setPotRole} from "@/lib/banks";
 import {applySync, importTxs, missingDetails, type RawTx, standIns, syncSince, unfiledBills} from "@/lib/monzo";
 import {r2} from "@/lib/money";
+import {spendCats} from "@/lib/payments";
 import type {FilingPatch} from "@/lib/payments";
 import {type Answers, type Scan, scanOf, type Verdict} from "@/lib/regulars";
 import {billOf, filed, filingsFor, idOf, type Proposal, stale} from "@/lib/billChange";
@@ -63,6 +69,7 @@ interface MoneyStore {
   briefLog: BriefLog;         // what Frank's briefings have said, and when (lib/briefing.ts); Start over clears it
   toast: Toast | null;
   syncing: boolean;           // a bank sync is running
+  organising: boolean;        // an organisation run is in progress
   setupBank: number | null;   // the Monzo total (main + all pots), when connected during setup (not saved)
   setupFound: SetupFound | null;   // what Monzo's payments say about your pay and payday, when connected during setup (not saved)
 
@@ -126,6 +133,15 @@ interface MoneyStore {
   applyCategoryProposal(p: CategoryProposal): Promise<{undo: () => Promise<void>} | {error: string; stale?: true}>;
   /** What you said about a regular payment it found; returns an undo. */
   answerRegular(key: string, verdict: Verdict, name: string): () => void;
+  /**
+   * Run Frank's bulk classification on all eligible payments (needsCat, no bill, no refund).
+   * Builds the run first (pure), shows the preview, writes atomically on confirm.
+   * Returns the preview so the caller can confirm before applying. Call `run.apply()` to write.
+   * Returns null when there's nothing to organise, or a string error.
+   */
+  buildOrganisation(): Promise<{preview: import("@/lib/organise").OrgPreview; apply: () => Promise<{report: OrgReport} | null>} | null | string>;
+  /** Undo a completed organisation run. Returns how many payments were restored, or null on failure. */
+  undoOrganisation(runId: string): Promise<{restored: number; skipped: number} | null>;
   /** Link a bank through TrueLayer and read it once. null: you closed the login. */
   addLink(): Promise<{id: string} | SyncFail | null>;
   removeLink(id: string): Promise<void>;
@@ -228,7 +244,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", livingView: "pit", accountant: "tim", models: {tim: DEFAULT_MODEL, frank: DEFAULT_MODEL}, aiConsent: false, speaks: true, notes: [], merchantRules: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", livingView: "pit", accountant: "tim", models: {tim: DEFAULT_MODEL, frank: DEFAULT_MODEL}, aiConsent: false, speaks: true, notes: [], merchantRules: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, organising: false, setupBank: null, setupFound: null,
 
     async load() {
       const [txs, merchantRules] = await Promise.all([
@@ -494,6 +510,77 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
       return () => {
         const {[key]: _, ...rest} = get().answers;
         set({answers: was ? {...rest, [key]: was} : rest});
+      };
+    },
+    async undoOrganisation(runId) {
+      try {
+        const {restored, skipped} = await undoRun(runId);
+        const refreshed = await listSince(addMonths(today(), -12));
+        const rules = await getMerchantRules();
+        set({txs: refreshed, merchantRules: rules});
+        return {restored, skipped};
+      } catch {
+        return null;
+      }
+    },
+    async buildOrganisation() {
+      const {state, txs, merchantRules, organising, aiConsent} = get();
+      if (!state) return "The app isn't set up yet.";
+      if (organising) return "Already organising.";
+      const ctx = {state, txs, today: today()};
+      const toOrganise = eligible(txs);
+      if (!toOrganise.length) return null;
+      const id = uid();
+
+      // M2: AI guesses for payees that rule/hint can't cover
+      let guesses: Map<string, {cat: string; sub?: string; confidence: Confidence}> | undefined;
+      if (aiConsent) {
+        const unresolved = unresolvedPayees(txs, merchantRules, state);
+        if (unresolved.length) {
+          const cached = await getCachedGuesses(unresolved).catch(() => new Map<string, {cat: string; confidence: string}>());
+          const toFetch = unresolved.filter(p => !cached.has(p));
+          if (toFetch.length) {
+            const catList = spendCats(state).map(c => ({id: c.id, name: c.name}));
+            const fetched = await classifyPayees(toFetch, catList); // empty map on any error
+            if (fetched.size) await saveCachedGuesses(sanitizeGuesses(fetched)).catch(() => {});
+            guesses = sanitizeGuesses(new Map([...fetched, ...cached]));
+          } else {
+            guesses = sanitizeGuesses(cached);
+          }
+        }
+      }
+
+      const {run, preview} = buildRun(id, txs, ctx, merchantRules, guesses);
+      if (!preview.high && !preview.medium) return null;
+      return {
+        preview,
+        apply: async () => {
+          if (get().organising) return null;
+          set({organising: true});
+          try {
+            const at = Date.now();
+            await applyRun(run, at);
+            const refreshed = await listSince(addMonths(today(), -12));
+            const rules = await getMerchantRules();
+            set({txs: refreshed, merchantRules: rules, organising: false});
+            await pruneOldRuns();
+            const count = preview.high + preview.medium;
+            get().notify(`Sorted ${count} payment${count === 1 ? "" : "s"} · Undo`, true, async () => {
+              const {restored, skipped} = await undoRun(run.id);
+              const refreshed2 = await listSince(addMonths(today(), -12));
+              const rules2 = await getMerchantRules();
+              set({txs: refreshed2, merchantRules: rules2});
+              const msg = skipped > 0 ? `Put back ${restored} · ${skipped} you'd changed were left` : `Put back ${restored}`;
+              get().notify(msg, false);
+            });
+            const report = orgReport(ctx, run);
+            return {report};
+          } catch {
+            set({organising: false});
+            get().notify(SAVE_FAILED);
+            return null;
+          }
+        },
       };
     },
     async addLink() {
