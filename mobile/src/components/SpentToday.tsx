@@ -4,6 +4,7 @@ import {Pressable, StyleSheet, View} from "react-native";
 import Svg, {Circle} from "react-native-svg";
 import {comingUp, type Calc} from "@/lib/calc";
 import {addDays, niceDate, pad, shortDate} from "@/lib/dates";
+import {resolveSubCat} from "@/lib/categories";
 import {comingLook, txLook, type Look} from "@/lib/looks";
 import {money, moneyExact} from "@/lib/money";
 import type {Ctx, IsoDate, Tx} from "@/lib/types";
@@ -87,8 +88,10 @@ function billAmount(ctx: Ctx, key: string, d: string) {
 function Spent({ctx, it, rule, badge}: {ctx: Ctx; it: Tx; rule?: string; badge: string}) {
   const {c: k} = useTheme();
   const what = txWhat(ctx, it), name = it.note || what;
+  const sub = it.subCat ? resolveSubCat(ctx.state.categories, it.cat, it.subCat) : null;
+  const meta = `${sub ? `${what} › ${sub.name}` : what} · ${clock(it.paidAt ?? it.created)}`;
   return (
-    <Line name={name} uri={it.logo} look={txLook(ctx, it)} meta={`${what} · ${clock(it.paidAt ?? it.created)}`} amount={`−${money(it.amount)}`} rule={rule} badge={badge}
+    <Line name={name} uri={it.logo} look={txLook(ctx, it)} meta={meta} amount={`−${money(it.amount)}`} rule={rule} badge={badge}
       onPress={() => router.push(`/payment/${it.id}`)}
       end={
         <Pressable onPress={() => askRemove(it)} hitSlop={s[3]} accessibilityRole="button" accessibilityLabel={`Delete ${name}, ${money(it.amount)}`}

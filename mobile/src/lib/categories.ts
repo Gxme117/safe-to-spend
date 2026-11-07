@@ -2,7 +2,7 @@
 // into each, and the narrower ones a payment's name can refine it to (Costa, inside Eating out, is Coffee & drinks).
 // The ids are the app's own from before, so budgets and payments already filed under them never move. Pure.
 import {catGroup} from "./calc";
-import type {Category} from "./types";
+import type {Category, SubCat} from "./types";
 
 /**
  * One category. `monzo`: Monzo's categories that file into it. `parent`: the broader one it narrows (only a name refines a
@@ -86,6 +86,14 @@ export const catOrder = (cats: Category[]): Category[] => {
 
 /** A name's best guess in the list, if any (first match wins). */
 export const nameHint = (name: string): string | null => NAME_HINTS.find(([re]) => re.test(name))?.[1] ?? null;
+
+/** Deterministic id from parent + name. Same slug = same id, so undo for remove_subcat always recreates the same id. */
+export const subCatSlug = (parentId: string, name: string): string =>
+  `${parentId}/${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+
+/** Look up a SubCat; null if the parent or sub is not found. */
+export const resolveSubCat = (cats: Category[], catId: string, subId: string): SubCat | null =>
+  cats.find(c => c.id === catId)?.subcategories?.find(sc => sc.id === subId) ?? null;
 
 /**
  * Where a payment from the bank goes, from the bank's category and who it was with: the bank's category decides the broad one

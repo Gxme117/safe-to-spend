@@ -1,6 +1,6 @@
 import {useMemo, useRef, useState, type ComponentProps, type ReactNode} from "react";
 import {Animated, Dimensions, Keyboard, LayoutAnimation, PanResponder, Pressable, TextInput, View, type HostInstance} from "react-native";
-import {ADD_ICONS, addBill, addIcon, addNote, DUE_HINT, newAddDraft, parseDue, type AddDraft, type AddFreq, livingLabel, type LivingDraft, type LivingItem} from "@/lib/living";
+import {ADD_ICONS, addBill, addIcon, addNote, DUE_HINT, newAddDraft, parseDue, type AddDraft, type AddFreq, livingLabel, type LivingDraft, type LivingItem, type SubcatGroup} from "@/lib/living";
 import type {BudgetHint} from "@/lib/budget";
 import {billLook} from "@/lib/looks";
 import {money} from "@/lib/money";
@@ -27,8 +27,8 @@ const ACTION = {pay: "Mark as paid", unpay: "Mark as unpaid", log: "Log spending
  *  Edit turns the sheet into a form (name, amount, when it goes out) with Cancel and Save, lifted above the keyboard.
  *  It slides with `open` (0 to 1, from the screen), and reports its height so the pile can lift to rest on top of it. Close it from
  *  its handle or by swiping it down (tall, a swipe down makes it short first; not while editing). Delete removes it straight away (the toast has Undo). */
-export function LivingSheet({ctx, item, due, payments, hint, onHint, readOnly, open, isOpen, onHeight, close, action, onAction, onDelete, draftOf, save, adding, onAdd, month}: {
-  ctx: Ctx; item: LivingItem | null; due: {line: string; bold: string; paid?: true}; payments: Tx[]; open: Animated.Value; isOpen: boolean; onHeight: (h: number) => void;
+export function LivingSheet({ctx, item, due, payments, subcats, hint, onHint, readOnly, open, isOpen, onHeight, close, action, onAction, onDelete, draftOf, save, adding, onAdd, month}: {
+  ctx: Ctx; item: LivingItem | null; due: {line: string; bold: string; paid?: true}; payments: Tx[]; subcats?: SubcatGroup[]; open: Animated.Value; isOpen: boolean; onHeight: (h: number) => void;
   // an everyday amount's suggested new budget (lib/budget.ts), and its answer: change it, or keep it as it is
   hint: BudgetHint | null; onHint: (change: boolean) => void;
   // another month: the figures and payments only, no buttons
@@ -163,6 +163,8 @@ export function LivingSheet({ctx, item, due, payments, hint, onHint, readOnly, o
         ) : null}
         {/* what paid it: tap one to change what it was for */}
         {payments.length ? <View>{payments.map(it => <TxRow key={it.id} ctx={ctx} it={it} showDate />)}</View> : null}
+        {/* subcategory breakdown for everyday amounts: how spending is split across subcategories */}
+        {item.estimate && subcats && subcats.length >= 2 ? <SubcatBreakdownSection groups={subcats} /> : null}
         {/* one line: the main button, then Edit and Delete (another month is only to look at) */}
         {readOnly ? null : (
           <View style={{flexDirection: "row", gap: 10, marginTop: 6}}>
@@ -174,6 +176,20 @@ export function LivingSheet({ctx, item, due, payments, hint, onHint, readOnly, o
         </> : null}
       </> : null}
     </Animated.View>
+  );
+}
+
+function SubcatBreakdownSection({groups}: {groups: SubcatGroup[]}) {
+  const {c} = useTheme();
+  return (
+    <View style={{gap: 2}}>
+      {groups.map(g => (
+        <View key={g.subcatId ?? "_other"} style={{flexDirection: "row", justifyContent: "space-between", paddingLeft: 12}}>
+          <T size="sm" muted style={{flex: 1}} lines={1}>{g.name}</T>
+          <T size="sm" weight="medium" style={{fontVariant: ["tabular-nums"], color: c.ink}}>{money(Math.round(g.spent))}</T>
+        </View>
+      ))}
+    </View>
   );
 }
 

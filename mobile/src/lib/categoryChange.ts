@@ -1,5 +1,6 @@
 // A change to a category or filing that Frank or Tim proposes: nothing is saved until the user taps yes.
 // All logic here is pure: the store and DB are outside. Mirrors the shape of lib/billChange.ts.
+import {resolveSubCat, subCatSlug} from "./categories";
 import {money} from "./money";
 import type {Category, CategoryProposal, Ctx, IsoDate, MerchantRule} from "./types";
 
@@ -18,10 +19,12 @@ export function normalizePayee(name: string): string {
     .trim();
 }
 
-/** Category id if a rule matches the transaction's note, else null. First full-word match wins. */
-export function matchMerchantRule(rules: MerchantRule[], note: string): string | null {
+/** Category and optional subcat if a rule matches the transaction's note, else null. First full-word match wins. */
+export function matchMerchantRule(rules: MerchantRule[], note: string): {cat: string; subCat?: string} | null {
   const norm = normalizePayee(note);
-  return rules.find(r => norm === r.payee || norm.includes(r.payee) && new RegExp(`\\b${r.payee.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(norm))?.cat ?? null;
+  const r = rules.find(r => norm === r.payee || norm.includes(r.payee) && new RegExp(`\\b${r.payee.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(norm));
+  if (!r) return null;
+  return {cat: r.cat, ...(r.subCat ? {subCat: r.subCat} : {})};
 }
 
 function catName(cats: Category[], id: string): string {
@@ -54,20 +57,58 @@ export function proposeRefile(
   return {kind: "refile", txId: tx.id, note: tx.note, date, amount, fromCat: tx.cat, toCat: toCat.id};
 }
 
-/** Propose a rule: always file this merchant as a category from now on. */
+/** Propose a rule: always file this merchant as a category (and optional subcategory) from now on. */
 export function proposeTeachMerchant(
   ctx: Ctx,
   rules: MerchantRule[],
   payee: string,
   cat: string,
+  subCat?: string,
 ): CategoryProposal {
   const norm = normalizePayee(payee);
   if (!norm) throw new Refused("payee must be a merchant name.");
   const toCat = ctx.state.categories.find(x => x.id === cat || x.name.trim().toLowerCase() === cat.trim().toLowerCase());
   if (!toCat) throw new Refused(`There's no category called "${cat}". Check the name with the everyday tool.`);
+  if (subCat) {
+    const sub = resolveSubCat(ctx.state.categories, toCat.id, subCat);
+    if (!sub) throw new Refused(`"${subCat}" is not a subcategory of ${toCat.name}.`);
+  }
   const existing = rules.find(r => r.payee === norm);
-  if (existing && existing.cat === toCat.id) throw new Refused(`There's already a rule filing ${payee} as ${catName(ctx.state.categories, existing.cat)}: nothing to change.`);
-  return {kind: "merchant_rule", payee: norm, cat: toCat.id};
+  if (existing && existing.cat === toCat.id && existing.subCat === subCat)
+    throw new Refused(`There's already a rule filing ${payee} as ${catName(ctx.state.categories, existing.cat)}: nothing to change.`);
+  return {kind: "merchant_rule", payee: norm, cat: toCat.id, ...(subCat ? {subCat} : {})};
+}
+
+/** Propose adding a subcategory under an existing category. */
+export function proposeAddSubcat(cats: Category[], parentId: string, name: string): CategoryProposal {
+  const parent = cats.find(c => c.id === parentId);
+  if (!parent) throw new Refused(`There's no category with id "${parentId}".`);
+  const trimmed = name.trim().slice(0, 40);
+  if (!trimmed) throw new Refused("Ask what the subcategory should be called.");
+  const id = subCatSlug(parentId, trimmed);
+  if (parent.subcategories?.some(sc => sc.id === id || sc.name.trim().toLowerCase() === trimmed.toLowerCase()))
+    throw new Refused(`There's already a subcategory called "${trimmed}" under ${parent.name}.`);
+  return {kind: "add_subcat", parentId, name: trimmed};
+}
+
+/** Propose renaming a subcategory. */
+export function proposeRenameSubcat(cats: Category[], parentId: string, subId: string, newName: string): CategoryProposal {
+  const parent = cats.find(c => c.id === parentId);
+  const sub = parent?.subcategories?.find(sc => sc.id === subId);
+  if (!sub) throw new Refused(`No subcategory "${subId}" found.`);
+  const trimmed = newName.trim().slice(0, 40);
+  if (!trimmed) throw new Refused("Ask what the new name should be.");
+  if (sub.name === trimmed) throw new Refused(`It's already called "${trimmed}": nothing to change.`);
+  if (parent!.subcategories!.some(sc => sc.id !== subId && sc.name.trim().toLowerCase() === trimmed.toLowerCase()))
+    throw new Refused(`There's already a subcategory called "${trimmed}": choose a different name.`);
+  return {kind: "rename_subcat", parentId, subId, oldName: sub.name, newName: trimmed};
+}
+
+/** Propose removing a subcategory (transactions keep their subCat, UI shows a fallback). */
+export function proposeRemoveSubcat(cats: Category[], parentId: string, subId: string): CategoryProposal {
+  const sub = cats.find(c => c.id === parentId)?.subcategories?.find(sc => sc.id === subId);
+  if (!sub) throw new Refused(`No subcategory "${subId}" found.`);
+  return {kind: "remove_subcat", parentId, subId, oldName: sub.name};
 }
 
 /** Propose adding a new spending category. */
@@ -97,6 +138,9 @@ export function catCardLine(cats: Category[], p: CategoryProposal): string {
   if (p.kind === "refile") return `Move ${money(p.amount)} to ${catName(cats, p.toCat)}: the ${money(p.amount)} to "${p.note}" on ${p.date}, currently in ${catName(cats, p.fromCat)}.`;
   if (p.kind === "merchant_rule") return `Always file "${p.payee}" as ${catName(cats, p.cat)}: future payments from them will go there.`;
   if (p.kind === "add_cat") return `Add a new category called "${p.name}".`;
+  if (p.kind === "add_subcat") return `Add subcategory "${p.name}" under ${catName(cats, p.parentId)}.`;
+  if (p.kind === "rename_subcat") return `Rename subcategory "${p.oldName}" to "${p.newName}".`;
+  if (p.kind === "remove_subcat") return `Remove subcategory "${p.oldName}" from ${catName(cats, p.parentId)}.`;
   return `Rename "${p.oldName}" to "${p.newName}".`;
 }
 
@@ -115,6 +159,20 @@ export function staleCat(cats: Category[], txs: Ctx["txs"], p: CategoryProposal)
   }
   if (p.kind === "add_cat") {
     if (cats.find(x => x.name.trim().toLowerCase() === p.name.toLowerCase())) return `A category called "${p.name}" already exists.`;
+    return null;
+  }
+  if (p.kind === "add_subcat") {
+    if (!cats.find(c => c.id === p.parentId)) return "That category's gone.";
+    return null;
+  }
+  if (p.kind === "rename_subcat") {
+    const sub = cats.find(c => c.id === p.parentId)?.subcategories?.find(sc => sc.id === p.subId);
+    if (!sub) return "That subcategory's gone.";
+    if (sub.name !== p.oldName) return "That subcategory's already been renamed.";
+    return null;
+  }
+  if (p.kind === "remove_subcat") {
+    if (!cats.find(c => c.id === p.parentId)?.subcategories?.some(sc => sc.id === p.subId)) return "That subcategory's already gone.";
     return null;
   }
   // rename_cat
@@ -138,6 +196,9 @@ export function catDoneLine(cats: Category[], p: CategoryProposal, who: "tim" | 
     return isFrank ? `Done. ${payeeN} goes to ${catN} from now on.` : `Done. I'll file ${payeeN} as ${catN} from now on.`;
   }
   if (p.kind === "add_cat") return isFrank ? `Done. ${p.name}'s in your categories.` : `Done. I've added ${p.name} to your categories.`;
+  if (p.kind === "add_subcat") return isFrank ? `Done. ${p.name}'s added.` : `Done. I've added ${p.name}.`;
+  if (p.kind === "rename_subcat") return isFrank ? `Done. It's now called ${p.newName}.` : `Done. I've renamed it to ${p.newName}.`;
+  if (p.kind === "remove_subcat") return isFrank ? `Done. ${p.oldName}'s removed.` : `Done. I've removed ${p.oldName}.`;
   return isFrank ? `Done. It's now called ${p.newName}.` : `Done. I've renamed it to ${p.newName}.`;
 }
 

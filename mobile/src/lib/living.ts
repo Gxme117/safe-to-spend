@@ -1,4 +1,5 @@
 import {billDated, billDates, billMonthly, billPaid, nextBill} from "./bills";
+import {resolveSubCat} from "./categories";
 import {addDays, dayDiff, niceDate} from "./dates";
 import {money, parseAmount, r2} from "./money";
 import {catGroup, type Calc} from "./calc";
@@ -167,6 +168,44 @@ export const ADD_ICONS: {icon: LookIcon; name: string}[] = [
 export const addIcon = (d: AddDraft): LookIcon => d.icon ?? billLook(d.name).icon;
 
 export const DUE_HINT: Record<AddFreq, string> = {weekly: "e.g. Saturdays", monthly: "e.g. the 26th", yearly: "e.g. 3 March", oneoff: "e.g. Fri 23 Oct"};
+
+/** One group in the subcategory breakdown: a named subcat (or the unassigned remainder) and what was spent on it. */
+export interface SubcatGroup {
+  subcatId: string | null;  // null = no subCat on the transaction
+  name: string;             // resolved display name, or "Other" for unassigned
+  spent: number;            // ≥ 0, refunds off
+}
+
+/**
+ * Spending within one everyday category from `from` to `to`, grouped by subcategory.
+ * Bill-linked transactions are excluded (same rule as spendIn). Refunds subtract from
+ * the group they belonged to, floored at 0. The "Other" (unassigned) group comes last;
+ * named subcategories are sorted biggest-first. Returns [] when no transaction carries a subCat.
+ */
+export function subcatBreakdown(txs: Tx[], catId: string, from: IsoDate, to: IsoDate, cats: Category[]): SubcatGroup[] {
+  const named: Record<string, number> = {};
+  let unassigned = 0;
+  let hasSubCat = false;
+  for (const t of txs) {
+    if (t.billId || t.date < from || t.date > to) continue;
+    if (t.type === "expense" && t.cat === catId) {
+      if (t.subCat) { named[t.subCat] = (named[t.subCat] ?? 0) + t.amount; hasSubCat = true; }
+      else unassigned += t.amount;
+    } else if (t.type === "income" && t.refundOf === catId) {
+      if (t.subCat) { if (named[t.subCat] !== undefined) named[t.subCat] = Math.max(0, named[t.subCat] - t.amount); }
+      else unassigned = Math.max(0, unassigned - t.amount);
+    }
+  }
+  if (!hasSubCat) return [];
+  const groups: SubcatGroup[] = [];
+  for (const [subId, amt] of Object.entries(named)) {
+    const spent = r2(amt);
+    if (spent > 0) groups.push({subcatId: subId, name: resolveSubCat(cats, catId, subId)?.name ?? "Unknown", spent});
+  }
+  const unassignedSpent = r2(unassigned);
+  if (unassignedSpent > 0) groups.push({subcatId: null, name: "Other", spent: unassignedSpent});
+  return groups.sort((a, b) => a.subcatId === null ? 1 : b.subcatId === null ? -1 : b.spent - a.spent);
+}
 
 const DAYS3 = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const MONTHS3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];

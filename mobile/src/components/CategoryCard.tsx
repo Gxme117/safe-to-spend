@@ -21,6 +21,9 @@ function cardTitle(cats: Category[], p: CategoryProposal): string {
   if (p.kind === "refile") return `Move to ${catName(cats, p.toCat)}`;
   if (p.kind === "merchant_rule") return `Always file ${payeeName(p.payee)}`;
   if (p.kind === "add_cat") return `Add "${p.name}"`;
+  if (p.kind === "add_subcat") return `Add subcategory "${p.name}"`;
+  if (p.kind === "rename_subcat") return `Rename to "${p.newName}"`;
+  if (p.kind === "remove_subcat") return `Remove "${p.oldName}"`;
   return `Rename to "${p.newName}"`;
 }
 
@@ -28,6 +31,9 @@ function cardRows(cats: Category[], p: CategoryProposal): string[] {
   if (p.kind === "refile") return [`${money(p.amount)} to "${p.note}" on ${p.date}`, `From ${catName(cats, p.fromCat)} → ${catName(cats, p.toCat)}`];
   if (p.kind === "merchant_rule") return [`Future payments from "${payeeName(p.payee)}" will be filed as ${catName(cats, p.cat)}`];
   if (p.kind === "add_cat") return [`New spending category: "${p.name}"`];
+  if (p.kind === "add_subcat") return [`Under ${catName(cats, p.parentId)}: "${p.name}"`];
+  if (p.kind === "rename_subcat") return [`Rename subcategory "${p.oldName}" to "${p.newName}"`];
+  if (p.kind === "remove_subcat") return [`Remove subcategory "${p.oldName}" from ${catName(cats, p.parentId)}`];
   return [`Rename "${p.oldName}" to "${p.newName}"`];
 }
 
@@ -35,6 +41,9 @@ function cardAction(p: CategoryProposal): string {
   if (p.kind === "refile") return "Move it";
   if (p.kind === "merchant_rule") return "Save rule";
   if (p.kind === "add_cat") return "Add category";
+  if (p.kind === "add_subcat") return "Add";
+  if (p.kind === "rename_subcat") return "Rename";
+  if (p.kind === "remove_subcat") return "Remove";
   return "Rename";
 }
 

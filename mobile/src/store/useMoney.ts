@@ -5,7 +5,7 @@ import {backfill, deleteAllTx, deleteTx, fileBills, insertMany, insertTx, listSi
 import {getMerchantRules, removeMerchantRule, setMerchantRule} from "@/db/merchantRules";
 import type {Note, Who} from "@/lib/ai/tools";
 import {cardTapOf} from "@/lib/cardTap";
-import {withCatalog} from "@/lib/categories";
+import {subCatSlug, withCatalog} from "@/lib/categories";
 import {addMonths, today} from "@/lib/dates";
 import {newState, uid} from "@/lib/defaults";
 import type {SetupFound} from "@/lib/found";
@@ -20,7 +20,7 @@ import {type BriefLog, NO_BRIEFS} from "@/lib/briefing";
 import {keyOf} from "@/lib/found";
 import {toBank, toRawTx, withLink, withoutLink} from "@/lib/truelayer";
 import {DEFAULT_MODEL, type ModelKey} from "@/lib/ai/models";
-import type {AppState, Bill, Category, CategoryProposal, Income, IsoDate, MerchantRule, PotRole, Tx} from "@/lib/types";
+import type {AppState, Bill, Category, CategoryProposal, Income, IsoDate, MerchantRule, PotRole, SubCat, Tx} from "@/lib/types";
 import {disconnect, fetchBank, fetchHistory, loggedIn, MonzoFail, type MonzoError} from "@/services/monzo";
 import {showCardTap} from "@/services/island";
 import {fetchLink, fetchLinkHistory, linkBank, unlink} from "@/services/truelayer";
@@ -100,6 +100,11 @@ interface MoneyStore {
   removeBill(id: string): void;
   restoreBill(b: Bill, at: number): void;
   saveCategories(cats: Category[]): void;
+  /** Creates a subcategory under parentId. Returns the new subId, or null if parentId is unknown or the name is a duplicate. */
+  addSubcategory(parentId: string, name: string): string | null;
+  renameSubcategory(parentId: string, subId: string, newName: string): string | null;
+  /** Removes the subcategory. Transactions whose subCat === subId are intentionally left intact. */
+  removeSubcategory(parentId: string, subId: string): void;
 
   addTx(t: Omit<Tx, "id" | "created">): Promise<boolean>;
   removeTx(id: string): Promise<void>;
@@ -286,6 +291,33 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     // undo: back where it was in the list
     restoreBill(b, at) { patch(s => s.bills.some(x => x.id === b.id) ? {} : {bills: [...s.bills.slice(0, at), b, ...s.bills.slice(at)]}); },
     saveCategories(categories) { patch(() => ({categories})); },
+    addSubcategory(parentId, name) {
+      const {state: s} = get();
+      if (!s) return null;
+      const parent = s.categories.find(c => c.id === parentId);
+      if (!parent) return null;
+      const subId = subCatSlug(parentId, name);
+      if (parent.subcategories?.some(sc => sc.id === subId)) return null;
+      const sub: SubCat = {id: subId, name: name.trim()};
+      get().saveCategories(s.categories.map(c => c.id === parentId ? {...c, subcategories: [...(c.subcategories ?? []), sub]} : c));
+      return subId;
+    },
+    renameSubcategory(parentId, subId, newName) {
+      const {state: s} = get();
+      if (!s) return null;
+      if (!s.categories.find(c => c.id === parentId)?.subcategories?.some(sc => sc.id === subId)) return null;
+      get().saveCategories(s.categories.map(c => c.id === parentId
+        ? {...c, subcategories: c.subcategories!.map(sc => sc.id === subId ? {...sc, name: newName.trim()} : sc)}
+        : c));
+      return subId;
+    },
+    removeSubcategory(parentId, subId) {
+      const {state: s} = get();
+      if (!s) return;
+      get().saveCategories(s.categories.map(c => c.id === parentId
+        ? {...c, subcategories: (c.subcategories ?? []).filter(sc => sc.id !== subId)}
+        : c));
+    },
 
     async addTx(t) {
       const tx: Tx = {...t, id: uid(), created: Date.now(), amount: r2(t.amount)};
@@ -307,6 +339,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         if (!f.forDate) delete n.forDate;
         if (!f.srcId) delete n.srcId;
         if (!f.refundOf) delete n.refundOf;
+        if (!f.subCat) delete n.subCat;
         delete n.needsCat;
         return n;
       })});
@@ -404,14 +437,16 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
         // and so we don't accidentally clear refundOf / forDate / srcId (refileTx deletes absent fields)
         const tx = get().txs.find(t => t.id === p.txId);
         if (!tx) return {error: "That payment's gone."};
+        const origSubCat = tx.subCat;
         const preserve = {refundOf: tx.refundOf, forDate: tx.forDate, srcId: tx.srcId};
+        // subCat is not in patch: cat changed, old subCat no longer valid, written as NULL
         const ok = await get().refileTx(p.txId, {cat: p.toCat, ...preserve});
         if (!ok) return {error: SAVE_FAILED};
-        return {undo: async () => { await get().refileTx(p.txId, {cat: p.fromCat, ...preserve}); }};
+        return {undo: async () => { await get().refileTx(p.txId, {cat: p.fromCat, subCat: origSubCat, ...preserve}); }};
       }
 
       if (p.kind === "merchant_rule") {
-        try { await setMerchantRule(p.payee, p.cat); } catch { return {error: SAVE_FAILED}; }
+        try { await setMerchantRule(p.payee, p.cat, p.subCat); } catch { return {error: SAVE_FAILED}; }
         const refreshRules = () => getMerchantRules().then(merchantRules => set({merchantRules})).catch(() => {});
         void refreshRules();
         return {undo: async () => { await removeMerchantRule(p.payee).catch(() => {}); void refreshRules(); }};
@@ -425,6 +460,23 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
           if (cur) get().saveCategories(cur.categories.filter(x => x.id !== newCat.id));
         };
         return {undo: async () => rollback()};
+      }
+
+      if (p.kind === "add_subcat") {
+        const subId = get().addSubcategory(p.parentId, p.name);
+        if (!subId) return {error: "That category's gone."};
+        return {undo: async () => get().removeSubcategory(p.parentId, subId)};
+      }
+
+      if (p.kind === "rename_subcat") {
+        get().renameSubcategory(p.parentId, p.subId, p.newName);
+        return {undo: async () => { get().renameSubcategory(p.parentId, p.subId, p.oldName); }};
+      }
+
+      if (p.kind === "remove_subcat") {
+        get().removeSubcategory(p.parentId, p.subId);
+        // addSubcategory with p.oldName produces the same slug → same id (deterministic)
+        return {undo: async () => { get().addSubcategory(p.parentId, p.oldName); }};
       }
 
       // rename_cat
@@ -468,7 +520,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 }, {
   name: "money-tracker",
-  version: 3,
+  version: 4,
   migrate: (saved, version) => migrateSaved(saved, version) as MoneyStore,
   storage: kv,
   partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, frankRoom: s.frankRoom, livingView: s.livingView, accountant: s.accountant, models: s.models, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes, scan: s.scan, answers: s.answers, briefLog: s.briefLog}),

@@ -25,9 +25,10 @@ export const needsRefundCat = (k: string) => k === "refund" || k === "payback";
 export const unsorted = (it: Tx) => !!it.needsCat || (it.type === "income" && it.cat === "monzo-in");
 
 export type Filing =
-  | {kind: "bill" | "cat" | "pay"; id: string}
+  | {kind: "bill" | "pay"; id: string}
+  | {kind: "cat"; id: string; subCat?: string}
   | {kind: "in"; id: InKind; refundOf?: string};
-export interface FilingPatch { cat: string; billId?: string; forDate?: IsoDate; srcId?: string; refundOf?: string }
+export interface FilingPatch { cat: string; subCat?: string; billId?: string; forDate?: IsoDate; srcId?: string; refundOf?: string }
 
 const catName = (ctx: Ctx, id?: string) => ctx.state.categories.find(x => x.id === id)?.name || "General";
 
@@ -68,7 +69,8 @@ export function fileUnder(ctx: Ctx, it: Tx, pick: Filing): {patch: FilingPatch; 
     }
     return {patch: {cat: pick.id}, msg: pick.id === "transfer" ? "Marked as your own money moving. It isn't income" : "Filed as other income"};
   }
-  return {patch: {cat: pick.id}, msg: `Filed under ${catName(ctx, pick.id)}`};
+  // kind === "cat"
+  return {patch: {cat: pick.id, ...(pick.kind === "cat" && pick.subCat ? {subCat: pick.subCat} : {})}, msg: `Filed under ${catName(ctx, pick.id)}`};
 }
 
 /** What money in was, in a few words. */

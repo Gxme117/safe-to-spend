@@ -135,10 +135,11 @@ export function importTxs(ctx: Ctx, raw: RawTx[], stamp: number, newId: () => st
       // a bill it paid is filed against it (each due date once: it sees the ones before it); otherwise the category Monzo's
       // points to (lib/categories.ts), or General and asked
       const bill = billMatch({...ctx, txs: [...ctx.txs, ...out]}, row);
-      const ruleCat = matchMerchantRule(ctx.rules ?? [], note);
-      const cat = ruleCat ?? bankCat(ctx.state.categories, t.category, note);
+      const ruleMatch = matchMerchantRule(ctx.rules ?? [], note);
+      const cat = ruleMatch?.cat ?? bankCat(ctx.state.categories, t.category, note);
       if (bill) Object.assign(row, paidBill(bill));
-      else if (cat) row.cat = cat; else { row.cat = GENERAL; row.needsCat = true; }
+      else if (cat) { row.cat = cat; if (ruleMatch?.subCat) row.subCat = ruleMatch.subCat; }
+      else { row.cat = GENERAL; row.needsCat = true; }
     } else {
       // pay that matches an income source counts as that payday arriving
       // who pays it, when setup saw that in Monzo; otherwise the income's name. Either can be in the reference or the payer's name

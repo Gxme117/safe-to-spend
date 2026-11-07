@@ -78,3 +78,41 @@ describe("money in", () => {
     expect(moneyInWhat(c, moneyIn({cat: "payback", refundOf: "eating"}))).toBe("Paid back, Eating out");
   });
 });
+
+describe("subcategory filing", () => {
+  const catWithSubs = {
+    id: "groceries", name: "Groceries", budget: 200, fixed: false, group: "everyday" as const,
+    subcategories: [{id: "groceries/organic", name: "Organic"}],
+  };
+  const state = {...baseState(), categories: baseState().categories.map(c => c.id === "groceries" ? catWithSubs : c)};
+
+  test("filing with a subCat produces the right patch", () => {
+    const it = tx({amount: 12, date: "2026-10-05", cat: "other"});
+    expect(fileUnder(ctx({state, txs: [it]}), it, {kind: "cat", id: "groceries", subCat: "groceries/organic"}))
+      .toEqual({patch: {cat: "groceries", subCat: "groceries/organic"}, msg: "Filed under Groceries"});
+  });
+
+  test("filing without subCat on a cat with subcats omits subCat from patch", () => {
+    const it = tx({amount: 12, date: "2026-10-05", cat: "other"});
+    expect(fileUnder(ctx({state, txs: [it]}), it, {kind: "cat", id: "groceries"}))
+      .toEqual({patch: {cat: "groceries"}, msg: "Filed under Groceries"});
+  });
+
+  test("switching to a different parent always omits subCat from patch", () => {
+    const it = tx({amount: 12, date: "2026-10-05", cat: "groceries", subCat: "groceries/organic"});
+    expect(fileUnder(ctx({state, txs: [it]}), it, {kind: "cat", id: "eating"}))
+      .toEqual({patch: {cat: "eating"}, msg: "Filed under Eating out"});
+  });
+
+  test("re-filing under same cat with same subCat preserves it", () => {
+    const it = tx({amount: 12, date: "2026-10-05", cat: "groceries", subCat: "groceries/organic"});
+    expect(fileUnder(ctx({state, txs: [it]}), it, {kind: "cat", id: "groceries", subCat: "groceries/organic"}))
+      .toMatchObject({patch: {cat: "groceries", subCat: "groceries/organic"}});
+  });
+
+  test("existing payments.test behaviour unchanged: cat without subCat produces simple patch", () => {
+    const it = tx({amount: 12, date: "2026-10-05", cat: "other"});
+    expect(fileUnder(ctx({txs: [it]}), it, {kind: "cat", id: "eating"}))
+      .toEqual({patch: {cat: "eating"}, msg: "Filed under Eating out"});
+  });
+});

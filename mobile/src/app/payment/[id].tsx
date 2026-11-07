@@ -61,22 +61,56 @@ type Props = {ctx: Ctx; it: Tx; choose: (p: Filing) => void};
 
 function MoneyOut({ctx, it, choose}: Props) {
   const {bills} = ctx.state;
-  // an unsorted payment has nothing picked yet: General was only a placeholder
-  const on = (k: "bill" | "cat", x: string) => !unsorted(it) && (k === "bill" ? it.billId === x : !it.billId && it.cat === x);
+  const cats = spendCats(ctx.state);
+  const catHasSubs = (id: string) => !!(cats.find(c => c.id === id)?.subcategories?.length);
+
+  // Start showing subcats when editing a payment already filed under a cat that has subcats
+  const [pendingCat, setPendingCat] = useState<string | null>(
+    () => !unsorted(it) && !it.billId && catHasSubs(it.cat) ? it.cat : null
+  );
+
+  const handleCatPress = (id: string) => {
+    if (catHasSubs(id)) { setPendingCat(id); }
+    else { setPendingCat(null); choose({kind: "cat", id}); }
+  };
+
+  // Which category chip is "on": if subcat row is showing, only the pending cat; otherwise the existing filing
+  const catOn = (id: string) => {
+    if (unsorted(it) || it.billId) return false;
+    if (pendingCat !== null) return pendingCat === id;
+    return it.cat === id;
+  };
+
+  const subs = pendingCat ? (cats.find(c => c.id === pendingCat)?.subcategories ?? []) : [];
+
   return (
     <>
       {bills.length ? (
         <Field label="A bill">
           <View style={chipRow}>
-            {bills.map(b => <Chip key={b.id} label={b.name} on={on("bill", b.id)} onPress={() => choose({kind: "bill", id: b.id})} />)}
+            {bills.map(b => <Chip key={b.id} label={b.name} on={!unsorted(it) && it.billId === b.id} onPress={() => choose({kind: "bill", id: b.id})} />)}
           </View>
         </Field>
       ) : null}
       <Field label={bills.length ? "Or spending" : "What was it for?"}>
         <View style={chipRow}>
-          {spendCats(ctx.state).map(x => <Chip key={x.id} label={x.name} on={on("cat", x.id)} onPress={() => choose({kind: "cat", id: x.id})} />)}
+          {cats.map(x => <Chip key={x.id} label={x.name} on={catOn(x.id)} onPress={() => handleCatPress(x.id)} />)}
         </View>
       </Field>
+      {subs.length > 0 ? (
+        <Field label="Subcategory (optional)">
+          <View style={chipRow}>
+            {subs.map(sc => (
+              <Chip key={sc.id} label={sc.name}
+                on={pendingCat === it.cat && it.subCat === sc.id}
+                onPress={() => choose({kind: "cat", id: pendingCat!, subCat: sc.id})} />
+            ))}
+            <Chip label="None"
+              on={pendingCat === it.cat && !it.subCat}
+              onPress={() => choose({kind: "cat", id: pendingCat!})} />
+          </View>
+        </Field>
+      ) : null}
     </>
   );
 }

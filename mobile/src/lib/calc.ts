@@ -18,6 +18,25 @@ function addSpend(by: Record<string, number>, it: Tx) {
 }
 const clampSpend = (by: Record<string, number>) => { for (const k in by) by[k] = r2(Math.max(0, by[k])); };
 
+/**
+ * Sub-breakdown for each category (excludes bill-linked payments, same rule as spendIn).
+ * Returns {catId: {subCatId: amount}}. Categories with no subcategory payments are omitted.
+ */
+export function subcatSpent(txs: Tx[]): Record<string, Record<string, number>> {
+  const by: Record<string, Record<string, number>> = {};
+  for (const t of txs) {
+    if (!t.subCat || t.billId) continue;
+    if (t.type === "expense") {
+      const subs = (by[t.cat] ??= {});
+      subs[t.subCat] = (subs[t.subCat] ?? 0) + t.amount;
+    } else if (t.type === "income" && t.refundOf) {
+      const subs = by[t.refundOf];
+      if (subs?.[t.subCat]) subs[t.subCat] = Math.max(0, subs[t.subCat] - t.amount);
+    }
+  }
+  return by;
+}
+
 export interface EverydayLeft { x: Category; spent: number; left: number }
 
 export interface Calc {

@@ -12,10 +12,10 @@ import {Floater, usePitSim} from "@/components/PitSim";
 import {T} from "@/components/ui";
 import {answerHint, budgetHint} from "@/lib/budget";
 import type {Calc} from "@/lib/calc";
-import {addMonths, monthName} from "@/lib/dates";
+import {addMonths, lastOfMonth, monthName} from "@/lib/dates";
 import {uid} from "@/lib/defaults";
 import {livingMonth, livingMonthDue, livingMonthPayments, livingWhen, monthByDate, MONTHS_EACH_WAY} from "@/lib/livingMonth";
-import {bubbleRadii, livingAction, livingByDue, livingDraft, livingDue, livingItems, livingLabel, livingMarked, livingPayment, livingPayments, livingTotals, pack, pileOrder, R_ADD, saveLiving, type LivingDraft, type LivingItem} from "@/lib/living";
+import {bubbleRadii, livingAction, livingByDue, livingDraft, livingDue, livingItems, livingLabel, livingMarked, livingPayment, livingPayments, livingTotals, pack, pileOrder, R_ADD, saveLiving, subcatBreakdown, type LivingDraft, type LivingItem, type SubcatGroup} from "@/lib/living";
 import {money} from "@/lib/money";
 import type {Bill, Ctx} from "@/lib/types";
 import {useCalc} from "@/store/useCalc";
@@ -86,6 +86,17 @@ function Living({ctx, c}: {ctx: Ctx; c: Calc}) {
   const step = (n: number) => { close(); setLast(null); setNone(false); setYm(m => addMonths(m, n)); };
   const back = ym > addMonths(thisMonth, -MONTHS_EACH_WAY), fwd = ym < addMonths(thisMonth, MONTHS_EACH_WAY);
   const dueOf = (x: LivingItem) => now ? livingDue(ctx, c, x) : livingMonthDue(ctx, ym, x);
+  // subcategory breakdown for each everyday item in the current view (not for future months: no transactions)
+  const subcatMap: Record<string, SubcatGroup[]> = {};
+  if (when !== "future") {
+    const from = now ? c.cycleFrom : `${ym}-01`;
+    const to = now ? ctx.today : lastOfMonth(ym);
+    for (const item of items) {
+      if (!item.estimate) continue;
+      const groups = subcatBreakdown(ctx.txs, item.ref, from, to, ctx.state.categories);
+      if (groups.length >= 2) subcatMap[item.id] = groups;
+    }
+  }
   // the sheet's height eases to each new one (short to tall), so the pile rides up and down with it rather than jumping
   const [height] = useState(() => new Animated.Value(sheetH));
   useEffect(() => {
@@ -188,8 +199,8 @@ function Living({ctx, c}: {ctx: Ctx; c: Calc}) {
         </View>
       </View>
       {list ? (
-        <LivingList items={items} sel={sel} tap={tap} add={canAdd ? startAdd : undefined} pad={shown ? sheetH + REST : 0} due={dueOf} empty={empty}
-          byDue={bills => now ? livingByDue(ctx, c, bills) : monthByDate(bills)} />
+        <LivingList key={ym} items={items} sel={sel} tap={tap} add={canAdd ? startAdd : undefined} pad={shown ? sheetH + REST : 0} due={dueOf} empty={empty}
+          byDue={bills => now ? livingByDue(ctx, c, bills) : monthByDate(bills)} subcatMap={subcatMap} />
       ) : (
         <Animated.View style={{flex: 1, paddingHorizontal: s[4], transform: [{translateY: lift}]}}>
           {/* a new month drops in afresh */}
@@ -198,6 +209,7 @@ function Living({ctx, c}: {ctx: Ctx; c: Calc}) {
       )}
       <LivingSheet ctx={ctx} item={lit} due={lit ? dueOf(lit) : {line: "", bold: ""}}
         payments={lit ? now ? livingPayments(ctx, c, lit) : livingMonthPayments(ctx, ym, lit) : []}
+        subcats={lit ? subcatMap[lit.id] : undefined}
         hint={hint} onHint={change => lit && answer(lit, change)} readOnly={!now}
         open={open} isOpen={isOpen} adding={adding} onAdd={added} month={now ? undefined : `${ym}-01`} onHeight={h => setSheetH(was => Math.abs(was - h) < 0.5 ? was : h)} close={close}
         action={lit ? livingAction(ctx, c, lit) : null} onAction={() => lit && act(lit)} onDelete={() => lit && remove(lit)}

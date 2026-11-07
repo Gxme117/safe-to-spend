@@ -1,6 +1,6 @@
 import type {SQLiteDatabase} from "expo-sqlite";
 
-const VERSION = 7;
+const VERSION = 8;
 
 /** Brings the database up to VERSION, one step at a time (pattern from the expo-sqlite docs). */
 export async function migrate(db: SQLiteDatabase) {
@@ -80,6 +80,13 @@ export async function migrate(db: SQLiteDatabase) {
       );
     `);
     v = 7;
+  }
+  if (v === 7) {
+    // Which subcategory a payment or rule belongs to.
+    await db.execAsync(
+      "ALTER TABLE tx ADD COLUMN sub_cat TEXT; ALTER TABLE merchant_rule ADD COLUMN sub_cat TEXT",
+    );
+    v = 8;
   }
   await db.execAsync(`PRAGMA user_version = ${VERSION}`);
 }

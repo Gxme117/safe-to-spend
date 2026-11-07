@@ -62,6 +62,12 @@ export type Group = "bills" | "everyday" | "free";
 /** How often everyday spending happens. The amount is each time: £15, 2–3 times a week. */
 export type SpendFreq = "daily" | "most-days" | "few-times" | "weekly" | "fortnightly" | "monthly" | "quarterly" | "yearly";
 
+/** An optional subdivision within a category. Shares the parent's budget. id is "<parentId>/<slug>", stable across renames. */
+export interface SubCat {
+  id: string;
+  name: string;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -70,6 +76,7 @@ export interface Category {
   group?: Group;
   usual?: {amount: number; freq: SpendFreq; source?: Source};   // what you normally spend, at setup (budget can differ): typed, or found in your bank
   budgetKept?: IsoDate;   // the day a suggested new budget was answered (changed or kept): only pay cycles that end after it count towards the next one
+  subcategories?: SubCat[];
 }
 
 export type TxType = "expense" | "income" | "save";
@@ -90,6 +97,7 @@ export interface Tx {
   logo?: string;      // the shop's logo link, as Monzo sent it
   needsCat?: boolean; // Monzo's category didn't match one of yours: ask, don't guess
   refundOf?: string;  // money in that's a refund or paying you back: the category it goes back to
+  subCat?: string;    // SubCat.id, or undefined
 }
 
 export interface AppState {
@@ -138,11 +146,14 @@ export interface Ctx {
 }
 
 /** A payee name the user taught → the category to file future payments from them under. */
-export interface MerchantRule { payee: string; cat: string; created: number }
+export interface MerchantRule { payee: string; cat: string; subCat?: string; created: number }
 
 /** A change to a category or filing that Frank or Tim proposes: nothing is saved until the user taps yes. */
 export type CategoryProposal =
   | {kind: "refile"; txId: string; note: string; date: IsoDate; amount: number; fromCat: string; toCat: string}
-  | {kind: "merchant_rule"; payee: string; cat: string}
+  | {kind: "merchant_rule"; payee: string; cat: string; subCat?: string}
   | {kind: "add_cat"; name: string}
-  | {kind: "rename_cat"; id: string; oldName: string; newName: string};
+  | {kind: "rename_cat"; id: string; oldName: string; newName: string}
+  | {kind: "add_subcat"; parentId: string; name: string}
+  | {kind: "rename_subcat"; parentId: string; subId: string; oldName: string; newName: string}
+  | {kind: "remove_subcat"; parentId: string; subId: string; oldName: string};
