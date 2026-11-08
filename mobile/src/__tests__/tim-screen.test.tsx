@@ -1257,7 +1257,7 @@ test("the burger button opens recent chats, and a tap on the page closes it", as
   expect(burger).toBeCollapsed();
   await fireEvent.press(burger);
   expect(burger).toBeExpanded();
-  expect(screen.getByRole("header", {name: "Pinch"})).toBeOnTheScreen();
+  expect(screen.getByRole("header", {name: "Pocket"})).toBeOnTheScreen();
   await fireEvent.press(screen.getByTestId("close-recent-chats"));
   expect(burger).toBeCollapsed();
 });

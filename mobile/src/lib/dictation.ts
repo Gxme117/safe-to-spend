@@ -46,8 +46,8 @@ export function transcriptOf(ev: {results?: {transcript?: string}[]}): string {
 const QUIET = ["aborted", "no-speech", "speech-timeout", "nomatch"];
 
 const SAY: Record<string, string> = {
-  "not-allowed": "I can't hear you — Pinch hasn't got the microphone yet. You can turn it on in Settings, under Pinch",
-  "service-not-allowed": "I can't hear you — Pinch hasn't got the microphone yet. You can turn it on in Settings, under Pinch",
+  "not-allowed": "I can't hear you — Pocket hasn't got the microphone yet. You can turn it on in Settings, under Pocket",
+  "service-not-allowed": "I can't hear you — Pocket hasn't got the microphone yet. You can turn it on in Settings, under Pocket",
   "audio-capture": "The microphone didn't come on. Type your question and I'll read it",
   interrupted: "Something else is using the microphone. Try again in a moment, or just type it",
   busy: "Something else is using the microphone. Try again in a moment, or just type it",

@@ -45,7 +45,7 @@ const Tile = GLASS ? GlassView : View; // the feature's mark: glass never gets o
 function Header({who, status, c, edge}: {who: Who; status: OrgCardStatus; c: Palette; edge: string}) {
   return (
     <View style={{flexDirection: "row", alignItems: "flex-start", gap: s[3]}}>
-      {/* the feature's mark, so it reads as a thing Pinch does rather than a message */}
+      {/* the feature's mark, so it reads as a thing Pocket does rather than a message */}
       {/* an app-icon squircle: iOS's corner is about 22% of the side, drawn with the continuous curve */}
       {/* Liquid Glass where the phone has it (iOS 26), else the soft grey tile it was */}
       <Tile {...GLASS ? {glassEffectStyle: "regular" as const} : {}}

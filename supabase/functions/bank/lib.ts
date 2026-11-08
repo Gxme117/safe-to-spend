@@ -3,7 +3,7 @@
 
 export type Env = "sandbox" | "live";
 
-/** What Pinch asks the bank for: read only, and offline_access so it keeps working after the first hour. */
+/** What Pocket asks the bank for: read only, and offline_access so it keeps working after the first hour. */
 export const SCOPES = "info accounts balance transactions offline_access";
 
 /** The sandbox only has TrueLayer's Mock bank; live is every UK bank, Open Banking or OAuth. */

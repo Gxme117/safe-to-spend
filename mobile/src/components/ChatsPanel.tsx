@@ -49,7 +49,7 @@ export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete
   return (
     <View style={{flex: 1}}>
       <View style={{height: 32, flexDirection: "row", alignItems: "center", gap: 8}}>
-        <Text accessibilityRole="header" style={{fontFamily: hanken.bold, fontSize: 22, lineHeight: 28, letterSpacing: -.22, color: c.ink}}>Pinch</Text>
+        <Text accessibilityRole="header" style={{fontFamily: hanken.bold, fontSize: 22, lineHeight: 28, letterSpacing: -.22, color: c.ink}}>Pocket</Text>
         {/* the logo is said with the name, not on its own */}
         <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><Logo height={20} /></View>
       </View>

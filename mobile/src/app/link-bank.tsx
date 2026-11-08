@@ -44,7 +44,7 @@ export default function LinkBank() {
   );
   return (
     <Form error={error} submit={busy ? "Connecting…" : "Choose your bank"} onSubmit={busy ? () => {} : choose}>
-      <T muted>Connect your bank through Open Banking. You log in on your bank&apos;s own page, and Pinch only reads your balances and payments.</T>
+      <T muted>Connect your bank through Open Banking. You log in on your bank&apos;s own page, and Pocket only reads your balances and payments.</T>
       {monzo ? null : <TextLink label="Connect Monzo instead" onPress={() => router.replace("/connect-bank")} />}
     </Form>
   );

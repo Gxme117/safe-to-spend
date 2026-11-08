@@ -24,7 +24,7 @@ const fromAsset = (a: ImagePickerAsset) => photo(a.uri, a.width, a.height, a.fil
 /** A photo from the camera. */
 export async function fromCamera(): Promise<Picked> {
   const ok = await requestCameraPermissionsAsync().catch(() => null);
-  if (!ok?.granted) return {reason: "Pinch can't use the camera. You can allow it in Settings."};
+  if (!ok?.granted) return {reason: "Pocket can't use the camera. You can allow it in Settings."};
   try {
     const r = await launchCameraAsync({mediaTypes: ["images"], quality: 1});
     return {add: r.canceled ? [] : await Promise.all(r.assets.map(fromAsset))};

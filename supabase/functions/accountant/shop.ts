@@ -451,7 +451,7 @@ export function fallbackQueries(ask: ShopAsk, room: number): string[] {
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // Reading a shop's page: only https on a public name, a few redirects each checked again, a size limit, and robots.txt asked first
-export const USER_AGENT = "Mozilla/5.0 (compatible; PinchPriceCheck/1.0; one page for a person's question)";
+export const USER_AGENT = "Mozilla/5.0 (compatible; PocketPriceCheck/1.0; one page for a person's question)";
 const PRIVATE = /^(?:localhost|.*\.local|.*\.internal|.*\.localhost|0\.0\.0\.0)$/i;
 /** Whether an address is one to fetch: https, a public host name (no IP address, no port but 443). */
 export function safeUrl(url: string): boolean {
@@ -474,7 +474,7 @@ export function robotsAllow(txt: string, path: string): boolean {
       // the user-agent lines before a group's rules are one group; one after rules starts the next
       if (sawRule) { inGroup = false; sawRule = false; }
       const agent = value.toLowerCase();
-      if (agent === "*" || agent.includes("pinch")) inGroup = true;
+      if (agent === "*" || agent.includes("pocket")) inGroup = true;
       continue;
     }
     if (key !== "allow" && key !== "disallow") continue;

@@ -18,7 +18,7 @@ export function ConsentSheet({visible, name, onYes, onNo}: {visible: boolean; na
         <ScrollView contentContainerStyle={{paddingHorizontal: s[5], paddingTop: s[6], paddingBottom: s[4], gap: s[4]}}>
           <T weight="bold" size="lg">Before {name} looks at your numbers</T>
           <T>To answer, he looks up what your question needs: your balance, bills, budgets and payments, and who they were with.</T>
-          <T>Those figures, your question and what he&apos;s noted about you go to Anthropic, the company whose AI he runs on, through Pinch&apos;s own server. Pinch&apos;s server keeps none of it.</T>
+          <T>Those figures, your question and what he&apos;s noted about you go to Anthropic, the company whose AI he runs on, through Pocket&apos;s own server. Pocket&apos;s server keeps none of it.</T>
           <T>Photos and files you add to a question go to Anthropic too, with your question.</T>
           <T>To check a price or a service, he may search the web and open shops&apos; pages: Anthropic does that for him. What he looks for is the product or service, never your balance or your details.</T>
           <T>He also says one short line of each answer out loud: that line goes to ElevenLabs, the company that makes his voice, through the same server, which keeps none of it.</T>

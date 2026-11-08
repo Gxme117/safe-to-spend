@@ -11,9 +11,9 @@
       "bundleIdentifier": "com.gxme1170.money-tracker",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSPhotoLibraryUsageDescription": "Pinch doesn't look at your photos. A tool built into the app mentions the photo library, so Apple asks us to say so here, but Pinch never opens it.",
-        "NSSpeechRecognitionUsageDescription": "Pinch turns what you say into text on your phone. It doesn't send your voice anywhere.",
-        "NSMicrophoneUsageDescription": "Pinch uses the microphone so you can say your question to Tim and Frank instead of typing it."
+        "NSPhotoLibraryUsageDescription": "Pocket doesn't look at your photos. A tool built into the app mentions the photo library, so Apple asks us to say so here, but Pocket never opens it.",
+        "NSSpeechRecognitionUsageDescription": "Pocket turns what you say into text on your phone. It doesn't send your voice anywhere.",
+        "NSMicrophoneUsageDescription": "Pocket uses the microphone so you can say your question to Tim and Frank instead of typing it."
       }
     },
     "android": {
@@ -45,7 +45,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Pinch uses the microphone so you can say your question to Tim and Frank instead of typing it.",
+          "microphonePermission": "Pocket uses the microphone so you can say your question to Tim and Frank instead of typing it.",
           "recordAudioAndroid": false,
           "enableBackgroundPlayback": true
         }
@@ -53,14 +53,14 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Pinch uses the microphone so you can say your question to Tim and Frank instead of typing it."
+          "microphonePermission": "Pocket uses the microphone so you can say your question to Tim and Frank instead of typing it."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Pinch opens your photos so you can show Tim and Frank a receipt, a bill or a letter.",
-          "cameraPermission": "Pinch uses the camera so you can show Tim and Frank a receipt, a bill or a letter.",
+          "photosPermission": "Pocket opens your photos so you can show Tim and Frank a receipt, a bill or a letter.",
+          "cameraPermission": "Pocket uses the camera so you can show Tim and Frank a receipt, a bill or a letter.",
           "microphonePermission": false
         }
       ]

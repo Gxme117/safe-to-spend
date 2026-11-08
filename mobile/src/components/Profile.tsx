@@ -103,7 +103,7 @@ export function AccountantCard() {
         <Switch value={consent} onValueChange={v => useMoney.getState().setAiConsent(v)} trackColor={{true: c.ink, false: c.line}} accessibilityLabel="Let Tim and Frank look at your numbers" />
       </View>
       <T muted>{consent
-        ? "When you ask them something, the figures it needs go to Anthropic, whose AI they run on, through Pinch's server, which keeps none of it. Never your account numbers or logins."
+        ? "When you ask them something, the figures it needs go to Anthropic, whose AI they run on, through Pocket's server, which keeps none of it. Never your account numbers or logins."
         : "They'll ask first, the next time you ask them something."}</T>
       <View style={{flexDirection: "row", alignItems: "center", gap: s[3]}}>
         <T style={{flex: 1}}>They read their answers out</T>

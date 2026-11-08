@@ -1,6 +1,6 @@
 # Living screen: spec
 
-The **Living** tab of the Pinch budgeting app shows your cost of living as a ball pit of bubbles. Each bubble is a bill or regular expense. **Bigger bubble = costs more.**
+The **Living** tab of the Pocket budgeting app shows your cost of living as a ball pit of bubbles. Each bubble is a bill or regular expense. **Bigger bubble = costs more.**
 
 - The page answers **"what does my life cost, and what makes it up?"**
 - It does not answer "when is it due?". That belongs to the separate **Coming up** tab (a forecast of the months ahead, not designed yet).
