@@ -1,4 +1,4 @@
-import {buildPreviewExamples, buildRun, changeKey, eligible, isAmbiguous, orgReport, withEdits} from "../organise";
+import {addedUsed, buildPreviewExamples, buildRun, changeKey, eligible, isAmbiguous, orgReport, withEdits} from "../organise";
 import type {OrgRun} from "../organise";
 import type {AppState, Ctx, MerchantRule, Tx} from "../types";
 
@@ -117,6 +117,49 @@ describe("buildRun — merchant rule (high confidence)", () => {
     const {run} = buildRun("r1", txs, ctx, rules);
     // With bills present, spendCats excludes fixed cats → falls through to low
     expect(run.changes[0].confidence).toBe("low");
+  });
+});
+
+// --- Subscriptions: made when there's none, names tidied ---
+
+describe("buildRun — Subscriptions", () => {
+  const txs = [makeTx({id: "s1", note: "SPOTIFY"}), makeTx({id: "s2", note: "NETFLIX.COM", date: "2026-11-02"}), makeTx({id: "s3", note: "AMAZON PRIME", date: "2026-11-03"})];
+
+  it("makes Subscriptions (free, no budget) when you have none, and sorts Spotify, Netflix and Amazon Prime into it", () => {
+    const {run, preview} = buildRun("r1", txs, makeCtx(txs), NO_RULES);
+    expect(run.added).toEqual([{id: "subscriptions", name: "Subscriptions", budget: 0, fixed: false}]);
+    expect(run.changes.map(c => c.toCat)).toEqual(["subscriptions", "subscriptions", "subscriptions"]);
+    expect(preview.high).toBe(3);
+    expect(run.changes.every(c => c.confidence === "high")).toBe(true);
+  });
+
+  it("is made once however many payments, and the card names it before it exists", () => {
+    const state = makeCtx(txs).state;
+    const {run} = buildRun("r1", txs, makeCtx(txs), NO_RULES);
+    expect(run.added).toHaveLength(1);
+    const withAdded = {...state, categories: [...state.categories, ...run.added!]};
+    expect(buildPreviewExamples(run, txs, withAdded).map(e => e.toCatName)).toEqual(["Subscriptions", "Subscriptions", "Subscriptions"]);
+  });
+
+  it("uses yours instead of making another: one called Subscriptions, even with another id", () => {
+    const state = {...BASE_STATE, categories: [...BASE_STATE.categories, {id: "cx1", name: "Subscriptions", budget: 25, fixed: false}]};
+    const {run} = buildRun("r1", txs, makeCtx(txs, state), NO_RULES);
+    expect(run.added).toBeUndefined();
+    expect(run.changes.map(c => c.toCat)).toEqual(["cx1", "cx1", "cx1"]);
+  });
+
+  it("only keeps what payments really go to: an edit that moves them all leaves nothing to make", () => {
+    const {run} = buildRun("r1", txs, makeCtx(txs), NO_RULES);
+    const moved = run.changes.map(c => ({...c, toCat: "entertainment"}));
+    expect(addedUsed(run, run.changes)).toHaveLength(1);
+    expect(addedUsed(run, moved)).toEqual([]);
+  });
+
+  it("shows names the way a person writes them, not the bank's capitals", () => {
+    const t = [makeTx({id: "o1", note: "ODEON CINEMAS"}), makeTx({id: "o2", note: "SPOTIFY", date: "2026-11-02"})];
+    const {run} = buildRun("r1", t, makeCtx(t), NO_RULES);
+    const notes = buildPreviewExamples(run, t, {...BASE_STATE, categories: [...BASE_STATE.categories, ...(run.added ?? [])]}).map(e => e.note);
+    expect(notes).toEqual(expect.arrayContaining(["Odeon Cinemas", "Spotify"]));
   });
 });
 

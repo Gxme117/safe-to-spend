@@ -5,7 +5,7 @@ import {backfill, deleteAllTx, deleteTx, fileBills, insertMany, insertTx, listSi
 import {getMerchantRules, removeMerchantRule, setMerchantRule} from "@/db/merchantRules";
 import {applyRun, pruneOldRuns, undoRun} from "@/db/organise";
 import {getCachedGuesses, saveCachedGuesses} from "@/db/classify";
-import {buildPreviewExamples, buildRun, changeKey, eligible, orgReport, withEdits, type Confidence, type OrgReport} from "@/lib/organise";
+import {addedUsed, buildPreviewExamples, buildRun, changeKey, eligible, orgReport, withEdits, type Confidence, type OrgReport} from "@/lib/organise";
 import type {OrgEdits, OrgPreviewWithExamples} from "@/lib/orgProposal";
 import {sanitizeGuesses, unresolvedPayees} from "@/lib/classify";
 import {classifyPayees} from "@/services/classify";
@@ -558,7 +558,9 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
 
       const {run, preview} = buildRun(id, txs, ctx, merchantRules, guesses);
       if (!preview.high && !preview.medium) return null;
-      const examples = buildPreviewExamples(run, txs, state);
+      // a category the run makes (Subscriptions) is named on the card before it exists
+      const withAdded: AppState = run.added?.length ? {...state, categories: [...state.categories, ...run.added]} : state;
+      const examples = buildPreviewExamples(run, txs, withAdded);
       const previewWithExamples: OrgPreviewWithExamples = {...preview, examples};
       return {
         preview: previewWithExamples,
@@ -577,6 +579,10 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
             // A shop's payments the person put somewhere else: theirs is the category now (see withEdits)
             const edited = withEdits(run, txs, edits);
             const at = Date.now();
+            // the new category goes in first, only if payments really go there, so every payment points at one that exists
+            const made = addedUsed(run, edited.changes.filter(c => !skippedTxIds.has(c.txId)));
+            const cur = get().state;
+            if (made.length && cur) get().saveCategories([...cur.categories, ...made.filter(m => !cur.categories.some(x => x.id === m.id))]);
             await applyRun(edited, at, skippedTxIds.size ? skippedTxIds : undefined);
             const refreshed = await listSince(addMonths(today(), -12));
             const rules = await getMerchantRules();
@@ -586,15 +592,22 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
             const appliedChanges = edited.changes.filter(c => !skippedTxIds.has(c.txId));
             const filteredRun = {...edited, changes: appliedChanges};
             const count = preview.high + (preview.medium - skippedTxIds.size);
-            get().notify(`Sorted ${count} payment${count === 1 ? "" : "s"} · Undo`, true, async () => {
+            const madeNames = made.map(m => m.name).join(" and ");
+            get().notify(`Sorted ${count} payment${count === 1 ? "" : "s"}${madeNames ? `, added ${madeNames}` : ""} · Undo`, true, async () => {
               const {restored, skipped} = await undoRun(run.id);
               const refreshed2 = await listSince(addMonths(today(), -12));
               const rules2 = await getMerchantRules();
               set({txs: refreshed2, merchantRules: rules2});
+              // the category it made goes too, unless you've since given it a budget or put something in it
+              const now = get().state;
+              if (made.length && now) {
+                const keep = (x: Category) => !made.some(m => m.id === x.id) || x.budget > 0 || refreshed2.some(t => t.cat === x.id);
+                get().saveCategories(now.categories.filter(keep));
+              }
               const msg = skipped > 0 ? `Put back ${restored} · ${skipped} you'd changed were left` : `Put back ${restored}`;
               get().notify(msg, false);
             });
-            const report = orgReport(ctx, filteredRun);
+            const report = orgReport({...ctx, state: get().state ?? withAdded}, filteredRun);
             return {report};
           } catch {
             set({organising: false});

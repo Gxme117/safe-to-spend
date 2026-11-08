@@ -113,6 +113,16 @@ describe("where a payment from the bank goes", () => {
     expect(bankCat(coffee, "eating_out", "Costa")).toBe("coffee");
   });
 
+  test("Spotify and Netflix are Subscriptions, but stay in a Fun budget you set (Subscriptions has none)", () => {
+    const free = withCatalog([]);
+    expect(bankCat(free, "entertainment", "SPOTIFY")).toBe("subscriptions");
+    expect(bankCat(free, "entertainment", "ODEON CINEMAS")).toBe("entertainment");
+    const fun = withCatalog([budget("entertainment", "Fun", 60)]);
+    expect(bankCat(fun, "entertainment", "NETFLIX.COM")).toBe("entertainment");
+    const both = withCatalog([budget("entertainment", "Fun", 60), budget("subscriptions", "Subscriptions", 30)]);
+    expect(bankCat(both, "entertainment", "NETFLIX.COM")).toBe("subscriptions");
+  });
+
   test("a category you don't have isn't filed into (settings not brought up to date yet)", () => {
     expect(bankCat(baseState().categories, "transport", "TfL")).toBeNull();
   });
@@ -134,7 +144,7 @@ describe("importing with the list", () => {
 
   test("what used to be asked about lands in its category, and what isn't clear is General and asked", () => {
     expect(got.map(t => [t.note, t.cat, !!t.needsCat])).toEqual([
-      ["ASOS", "shopping", false], ["NETFLIX.COM", "entertainment", false], ["Costa", "coffee", false], ["ATM", "cash", false],
+      ["ASOS", "shopping", false], ["NETFLIX.COM", "subscriptions", false], ["Costa", "coffee", false], ["ATM", "cash", false],
       ["J Smith", "other", true], ["AMEX", "other", true],
     ]);
   });

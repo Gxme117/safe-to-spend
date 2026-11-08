@@ -151,7 +151,7 @@ const PERIOD: Partial<Record<BillFreq, number>> = {monthly: 31, ...STEP};
 
 // "THAMES WATER" → "Thames Water", "TV LICENCE" → "TV Licence": short words stay as they are, unless they're small words
 const SMALL = new Set(["of", "to", "at", "by", "in", "on", "and"]);
-const nice = (s: string) => s !== s.toUpperCase() || !/[A-Z]/.test(s) ? s
+export const nice = (s: string) => s !== s.toUpperCase() || !/[A-Z]/.test(s) ? s
   : s.split(" ").map(w => SMALL.has(w.toLowerCase()) ? w.toLowerCase() : w.length <= 2 ? w : w[0] + w.slice(1).toLowerCase()).join(" ");
 
 /**

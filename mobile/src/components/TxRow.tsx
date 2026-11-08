@@ -2,6 +2,7 @@ import {router} from "expo-router";
 import {useState} from "react";
 import {Alert, Image, StyleSheet, View} from "react-native";
 import {niceDate} from "@/lib/dates";
+import {nice} from "@/lib/found";
 import {money} from "@/lib/money";
 import {txLook, type Look} from "@/lib/looks";
 import {moneyInWhat} from "@/lib/payments";
@@ -35,7 +36,7 @@ export function TxRow({ctx, it, showDate}: {ctx: Ctx; it: Tx; showDate?: boolean
   const meta = [showDate ? niceDate(it.date) : "", it.note ? what : ""].filter(Boolean).join(". ");
   const remove = () => askRemove(it);
   return (
-    <Row name={it.note || what} leading={<MerchantLogo name={it.note || what} uri={it.logo} look={txLook(ctx, it)} />} meta={meta || undefined} amount={income ? `+${money(it.amount)}` : `−${money(it.amount)}`} good={income}
+    <Row name={nice(it.note) || what} leading={<MerchantLogo name={nice(it.note) || what} uri={it.logo} look={txLook(ctx, it)} />} meta={meta || undefined} amount={income ? `+${money(it.amount)}` : `−${money(it.amount)}`} good={income}
       // a move to savings has nothing to say about what it was for: only holding it (to delete) does anything
       onPress={it.type === "save" ? undefined : () => router.push(`/payment/${it.id}`)} onLongPress={remove}
       accessibilityHint={it.type === "save" ? "Hold to delete" : `Tap to ${income ? "say what this was" : "change what it was for"}. Hold to delete`} />

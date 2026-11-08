@@ -21,6 +21,8 @@ export const CATALOG: CatalogEntry[] = [
   {id: "home", name: "Home", parent: "shopping"},
   {id: "pets", name: "Pets", parent: "shopping"},
   {id: "entertainment", name: "Fun", monzo: ["entertainment"], was: "Entertainment"},
+  // a name narrows Fun to it (Spotify), as Costa narrows Eating out; Smart Sort makes it if you have none (`resolve` finds yours)
+  {id: "subscriptions", name: "Subscriptions", parent: "entertainment"},
   {id: "personal", name: "Self-care", monzo: ["personal_care"], was: "Personal care"},
   {id: "health", name: "Health", parent: "personal"},
   {id: "family", name: "Family", monzo: ["family"]},
@@ -39,6 +41,8 @@ export const GENERAL = "other";
 // Guesses from a name, first match wins. Whole words where a short one could be part of another ("bar" in "barber").
 // Pets before Home: "Pets at Home" is pets.
 export const NAME_HINTS: [RegExp, string][] = [
+  // first, so "Amazon Prime" is a subscription and not Shopping. Only services that are always a subscription.
+  [/spotify|netflix|disney ?(\+|plus)|icloud|apple music|youtube (premium|music)|prime video|amazon prime|audible|\bnow ?tv\b|dropbox|patreon|chatgpt|openai|adobe|microsoft 365|nordvpn/i, "subscriptions"],
   [/coffee|costa|starbucks|\bpret\b|nero|caff[eè]|\bcafe\b|greggs/i, "coffee"],
   [/deliveroo|just ?eat|uber ?eats|domino|pizza|\bkfc\b|mcdonald|nando|burger|takeaway/i, "takeaways"],
   [/\btfl\b|\buber\b|\bbolt\b|train|rail|\bbus\b|\btube\b|\blime\b|taxi|oyster/i, "transport"],

@@ -166,6 +166,7 @@ const SEED_PAYMENTS: {note: string; amount: number; daysAgo: number}[] = [
 /** Development only: run Frank's bulk classification on all needsCat payments and show the preview before applying. */
 function OrganiseTry() {
   const seed = async () => {
+    if (!__DEV__) return;  // never writes pretend payments into a real build's database
     const st = useMoney.getState();
     const today = st.today;
     const [y, m, d] = today.split("-").map(Number);

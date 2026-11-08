@@ -7,6 +7,7 @@ import {ActivityIndicator, Pressable, StyleSheet, Text, View} from "react-native
 import {Icon} from "@/components/Icon";
 import {MerchantLogo} from "@/components/TxRow";
 import {resolveSubCat} from "@/lib/categories";
+import {nice} from "@/lib/found";
 import {txLook} from "@/lib/looks";
 import type {OrgExample, OrgReport} from "@/lib/organise";
 import type {OrgEdits, OrgProposal} from "@/lib/orgProposal";
@@ -241,7 +242,7 @@ function ReportCard({who, report, status, ctx, color, box, edge, onUndo, onEdit}
       if (!t) return [];
       const cat = ctx.state.categories.find(x => x.id === t.cat)?.name ?? "General";
       const sub = t.subCat ? resolveSubCat(ctx.state.categories, t.cat, t.subCat)?.name : undefined;
-      return [{key: t.id, txId: t.id, name: t.note || "Payment", to: sub ? `${cat} → ${sub}` : cat, review: check.has(t.id), logo: t.logo, look: txLook(ctx, t)}];
+      return [{key: t.id, txId: t.id, name: nice(t.note) || "Payment", to: sub ? `${cat} → ${sub}` : cat, review: check.has(t.id), logo: t.logo, look: txLook(ctx, t)}];
     });
     // the ones to look at first, as in the preview
     return [...all.filter(d => d.review), ...all.filter(d => !d.review)];

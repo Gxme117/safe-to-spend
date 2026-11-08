@@ -1,8 +1,9 @@
 // Frank's Smart Organisation: bulk classification engine and report builder. Pure — no DB, no side effects.
 import {matchMerchantRule, normalizePayee} from "./categoryChange";
-import {nameHint, resolve, resolveSubCat} from "./categories";
+import {CATALOG, nameHint, resolve, resolveSubCat} from "./categories";
+import {nice} from "./found";
 import {spendCats} from "./payments";
-import type {AppState, Ctx, IsoDate, MerchantRule, Tx} from "./types";
+import type {AppState, Category, Ctx, IsoDate, MerchantRule, Tx} from "./types";
 
 export type Confidence = "high" | "medium" | "low";
 export type ClassifySource = "rule" | "hint" | "ai";
@@ -24,7 +25,14 @@ export interface OrgRun {
   id: string;
   changes: OrgChange[];  // includes low-confidence for the report (not persisted to DB)
   more: number;          // eligible txs beyond the per-run cap
+  added?: Category[];    // categories the run makes because a name pointed at one you don't have (Subscriptions): free, no budget
 }
+
+/** The run's new categories that the payments really going there use (an edit or a skip can leave one with nothing). */
+export const addedUsed = (run: OrgRun, changes: OrgChange[]): Category[] => {
+  const used = new Set(changes.filter(c => c.confidence !== "low").map(c => c.toCat));
+  return (run.added ?? []).filter(c => used.has(c.id));
+};
 
 /** A change's shop, the way the preview card keys it: its saved-rule payee, else the payment's own name, normalised. */
 export const changeKey = (c: OrgChange, txs: Map<string, Tx>): string => {
@@ -134,6 +142,7 @@ export function buildRun(
   const toProcess = all.slice(0, MAX_ELIGIBLE);
   const more = Math.max(0, all.length - MAX_ELIGIBLE);
   const cats = spendCats(ctx.state);
+  const added: Category[] = [];
 
   // Group by normalised payee key; ungroupable keys (all-numeric, empty) go straight to low
   const groups = new Map<string, Tx[]>();
@@ -180,9 +189,13 @@ export function buildRun(
     // resolve() maps catalog ids (e.g. "eating") to the user's matching category, handling renames
     const hint = nameHint(representative.note);
     if (hint) {
-      const cat = resolve(ctx.state.categories, hint);
+      let cat = resolve([...ctx.state.categories, ...added], hint);
+      // No category fits (you have no Subscriptions): make it, free like the rest of the list, rather than leave it unsorted or
+      // drop it in Fun. It's only saved when the run is, and Undo takes it away again.
+      const entry = !cat && CATALOG.find(e => e.id === hint);
+      if (entry) { cat = {id: entry.id, name: entry.name, budget: 0, fixed: false}; added.push(cat); }
       // only proceed if the resolved category is a spend category (not fixed)
-      if (cat && cats.find(c => c.id === cat.id)) {
+      if (cat && (added.includes(cat) || cats.find(c => c.id === cat!.id))) {
         const rulePayee = !isAmbiguous(norm) ? norm : undefined;
         for (const tx of group) {
           changes.push({txId: tx.id, fromCat: tx.cat, fromSub: tx.subCat, fromNeeds: !!tx.needsCat, toCat: cat.id, confidence: "high", source: "hint", ...(rulePayee ? {rulePayee} : {})});
@@ -217,7 +230,7 @@ export function buildRun(
   const low = changes.filter(c => c.confidence === "low").length;
 
   return {
-    run: {id, changes, more},
+    run: {id, changes, more, ...(added.length ? {added} : {})},
     preview: {runId: id, high, medium, low, total: toProcess.length, more},
   };
 }
@@ -253,7 +266,8 @@ export function buildPreviewExamples(run: OrgRun, txs: Tx[], state: AppState): O
   const toExample = (key: string, {change, count, rep}: {change: OrgChange; count: number; rep: Tx}): OrgExample => {
     const cat = cats.find(c => c.id === change.toCat);
     const sub = change.toSub ? resolveSubCat(state.categories, change.toCat, change.toSub) : undefined;
-    const note = rep.note.length > 28 ? rep.note.slice(0, 27) + "…" : rep.note;
+    const name = nice(rep.note);
+    const note = name.length > 28 ? name.slice(0, 27) + "…" : name;
     return {
       key,
       note,
@@ -319,7 +333,7 @@ export function orgReport(ctx: Ctx, run: OrgRun): OrgReport {
       const tx = txMap.get(c.txId);
       const cat = cats.find(cc => cc.id === c.toCat);
       const sub = c.toSub ? resolveSubCat(ctx.state.categories, c.toCat, c.toSub) : undefined;
-      return {txId: c.txId, note: tx?.note ?? "", date: (tx?.date ?? "") as IsoDate, amount: tx?.amount ?? 0, to: cat?.name, toSub: sub?.name, why: "Name matches"};
+      return {txId: c.txId, note: nice(tx?.note ?? ""), date: (tx?.date ?? "") as IsoDate, amount: tx?.amount ?? 0, to: cat?.name, toSub: sub?.name, why: "Name matches"};
     })
     .sort((a, b) => b.amount - a.amount);
 
@@ -328,7 +342,7 @@ export function orgReport(ctx: Ctx, run: OrgRun): OrgReport {
     .slice(0, 10)
     .map(c => {
       const tx = txMap.get(c.txId);
-      return {txId: c.txId, note: tx?.note ?? "", date: (tx?.date ?? "") as IsoDate, amount: tx?.amount ?? 0, why: ""};
+      return {txId: c.txId, note: nice(tx?.note ?? ""), date: (tx?.date ?? "") as IsoDate, amount: tx?.amount ?? 0, why: ""};
     });
 
   return {

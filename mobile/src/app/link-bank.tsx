@@ -5,6 +5,7 @@ import {PotRoles, syncMessage} from "@/components/Bank";
 import {Form} from "@/components/Form";
 import {TextLink} from "@/components/Setup";
 import {T} from "@/components/ui";
+import {linksOn} from "@/lib/banks";
 import {useMoney} from "@/store/useMoney";
 import {s} from "@/theme/tokens";
 
@@ -28,6 +29,9 @@ export default function LinkBank() {
     setId(r.id);
   };
   const done = () => { router.back(); if (bank) useMoney.getState().notify(`${bank.source} connected`, true); };
+
+  // Tester builds hide "Add an account" (it's TrueLayer's mock bank, fake money): shut the door on a deep link too
+  if (!linksOn) return null;
 
   if (bank) return (
     <Form submit="Done" onSubmit={done}>

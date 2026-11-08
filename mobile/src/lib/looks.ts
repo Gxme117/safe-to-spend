@@ -16,6 +16,7 @@ const CATS: Record<string, Look> = {
   groceries: {icon: "cart", tint: "green"}, transport: {icon: "train", tint: "blue"}, eating: {icon: "eating", tint: "peach"},
   takeaways: {icon: "takeaway", tint: "peach"}, coffee: {icon: "coffee", tint: "latte"}, fuel: {icon: "fuel", tint: "amber"},
   shopping: {icon: "bag", tint: "pink"}, entertainment: {icon: "film", tint: "lavender"}, personal: {icon: "bottle", tint: "mint"},
+  subscriptions: {icon: "repeat", tint: "pink"},
   health: {icon: "pill", tint: "rose"}, family: {icon: "family", tint: "sand"},
   home: {icon: "sofa", tint: "sand"}, pets: {icon: "paw", tint: "amber"}, gifts: {icon: "gift", tint: "pink"},
   charity: {icon: "heart", tint: "rose"}, holidays: {icon: "plane", tint: "blue"}, cash: {icon: "banknote", tint: "green"},
