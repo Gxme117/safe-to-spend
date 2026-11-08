@@ -12,8 +12,8 @@ const ENDED: Partial<Record<CardStatus, string>> = {
   done: "Done", declined: "Left as it was", unanswered: "Not answered: nothing changed", undone: "Undone: put back as it was",
 };
 
-export function BillCard({view, status, note, color, box, edge, disabled, onYes, onNo}: {
-  view: ProposalView; status: CardStatus; note?: string; color: string; box: string; edge: string; disabled?: boolean;
+export function BillCard({view, status, note, color, ink = "#FFFFFF", box, edge, disabled, onYes, onNo}: {
+  view: ProposalView; status: CardStatus; note?: string; color: string; ink?: string; box: string; edge: string; disabled?: boolean;
   onYes: () => void; onNo: () => void;
 }) {
   const {c} = useTheme();
@@ -23,7 +23,7 @@ export function BillCard({view, status, note, color, box, edge, disabled, onYes,
   const body = {fontFamily: hanken.medium, fontSize: 15, lineHeight: 20, color: c.ink};
   const quiet = {fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted};
   return (
-    <View testID="bill-card" style={{alignSelf: "stretch", padding: s[4], gap: s[3], borderRadius: 20, borderWidth: 1, borderColor: edge, backgroundColor: box}}>
+    <View testID="bill-card" style={{alignSelf: "stretch", padding: s[4], gap: s[3], borderRadius: 20, borderCurve: "continuous", borderWidth: 1, borderColor: edge, backgroundColor: box}}>
       <Text accessibilityRole="header" style={{fontFamily: hanken.semibold, fontSize: 17, lineHeight: 22, color: c.ink}}>{view.title}</Text>
       <View style={{gap: s[1]}}>
         {view.rows.map(r => <Text key={r} style={body}>{r}</Text>)}
@@ -34,11 +34,11 @@ export function BillCard({view, status, note, color, box, edge, disabled, onYes,
       {open ? (
         <View style={{flexDirection: "row", gap: s[2]}}>
           <Pressable onPress={onYes} disabled={disabled || status === "saving"} accessibilityRole="button" accessibilityState={{disabled: disabled || status === "saving"}}
-            style={{flex: 1, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: color, opacity: disabled ? .35 : 1}}>
-            {status === "saving" ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{fontFamily: hanken.semibold, fontSize: 15, color: "#FFFFFF"}}>{view.action}</Text>}
+            style={{flex: 1, height: 44, borderRadius: 22, borderCurve: "continuous", alignItems: "center", justifyContent: "center", backgroundColor: color, opacity: disabled ? .35 : 1}}>
+            {status === "saving" ? <ActivityIndicator color={ink} /> : <Text style={{fontFamily: hanken.semibold, fontSize: 15, color: ink}}>{view.action}</Text>}
           </Pressable>
           <Pressable onPress={onNo} disabled={disabled || status === "saving"} accessibilityRole="button" accessibilityState={{disabled: disabled || status === "saving"}}
-            style={{flex: 1, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: edge, opacity: disabled ? .35 : 1}}>
+            style={{flex: 1, height: 44, borderRadius: 22, borderCurve: "continuous", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: edge, opacity: disabled ? .35 : 1}}>
             <Text style={{fontFamily: hanken.semibold, fontSize: 15, color: c.ink}}>Not now</Text>
           </Pressable>
         </View>

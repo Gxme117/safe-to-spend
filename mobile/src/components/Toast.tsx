@@ -26,7 +26,7 @@ export function Toast() {
     const undo = toast.undo;
     return (
       <View pointerEvents="box-none" style={{position: "absolute", left: s[4], right: s[4], bottom: insets.bottom + 72}}>
-        <View style={{height: 52, borderRadius: 14, backgroundColor: c.ink, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: 18, paddingRight: 6}}>
+        <View style={{height: 52, borderRadius: 14, borderCurve: "continuous", backgroundColor: c.ink, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: 18, paddingRight: 6}}>
           <T weight="medium" lines={1} style={{flex: 1, color: c.bg, fontSize: 15}}>{toast.msg}</T>
           <Pressable onPress={() => { useMoney.setState({toast: null}); undo(); }} accessibilityRole="button" accessibilityLabel="Undo"
             style={({pressed}) => ({height: 44, paddingHorizontal: 14, justifyContent: "center", opacity: pressed ? 0.7 : 1})}>
@@ -39,7 +39,7 @@ export function Toast() {
   }
   return (
     <View pointerEvents="none" style={{position: "absolute", left: s[4], right: s[4], bottom: insets.bottom + 72, alignItems: "center"}}>
-      <View style={{backgroundColor: toast.good ? c.accent : c.ink, borderRadius: radius.control, paddingVertical: s[3], paddingHorizontal: s[4]}}>
+      <View style={{backgroundColor: toast.good ? c.accent : c.ink, borderRadius: radius.control, borderCurve: "continuous", paddingVertical: s[3], paddingHorizontal: s[4]}}>
         <T weight="semibold" size="md" style={{color: toast.good ? c.accentInk : c.bg, fontFamily: font.semibold, textAlign: "center"}}>{toast.msg}</T>
       </View>
     </View>

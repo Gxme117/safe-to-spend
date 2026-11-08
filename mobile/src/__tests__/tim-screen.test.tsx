@@ -24,7 +24,7 @@ jest.mock("react-native-keyboard-controller", () => jest.requireActual("react-na
 jest.mock("react-native-reanimated", () => ({
   __esModule: true, default: {View: jest.requireActual("react-native").View}, useAnimatedStyle: (f: () => object) => f(),
   useSharedValue: <T,>(v: T) => jest.requireActual("react").useRef({value: v}).current, withTiming: <T,>(v: T) => v,
-  Easing: {in: (f: unknown) => f, out: (f: unknown) => f, cubic: (x: number) => x},
+  Easing: {in: (f: unknown) => f, out: (f: unknown) => f, inOut: (f: unknown) => f, cubic: (x: number) => x, quad: (x: number) => x},
 }));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
 jest.mock("expo-router", () => ({router: {push: jest.fn()}, useLocalSearchParams: () => ({}), useFocusEffect: (f: () => void | (() => void)) => jest.requireActual("react").useEffect(f, [f])}));
@@ -87,6 +87,8 @@ const mockPlayer = {
   get currentTime() { return mockSound.from === null ? 0 : Math.max(0, jest.now() - mockSound.from) / 1000; },
 };
 jest.mock("expo-audio", () => ({useAudioPlayer: () => mockPlayer, setAudioModeAsync: jest.fn(async () => {})}));
+// His opening as a video is being tried out (light mode): here there's no video module, so his openings are his recordings.
+jest.mock("@/services/video", () => ({useVideoPlayer: () => null, VideoView: null}));
 // The microphone is a native module: here the test says what the phone can do, and plays its events back by hand.
 // All of it is built inside the factory, because the screen's shim reads the module as it's imported — before anything
 // out here has run.

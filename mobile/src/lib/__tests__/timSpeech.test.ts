@@ -1,7 +1,7 @@
 import {MAX_EYE_CONTACT, ON_TWOS} from "@/lib/timEyes";
 import {hankenWidth} from "@/lib/textWidth";
 import {lipTrack} from "@/lib/lipsync";
-import {answerFrames, ASK, beatsFrom, bubbleFits, beatsOf, captionsOf, FRANK_BOX, FRANK_OPENINGS, FRANK_VOICE, frankFrames, HELLO, HELLO_MS, helloBeats, helloFrames, introFrames, linesOf, roomOf, speechMs, still, syllables, TIM_BOX, TIM_OPENING, TIM_VOICE, timFrames, untagged, voiced, voiceKey, wordsFit, type Clip, type SpeechFrame} from "@/lib/timSpeech";
+import {answerFrames, ASK, beatsFrom, bubbleFits, beatsOf, captionsOf, FILM_OPENING, FILM_VOICE, FRANK_BOX, FRANK_OPENINGS, FRANK_VOICE, frankFrames, HELLO, HELLO_MS, helloBeats, helloFrames, introFrames, linesOf, roomOf, speechMs, still, syllables, TIM_BOX, TIM_OPENING, TIM_VOICE, timFrames, untagged, voiced, voiceKey, wordsFit, type Clip, type SpeechFrame} from "@/lib/timSpeech";
 
 test("his hello is just \"Hi\", no hesitating dots, and it stays", () => {
   const shown = helloFrames().map(f => f.shown);
@@ -355,4 +355,20 @@ test("beside his bubble, a caption is cut where it wouldn't fit", () => {
   const fits = bubbleFits(160, 18, 3), caps = linesOf(answerFrames(line, {ms: spans.at(-1)!.end, words: spans}, fits));
   expect(caps.length).toBeGreaterThan(1);
   caps.forEach(c => expect(fits(c.line)).toBe(true));
+});
+
+test("Frank's video opening is of the script as it is now, its words in order, and its captions follow them (change the script and make the video again)", () => {
+  const key = voiceKey(FILM_OPENING), clip = FILM_VOICE[key], words = untagged(FRANK_OPENINGS[FILM_OPENING]).split(" ");
+  expect(clip.text).toBe(FRANK_OPENINGS[FILM_OPENING]);
+  expect(clip.words).toHaveLength(words.length);
+  clip.words.forEach((w, j) => {
+    expect(w.end).toBeGreaterThan(w.start);
+    if (j) expect(w.start).toBeGreaterThanOrEqual(clip.words[j - 1].end);
+  });
+  expect(clip.words.at(-1)!.end).toBeLessThanOrEqual(clip.ms);
+  // it plays the video's sound from the first caption, and says all of it
+  const frames = frankFrames(FILM_OPENING, FILM_VOICE);
+  expect(frames.filter(f => f.voice === key)).toHaveLength(1);
+  expect(untagged(FRANK_OPENINGS[FILM_OPENING]).startsWith(linesOf(frames)[0].line)).toBe(true);
+  expect(linesOf(frames).map(c => c.line).join(" ")).toBe(words.join(" "));
 });

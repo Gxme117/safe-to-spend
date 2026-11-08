@@ -32,7 +32,7 @@ function ProductsCard({view, box, edge, onOpen, onSelect, disabled}: Props & {vi
   const best = view.best, bestName = best ? nameParts(best.name) : null;
   const canPick = !!onSelect && !disabled;
   return (
-    <View testID="research-card" style={{alignSelf: "stretch", padding: s[4], gap: s[4], borderRadius: 20, borderWidth: 1, borderColor: edge, backgroundColor: box}}>
+    <View testID="research-card" style={{alignSelf: "stretch", padding: s[4], gap: s[4], borderRadius: 20, borderCurve: "continuous", borderWidth: 1, borderColor: edge, backgroundColor: box}}>
       {/* the title, his price for the one he went by (the headline), then the tiles. The price is said once: here, not on that tile,
           which says "Going by" in its price's place. Best value adds what the extra buys and costs */}
       <Text accessibilityRole="header" style={{fontFamily: hanken.semibold, fontSize: 17, lineHeight: 22, color: c.ink}}>{view.title}</Text>
@@ -59,26 +59,26 @@ function ProductsCard({view, box, edge, onOpen, onSelect, disabled}: Props & {vi
             <Pressable key={t.id} testID={`tile-${t.id}`} onPress={selectable ? () => onSelect!(t) : undefined} disabled={!selectable}
               accessibilityRole={selectable ? "button" : undefined} accessibilityLabel={t.pick ? `${t.label}, the one he went by` : t.label}accessibilityHint={selectable ? "Asks whether it fits your money" : undefined}
               accessibilityActions={[{name: "open", label: `Open ${t.retailer}'s page`}]} onAccessibilityAction={e => { if (e.nativeEvent.actionName === "open") onOpen(t.url); }}
-              style={{width: tile, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: edge}}>
+              style={{width: tile, borderRadius: 16, borderCurve: "continuous", overflow: "hidden", borderWidth: 1, borderColor: edge}}>
               {/* white, as shops show their photos; with none, the shop's letter, small, on a soft colour */}
               <View style={{height: PHOTO, padding: s[2], alignItems: "center", justifyContent: "center", backgroundColor: uri ? "#FFFFFF" : c.soft}}>
                 {uri ? <Image testID="research-photo" source={{uri}} resizeMode="contain" onError={() => setBroken(b => b.includes(uri) ? b : [...b, uri])} style={{width: "100%", height: "100%"}} />
                   : <MerchantLogo name={t.retailer} size={40} bg={box} />}
                 {/* the lowest price on the card: a black dot with a bright green £ in the photo's corner (its label says so for VoiceOver) */}
                 {t.lowest ? (
-                  <View testID={`lowest-${t.id}`} style={{position: "absolute", top: s[1], left: s[1], width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#000000"}}>
+                  <View testID={`lowest-${t.id}`} style={{position: "absolute", top: s[1], left: s[1], width: 24, height: 24, borderRadius: 12, borderCurve: "continuous", alignItems: "center", justifyContent: "center", backgroundColor: "#000000"}}>
                     <Text style={{fontFamily: hanken.heavy, fontSize: 15, lineHeight: 18, color: c.incoming}}>£</Text>
                   </View>
                 ) : null}
                 {/* the one he went by for best value: a small tag along the photo's foot */}
                 {t.value ? (
-                  <View testID={`value-${t.id}`} style={{position: "absolute", bottom: s[1], left: s[1], paddingHorizontal: s[2], height: 22, borderRadius: 11, justifyContent: "center", backgroundColor: "#000000"}}>
+                  <View testID={`value-${t.id}`} style={{position: "absolute", bottom: s[1], left: s[1], paddingHorizontal: s[2], height: 22, borderRadius: 11, borderCurve: "continuous", justifyContent: "center", backgroundColor: "#000000"}}>
                     <Text style={{fontFamily: hanken.semibold, fontSize: 12, lineHeight: 16, color: "#FFFFFF"}}>Best value</Text>
                   </View>
                 ) : null}
                 {/* the shop's page: an arrow out of the app, small, since the help is here */}
                 <Pressable testID={`open-${t.id}`} onPress={() => onOpen(t.url)} hitSlop={10} accessibilityRole="link" accessibilityLabel={`Open ${t.retailer}'s page for ${t.name}`}
-                  style={{position: "absolute", top: s[1], right: s[1], width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: box, borderWidth: StyleSheet.hairlineWidth, borderColor: edge}}>
+                  style={{position: "absolute", top: s[1], right: s[1], width: 28, height: 28, borderRadius: 14, borderCurve: "continuous", alignItems: "center", justifyContent: "center", backgroundColor: box, borderWidth: StyleSheet.hairlineWidth, borderColor: edge}}>
                   <Icon name="out" color={c.ink} size={14} />
                 </Pressable>
               </View>
@@ -134,7 +134,7 @@ export function OldResearchCard({view, box, edge, onOpen}: Props & {view: OldRes
   const rule = {borderTopWidth: StyleSheet.hairlineWidth, borderColor: edge};
   const best = view.best;
   return (
-    <View testID="research-card" style={{alignSelf: "stretch", padding: s[4], gap: s[4], borderRadius: 20, borderWidth: 1, borderColor: edge, backgroundColor: box}}>
+    <View testID="research-card" style={{alignSelf: "stretch", padding: s[4], gap: s[4], borderRadius: 20, borderCurve: "continuous", borderWidth: 1, borderColor: edge, backgroundColor: box}}>
       <View style={{gap: s[1]}}>
         <Text accessibilityRole="header" style={{fontFamily: hanken.semibold, fontSize: 17, lineHeight: 22, color: c.ink}}>{view.product}</Text>
         {view.note ? <Text style={quiet}>{view.note}</Text> : null}
@@ -153,7 +153,7 @@ export function OldResearchCard({view, box, edge, onOpen}: Props & {view: OldRes
           const uri = own(r) ?? stand;
           return (
             <Pressable key={`${r.url} ${r.price}`} onPress={() => onOpen(r.url)} accessibilityRole="link" accessibilityLabel={r.label}
-              style={{width: 160, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: edge}}>
+              style={{width: 160, borderRadius: 16, borderCurve: "continuous", overflow: "hidden", borderWidth: 1, borderColor: edge}}>
               <View style={{height: 160, padding: s[3], alignItems: "center", justifyContent: "center", backgroundColor: uri ? "#FFFFFF" : c.soft}}>
                 {uri ? <Image testID="research-photo" source={{uri}} resizeMode="contain" onError={() => lose(uri)} style={{width: "100%", height: "100%"}} />
                   : uri === null ? <MerchantLogo name={r.seller} size={48} bg={box} /> : null}

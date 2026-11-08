@@ -69,6 +69,6 @@ function Key({colour, border, label, dot}: {colour: string; border?: string; lab
 const styles = StyleSheet.create({
   grid: {flexDirection: "row", flexWrap: "wrap"},
   cellBox: {width: W, padding: 2},
-  cell: {minHeight: 48, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingVertical: s[1]},
+  cell: {minHeight: 48, borderRadius: 10, borderCurve: "continuous", alignItems: "center", justifyContent: "center", paddingVertical: s[1]},
   key: {flexDirection: "row", flexWrap: "wrap", gap: s[4]},
 });

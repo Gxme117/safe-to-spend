@@ -12,7 +12,11 @@ export type ChatRow = {id: string; who: Who; title: string; created: number; upd
 export type Chat<S = unknown, T = unknown> = ChatRow & {said: S[]; transcript: T};
 
 /** The least of what's on screen these rules need to know about. */
-type Saidish = {id: number; mine: boolean; text: string; voiced?: unknown; cards?: {status: string}[]; catCards?: {status: string}[]};
+type Saidish = {
+  id: number; mine: boolean; text: string; voiced?: unknown; cards?: {status: string}[]; catCards?: {status: string}[];
+  /** The organising card: its skipped merchants are a Set in memory, an array once kept (a Set doesn't survive JSON). */
+  orgCard?: {status: string; skippedKeys: Iterable<string>};
+};
 
 /** The chat's name: your first question, on one line, cut at a word if it's long. A photo or file sent with no words: what it was. */
 export function titleOf(question: string, max = 80, attached: readonly {kind: string; name: string}[] = []): string {
@@ -40,11 +44,17 @@ export function toSaved<S extends Saidish>(said: S[]): S[] {
     ...s,
     ...(s.cards ? {cards: s.cards.map(closeOpen)} : {}),
     ...(s.catCards ? {catCards: s.catCards.map(closeOpen)} : {}),
+    // its "Organise" button needs the closure from that moment, so a card still waiting is closed; what it did stays to look at
+    ...(s.orgCard ? {orgCard: {...s.orgCard, status: s.orgCard.status === "open" || s.orgCard.status === "saving" ? "cancelled" : s.orgCard.status, skippedKeys: [...s.orgCard.skippedKeys]}} : {}),
   }) as S);
 }
 
 /** A kept chat back on screen, with new ids from `next` so they never clash with what's said from now on. */
-export const fromSaved = <S extends Saidish>(said: S[], next: () => number): S[] => toSaved(said).map(s => ({...s, id: next()}));
+export const fromSaved = <S extends Saidish>(said: S[], next: () => number): S[] => toSaved(said).map(s => ({
+  ...s,
+  id: next(),
+  ...(s.orgCard ? {orgCard: {...s.orgCard, skippedKeys: new Set(s.orgCard.skippedKeys)}} : {}),
+}) as S);
 
 const midnight = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 // local days between two times, by the calendar, so a chat at 23:59 yesterday is Yesterday at 00:01

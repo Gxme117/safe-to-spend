@@ -129,7 +129,7 @@ export function LivingSheet({ctx, item, due, payments, subcats, hint, onHint, re
         <Pressable onPress={() => size(true)} disabled={tall} accessible={!tall} accessibilityRole="button"
           accessibilityLabel={`${livingLabel(item)}. Show more`}
           style={{flexDirection: "row", alignItems: "center", gap: s[3]}}>
-          <View style={{width: 44, height: 44, borderRadius: 22, overflow: "hidden", alignItems: "center", justifyContent: "center"}}>
+          <View style={{width: 44, height: 44, borderRadius: 22, borderCurve: "continuous", overflow: "hidden", alignItems: "center", justifyContent: "center"}}>
             <Glow d={44} paid={item.paid} />
             <BubbleIcon name={item.icon} color={living.hlInk} size={22} />
           </View>
@@ -150,7 +150,7 @@ export function LivingSheet({ctx, item, due, payments, subcats, hint, onHint, re
         </T>
         {/* spending's kept landing well away from this budget: a new one, why, and what it'd do to the daily number. Only asked */}
         {hint ? (
-          <View style={{gap: s[3], padding: s[4], borderRadius: 16, backgroundColor: home[dark ? "dark" : "light"].badge}}>
+          <View style={{gap: s[3], padding: s[4], borderRadius: 16, borderCurve: "continuous", backgroundColor: home[dark ? "dark" : "light"].badge}}>
             <View style={{gap: s[1]}}>
               <T>{hint.reason}</T>
               {hint.effect ? <T size="sm" muted>{hint.effect}</T> : null}
@@ -225,12 +225,12 @@ function AddForm({today, month, onFocus, onCancel, onAdd}: {today: IsoDate; mont
       </View>
       {unclear ? <T size="sm" muted style={{marginTop: -6}}>{`Not sure when that is. Try "${DUE_HINT[d.freq].slice(5)}"`}</T> : null}
       <Labelled label="How often">
-        <View accessibilityRole="radiogroup" accessibilityLabel="How often" style={{flexDirection: "row", padding: 4, borderRadius: 16, backgroundColor: home[dark ? "dark" : "light"].badge}}>
+        <View accessibilityRole="radiogroup" accessibilityLabel="How often" style={{flexDirection: "row", padding: 4, borderRadius: 16, borderCurve: "continuous", backgroundColor: home[dark ? "dark" : "light"].badge}}>
           {FREQS.map(f => {
             const on = d.freq === f.key;
             return (
               <Pressable key={f.key} onPress={() => set({freq: f.key})} accessibilityRole="radio" accessibilityLabel={f.label} accessibilityState={{checked: on}}
-                style={{flex: 1, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: on ? c.ink : "transparent"}}>
+                style={{flex: 1, height: 40, borderRadius: 12, borderCurve: "continuous", alignItems: "center", justifyContent: "center", backgroundColor: on ? c.ink : "transparent"}}>
                 <T weight={on ? "bold" : "medium"} lines={1} style={{color: on ? c.surface : c.ink, fontSize: 15}}>{f.label}</T>
               </Pressable>
             );
@@ -249,7 +249,7 @@ function AddForm({today, month, onFocus, onCancel, onAdd}: {today: IsoDate; mont
             return (
               <Pressable key={x.name} onPress={() => set({icon: x.icon})} accessibilityRole="radio" accessibilityLabel={x.name} accessibilityState={{checked: on}}
                 style={{width: "16.66%", alignItems: "center"}}>
-                <View style={{width: 44, height: 44, borderRadius: 22, overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: on ? "transparent" : k.bubble}}>
+                <View style={{width: 44, height: 44, borderRadius: 22, borderCurve: "continuous", overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: on ? "transparent" : k.bubble}}>
                   {on ? <Glow d={44} /> : null}
                   <BubbleIcon name={x.icon} color={on ? living.hlInk : k.bubbleInk} size={20} />
                 </View>
@@ -272,7 +272,7 @@ function SheetButton({label, onPress, kind = "primary", grow = 1, danger, disabl
   const k = living[dark ? "dark" : "light"];
   return (
     <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{disabled: !!disabled}}
-      style={({pressed}) => ({flex: grow, height: 54, borderRadius: 16, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1,
+      style={({pressed}) => ({flex: grow, height: 54, borderRadius: 16, borderCurve: "continuous", alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1,
         backgroundColor: disabled ? k.paid : kind === "primary" ? c.ink : c.surface, borderWidth: kind === "ghost" ? 1.5 : 0, borderColor: c.line})}>
       <T weight="bold" style={{color: disabled ? k.paidInk : kind === "primary" ? c.surface : danger ? k.danger : c.ink, fontSize: 16}}>{label}</T>
     </Pressable>
@@ -294,6 +294,6 @@ function Box(props: ComponentProps<typeof TextInput>) {
   return (
     <TextInput placeholderTextColor={c.muted} selectionColor={c.ink} returnKeyType="done" {...props}
       onFocus={e => { setFocused(true); props.onFocus?.(e); }} onBlur={e => { setFocused(false); props.onBlur?.(e); }}
-      style={{height: 48, borderRadius: 12, borderWidth: 1.5, borderColor: focused ? c.ink : c.line, paddingHorizontal: 14, fontSize: 16, fontFamily: f.regular, color: c.ink, backgroundColor: c.surface}} />
+      style={{height: 48, borderRadius: 12, borderCurve: "continuous", borderWidth: 1.5, borderColor: focused ? c.ink : c.line, paddingHorizontal: 14, fontSize: 16, fontFamily: f.regular, color: c.ink, backgroundColor: c.surface}} />
   );
 }

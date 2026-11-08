@@ -20,7 +20,7 @@ export function TimeField({value, onChange, label}: {value: string; onChange: (h
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${label}, ${niceTime(value)}`}
       onPress={() => DateTimePickerAndroid.open({value: date, mode: "time", onValueChange: (_, d) => set(d)})}
-      style={{borderWidth: 1, borderColor: c.line, borderRadius: radius.control, paddingHorizontal: s[4], paddingVertical: s[3], alignSelf: "flex-start"}}>
+      style={{borderWidth: 1, borderColor: c.line, borderRadius: radius.control, borderCurve: "continuous", paddingHorizontal: s[4], paddingVertical: s[3], alignSelf: "flex-start"}}>
       <T weight="semibold">{niceTime(value)}</T>
     </Pressable>
   );
@@ -42,7 +42,7 @@ export function DateField({value, onChange, min, max, label, inline}: {value: Is
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${label}, ${niceDate(value)}`}
       onPress={() => DateTimePickerAndroid.open({value: date, mode: "date", onValueChange: (_, d) => onChange(isoD(d)), ...bounds})}
-      style={{borderWidth: 1, borderColor: c.line, borderRadius: radius.control, paddingHorizontal: s[4], paddingVertical: s[3], alignSelf: "flex-start"}}>
+      style={{borderWidth: 1, borderColor: c.line, borderRadius: radius.control, borderCurve: "continuous", paddingHorizontal: s[4], paddingVertical: s[3], alignSelf: "flex-start"}}>
       <T weight="semibold">{niceDate(value)}</T>
     </Pressable>
   );

@@ -1,4 +1,4 @@
-import {buildRun, eligible, isAmbiguous, orgReport} from "../organise";
+import {buildPreviewExamples, buildRun, changeKey, eligible, isAmbiguous, orgReport, withEdits} from "../organise";
 import type {OrgRun} from "../organise";
 import type {AppState, Ctx, MerchantRule, Tx} from "../types";
 
@@ -120,16 +120,17 @@ describe("buildRun — merchant rule (high confidence)", () => {
   });
 });
 
-// --- buildRun() — name hint path (medium) ------------------------------------
+// --- buildRun() — name hint path (high: he can read it, the person can still edit) ---
 
-describe("buildRun — name hint (medium confidence)", () => {
-  it("classifies COSTA as coffee (medium)", () => {
+describe("buildRun — name hint (sorted)", () => {
+  it("classifies COSTA as coffee, sorted rather than left for review", () => {
     const txs = [makeTx({id: "t1", note: "COSTA COFFEE"})];
     const ctx = makeCtx(txs);
     const {run, preview} = buildRun("r1", txs, ctx, NO_RULES);
     // nameHint maps Costa → catalog id "coffee", resolve() finds the user's Coffee & drinks category
-    expect(preview.medium).toBe(1);
-    expect(run.changes[0].confidence).toBe("medium");
+    expect(preview.high).toBe(1);
+    expect(preview.medium).toBe(0);
+    expect(run.changes[0].confidence).toBe("high");
     expect(run.changes[0].source).toBe("hint");
     expect(run.changes[0].toCat).toBe("coffee");
   });
@@ -234,9 +235,9 @@ describe("buildRun — AI guesses", () => {
   });
 
   it("caps an ambiguous payee AI guess to medium even if model says high", () => {
-    const txs = [makeTx({id: "t1", note: "PAYPAL *CAFE"})];
+    const txs = [makeTx({id: "t1", note: "PAYPAL *ZORBLAX"})]; // nothing in the name says what it was
     const ctx = makeCtx(txs);
-    const guesses = new Map([["paypal cafe", {cat: "eating", confidence: "high" as const}]]);
+    const guesses = new Map([["paypal zorblax", {cat: "eating", confidence: "high" as const}]]);
     const {run} = buildRun("r1", txs, ctx, NO_RULES, guesses);
     // paypal is ambiguous → never high
     expect(run.changes[0].confidence).toBe("medium");
@@ -307,6 +308,16 @@ describe("orgReport", () => {
     const report = orgReport(ctx, run);
     expect(report.unclear).toHaveLength(1);
     expect(report.unclear[0].txId).toBe("tx3");
+  });
+
+  it("lists every sorted payment in rows (high and medium, never low), newest first", () => {
+    const dated = [
+      makeTx({id: "tx1", amount: 25, cat: "groceries", date: "2026-11-01"}),
+      makeTx({id: "tx2", amount: 15, cat: "eating", date: "2026-11-05"}),
+      makeTx({id: "tx3", amount: 5, cat: "other", date: "2026-11-06"}),
+    ];
+    const report = orgReport(makeCtx(dated), makeAppliedRun(dated));
+    expect(report.rows).toEqual(["tx2", "tx1"]);
   });
 
   it("caps unclear list at 10", () => {
@@ -394,6 +405,93 @@ describe("orgReport — reconciliation", () => {
   });
 });
 
+// --- buildPreviewExamples() ---------------------------------------------------
+
+describe("buildPreviewExamples", () => {
+  it("puts the ones he's unsure of first, then the sure ones", () => {
+    const rules: MerchantRule[] = [{payee: "tesco", cat: "groceries", created: 1}];
+    const txs = [
+      makeTx({id: "t1", note: "TESCO EXTRA", amount: 20}),
+      makeTx({id: "t2", note: "RANDOMSHOP XYZ", amount: 10}),
+    ];
+    const ctx = makeCtx(txs);
+    // the name says nothing, so it's only a guess from the model, medium
+    const guesses = new Map([["randomshop xyz", {cat: "entertainment", confidence: "medium" as const}]]);
+    const {run} = buildRun("r1", txs, ctx, rules, guesses);
+    const examples = buildPreviewExamples(run, txs, BASE_STATE);
+    expect(examples.map(e => e.confidence)).toEqual(["medium", "high"]);
+  });
+
+  it("deduplicates by normalised payee key — identical notes → one example with count > 1", () => {
+    // Same note string → same normalised key → grouped together in buildRun
+    const rules: MerchantRule[] = [{payee: "tesco", cat: "groceries", created: 1}];
+    const txs = [
+      makeTx({id: "t1", note: "TESCO"}),
+      makeTx({id: "t2", note: "TESCO"}),
+      makeTx({id: "t3", note: "TESCO"}),
+    ];
+    const ctx = makeCtx(txs);
+    const {run} = buildRun("r1", txs, ctx, rules);
+    const examples = buildPreviewExamples(run, txs, BASE_STATE);
+    const tescoExamples = examples.filter(e => e.toCatId === "groceries" && e.confidence === "high");
+    expect(tescoExamples).toHaveLength(1);
+    expect(tescoExamples[0].count).toBe(3);
+  });
+
+  it("lists every shop, however many there are", () => {
+    // 6 different high-confidence merchants (by rule)
+    const rules: MerchantRule[] = [
+      {payee: "tesco", cat: "groceries", created: 1},
+      {payee: "sainsburys", cat: "groceries", created: 1},
+      {payee: "lidl", cat: "groceries", created: 1},
+      {payee: "aldi", cat: "groceries", created: 1},
+      {payee: "waitrose", cat: "groceries", created: 1},
+      {payee: "morrisons", cat: "groceries", created: 1},
+    ];
+    const txs = [
+      makeTx({id: "t1", note: "TESCO"}),
+      makeTx({id: "t2", note: "SAINSBURYS"}),
+      makeTx({id: "t3", note: "LIDL"}),
+      makeTx({id: "t4", note: "ALDI"}),
+      makeTx({id: "t5", note: "WAITROSE"}),
+      makeTx({id: "t6", note: "MORRISONS"}),
+    ];
+    const ctx = makeCtx(txs);
+    const {run} = buildRun("r1", txs, ctx, rules);
+    const examples = buildPreviewExamples(run, txs, BASE_STATE);
+    expect(examples).toHaveLength(6);
+  });
+
+  it("truncates long merchant notes to 28 chars with ellipsis", () => {
+    const rules: MerchantRule[] = [{payee: "some very long merchant name", cat: "groceries", created: 1}];
+    const txs = [makeTx({id: "t1", note: "SOME VERY LONG MERCHANT NAME EXTRAS"})];
+    const ctx = makeCtx(txs);
+    const {run} = buildRun("r1", txs, ctx, rules);
+    const examples = buildPreviewExamples(run, txs, BASE_STATE);
+    expect(examples[0].note.length).toBeLessThanOrEqual(28);
+    if (txs[0].note.length > 28) {
+      expect(examples[0].note.endsWith("…")).toBe(true);
+    }
+  });
+
+  it("includes toCatName resolved from AppState", () => {
+    const rules: MerchantRule[] = [{payee: "tesco", cat: "groceries", created: 1}];
+    const txs = [makeTx({id: "t1", note: "TESCO"})];
+    const ctx = makeCtx(txs);
+    const {run} = buildRun("r1", txs, ctx, rules);
+    const examples = buildPreviewExamples(run, txs, BASE_STATE);
+    expect(examples[0].toCatName).toBe("Groceries");
+  });
+
+  it("returns empty array when run has no high or medium changes", () => {
+    const txs = [makeTx({id: "t1", note: "RANDOMSHOP XYZ"})];
+    const ctx = makeCtx(txs);
+    const {run} = buildRun("r1", txs, ctx, NO_RULES);
+    const examples = buildPreviewExamples(run, txs, BASE_STATE);
+    expect(examples).toHaveLength(0);
+  });
+});
+
 // --- undo safety: fromNeeds tracking -----------------------------------------
 
 describe("undo safety — corrected changes skipped", () => {
@@ -405,5 +503,41 @@ describe("undo safety — corrected changes skipped", () => {
     const {run} = buildRun("r1", [makeTx({id: "t1", needsCat: undefined, cat: "groceries"})], ctx, rules);
     // eligible() excludes this payment (no needsCat), so changes is empty
     expect(run.changes).toHaveLength(0);
+  });
+});
+
+describe("withEdits — a shop's payments put somewhere else before Confirm", () => {
+  const txs = [
+    makeTx({id: "c1", note: "COSTA COFFEE"}), makeTx({id: "c2", note: "COSTA COFFEE", date: "2026-11-02"}),
+    makeTx({id: "t1", note: "TESCO STORES 123"}), makeTx({id: "x1", note: "ZZQ9 LTD"}),
+  ];
+  const {run} = buildRun("r1", txs, makeCtx(txs), NO_RULES);
+  const costaKey = run.changes[0].rulePayee!;
+
+  it("with no edits it's the same run", () => {
+    expect(withEdits(run, txs)).toBe(run);
+    expect(withEdits(run, txs, {})).toBe(run);
+  });
+
+  it("moves every payment from that shop, counts them as sure, and leaves the rest alone", () => {
+    const edited = withEdits(run, txs, {[costaKey]: {cat: "groceries", sub: "groceries/supermarket"}});
+    for (const id of ["c1", "c2"]) {
+      const c = edited.changes.find(x => x.txId === id)!;
+      expect(c).toMatchObject({toCat: "groceries", toSub: "groceries/supermarket", confidence: "high"});
+    }
+    expect(edited.changes.find(x => x.txId === "t1")).toEqual(run.changes.find(x => x.txId === "t1"));
+    expect(run.changes.find(x => x.txId === "c1")!.toCat).toBe("coffee"); // the original isn't touched
+  });
+
+  it("never touches one he couldn't place, whatever the key", () => {
+    const low = run.changes.find(x => x.confidence === "low")!;
+    const key = changeKey(low, new Map(txs.map(t => [t.id, t])));
+    const edited = withEdits(run, txs, {[key]: {cat: "groceries"}});
+    expect(edited.changes.find(x => x.txId === low.txId)).toEqual(low);
+  });
+
+  it("picking no subcategory clears the one he'd guessed", () => {
+    const edited = withEdits(run, txs, {[costaKey]: {cat: "eating"}});
+    expect(edited.changes.find(x => x.txId === "c1")!.toSub).toBeUndefined();
   });
 });

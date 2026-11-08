@@ -1,10 +1,10 @@
-import {confidenceNote, isOrgPending, orgOutcomeLine, type PendingOrg} from "../orgProposal";
+import {confidenceNote, isOrgPending, orgOutcomeLine, orgSays, type PendingOrg} from "../orgProposal";
 import type {OrgReport} from "../organise";
 
 function makeReport(over: Partial<OrgReport> = {}): OrgReport {
   return {
     runId: "r1", at: Date.now(), reviewed: 3, auto: 2, provisional: 1, left: 0, more: 0, failed: 0,
-    byCat: [], check: [], unclear: [], ...over,
+    byCat: [], check: [], unclear: [], rows: [], ...over,
   };
 }
 
@@ -95,5 +95,24 @@ describe("preview count invariant", () => {
     for (const p of previews) {
       expect(p.high + p.medium + p.low).toBeLessThanOrEqual(p.total);
     }
+  });
+});
+
+describe("orgSays", () => {
+  it("Frank, done: counts the ones that need attention and never says he guessed", () => {
+    expect(orgSays("frank", {done: true, review: 3})).toBe("I sorted the obvious stuff. Three things need your attention. Don't worry, I didn't go making guesses.");
+    expect(orgSays("frank", {done: true, review: 1})).toContain("One thing needs your attention");
+    expect(orgSays("frank", {done: true, review: 0})).toBe("All sorted. Nothing needs your attention.");
+  });
+  it("Frank, preview: says what he'll do, not what he did", () => {
+    expect(orgSays("frank", {done: false, review: 2})).toBe("I'll sort the obvious stuff. Two things need your say first. I won't go making guesses.");
+    expect(orgSays("frank", {done: false, review: 0})).toContain("Say the word");
+  });
+  it("Tim has his own voice", () => {
+    expect(orgSays("tim", {done: true, review: 2})).toBe("That's the clear ones sorted. Two things need a look from you.");
+    expect(orgSays("tim", {done: false, review: 1})).toBe("I'll sort the clear ones. One thing needs a quick look from you first.");
+  });
+  it("past ten it uses the number", () => {
+    expect(orgSays("tim", {done: true, review: 12})).toContain("12 things need");
   });
 });

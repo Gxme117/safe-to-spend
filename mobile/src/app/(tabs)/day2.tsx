@@ -90,7 +90,7 @@ function Lead({ctx, c, v}: {ctx: Ctx; c: Calc; v: DayView}) {
   // the number in a card so the eye lands on it first: white on the light page, the dark cards' grey on the dark one (where the number is custard)
   const muted = {color: theme.muted};
   const body = (
-    <View style={{backgroundColor: dark ? theme.surface : "#FFFFFF", borderRadius: radius.card, padding: s[5]}}>
+    <View style={{backgroundColor: dark ? theme.surface : "#FFFFFF", borderRadius: radius.card, borderCurve: "continuous", padding: s[5]}}>
       <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.4}
         style={{fontFamily: font.display, fontSize: textSize.hero, lineHeight: Math.round(textSize.hero * 1.05), letterSpacing: -textSize.hero * 0.02, color: theme.ink}}>{big}</Text>
       <Text numberOfLines={1} style={{fontFamily: font.head, fontSize: textSize.lg, lineHeight: Math.round(textSize.lg * 1.2), color: theme.ink}}>{when}</Text>
@@ -134,7 +134,7 @@ function Runway({ctx, c: calc, days, on, onPick}: {ctx: Ctx; c: Calc; days: Runw
   const startX = Math.min(at * (CHIP + CHIP_GAP), Math.max(0, days.length * (CHIP + CHIP_GAP) - CHIP_GAP + 2 * TRAY - view));
   return (
     <CardHeads ctx={ctx} c={calc} label="Show the days to payday" style={{marginHorizontal: s[4]}}>
-      <View style={{backgroundColor: c.surface, borderRadius: radius.card, overflow: "hidden"}}>
+      <View style={{backgroundColor: c.surface, borderRadius: radius.card, borderCurve: "continuous", overflow: "hidden"}}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentOffset={{x: startX, y: 0}}
           contentContainerStyle={{padding: TRAY, gap: CHIP_GAP}} accessibilityRole="tablist">
           {days.map(x => {
@@ -145,7 +145,7 @@ function Runway({ctx, c: calc, days, on, onPick}: {ctx: Ctx; c: Calc; days: Runw
             return (
               <Pressable key={x.d} onPress={() => onPick(x.d)} accessibilityRole="tab" accessibilityState={{selected: sel}}
                 accessibilityLabel={`${niceDate(x.d)}${x.when === "today" ? ", today" : ""}${x.payday ? ", payday" : ""}${said}${x.bills ? ", bills due" : ""}${x.incoming ? ", money coming in" : ""}`}
-                style={{width: CHIP, paddingVertical: s[2], paddingHorizontal: s[1], borderRadius: radius.control + 4, alignItems: "center",
+                style={{width: CHIP, paddingVertical: s[2], paddingHorizontal: s[1], borderRadius: radius.control + 4, borderCurve: "continuous", alignItems: "center",
                   backgroundColor: sel ? c.ink : "transparent", borderWidth: 1.5, borderColor: x.when === "today" && !sel ? c.figure : "transparent"}}>
                 <T size="lg" weight="bold" style={{color: ink, fontVariant: ["tabular-nums"], opacity: x.when === "past" && !sel ? 0.55 : 1}}>{String(+x.d.slice(8))}</T>
                 <T size="xs" weight="semibold" lines={1} fit style={{color: sel ? c.bg : c.muted, letterSpacing: 0.5}}>{name}</T>
@@ -172,7 +172,7 @@ function WhatIf({ctx}: {ctx: Ctx}) {
   // a white card in both modes, so it's drawn in the light palette's ink
   const p = palettes.light;
   return (
-    <View style={{gap: s[2], backgroundColor: "#FFFFFF", borderRadius: radius.card, padding: s[4]}}>
+    <View style={{gap: s[2], backgroundColor: "#FFFFFF", borderRadius: radius.card, borderCurve: "continuous", padding: s[4]}}>
       <Input prefix="£" value={amt} onChangeText={setAmt} keyboardType="decimal-pad" suffix="?" placeholder="What if I spend" placeholderTextColor={p.muted}
         box={{backgroundColor: "#FFFFFF", borderColor: p.line}} style={{color: p.ink}} keyboardAppearance="light" accessibilityLabel="What if I spend" />
       {w ? <View accessibilityLiveRegion="polite"><T size="sm" style={{color: p.ink}}>{w.line}</T></View> : null}

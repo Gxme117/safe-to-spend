@@ -45,9 +45,9 @@ const PULL = 64;
 const WHAT_IF_GAP = 84, LIST_GAP = s[4];
 
 const styles = StyleSheet.create({
-  bar: {height: 46, borderRadius: radius.card, flexDirection: "row", alignItems: "center", paddingLeft: s[5], paddingRight: 6},
+  bar: {height: 46, borderRadius: radius.card, borderCurve: "continuous", flexDirection: "row", alignItems: "center", paddingLeft: s[5], paddingRight: 6},
   amount: {flex: 1, paddingVertical: 0},
-  ask: {width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center"},
+  ask: {width: 34, height: 34, borderRadius: 17, borderCurve: "continuous", alignItems: "center", justifyContent: "center"},
 });
 
 function Home({ctx, c}: {ctx: Ctx; c: Calc}) {

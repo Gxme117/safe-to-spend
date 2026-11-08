@@ -122,12 +122,12 @@ export function Row({name, meta, amount, good, leading, onPress, onLongPress, ac
 export function Gap({size = 4}: {size?: keyof typeof s}) { return <View style={{height: s[size]}} />; }
 
 const styles = StyleSheet.create({
-  card: {borderRadius: radius.card, padding: s[5], gap: s[3]},
+  card: {borderRadius: radius.card, borderCurve: "continuous", padding: s[5], gap: s[3]},
   head: {flexDirection: "row", alignItems: "center", gap: s[3]},
   btn: {borderRadius: radius.pill, borderWidth: 1, paddingVertical: s[3], paddingHorizontal: s[5], alignItems: "center", justifyContent: "center", minHeight: 48},
   btnSmall: {paddingVertical: s[2], paddingHorizontal: s[4], minHeight: 36},
   chip: {borderRadius: radius.pill, borderWidth: 1, paddingVertical: s[2], paddingHorizontal: s[4], minHeight: 36, justifyContent: "center"},
-  input: {flexDirection: "row", alignItems: "center", gap: s[2], borderWidth: 1, borderRadius: radius.control, paddingHorizontal: s[4]},
+  input: {flexDirection: "row", alignItems: "center", gap: s[2], borderWidth: 1, borderRadius: radius.control, borderCurve: "continuous", paddingHorizontal: s[4]},
   rowWrap: {borderTopWidth: StyleSheet.hairlineWidth},
   row: {flexDirection: "row", alignItems: "center", gap: s[3], paddingVertical: s[3]},
 });

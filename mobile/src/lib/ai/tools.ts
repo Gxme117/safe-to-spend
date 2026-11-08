@@ -22,8 +22,8 @@ import type {AppState, Bill, BillFreq, CategoryProposal, Ctx, Income, IsoDate, M
 import {whatIf} from "../today";
 import {cheaperOf, clip, forTool, lowestOf, MAX_SHOWN, PRICE_IS, totalOf, type Product, type Research, type ShopArgs, type Shopped} from "./research";
 import {sum} from "./sum";
-import type {OrgPreview, OrgReport} from "../organise";
-import type {OrgProposal, PendingOrg} from "../orgProposal";
+import type {OrgReport} from "../organise";
+import type {OrgEdits, OrgPreviewWithExamples, OrgProposal, PendingOrg} from "../orgProposal";
 
 export type Who = "tim" | "frank";
 
@@ -62,7 +62,7 @@ const CHECKED: Record<ToolName, string | null> = {
 
 /** The bank's payments looked through for regular ones (lib/regulars.ts), and what you've said about them. */
 export interface RegularsEnv { scan: Scan | null; answers: Answers }
-export type BuildOrgResult = {preview: OrgPreview; apply: () => Promise<{report: OrgReport} | null>};
+export type BuildOrgResult = {preview: OrgPreviewWithExamples; apply: (skippedKeys: Set<string>, edits?: OrgEdits) => Promise<{report: OrgReport} | null>};
 
 /** Everything a tool needs. `newId` names a new note. For find_products, what /shop found (`shopped`, converse asks it first) and
  *  the first id to number its products from; for show_products, every product found in the conversation (`catalogue`). `now`: the

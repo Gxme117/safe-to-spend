@@ -56,6 +56,20 @@ test("search finds a chat by its name or anything said in it, whatever the case"
   expect(matches(r, "rent")).toBe(false);
 });
 
+test("a kept organising card closes if it was waiting, and its skipped merchants survive JSON as a Set again", () => {
+  const said = [
+    {id: 1, mine: false, text: "Found some.", orgCard: {status: "open", skippedKeys: new Set(["costa"])}},
+    {id: 2, mine: false, text: "Done.", orgCard: {status: "done", skippedKeys: new Set<string>()}},
+  ];
+  const kept = JSON.parse(JSON.stringify(toSaved(said)));
+  expect(kept[0].orgCard).toEqual({status: "cancelled", skippedKeys: ["costa"]});
+  expect(kept[1].orgCard.status).toBe("done");
+  let n = 10;
+  const back = fromSaved<(typeof said)[number]>(kept, () => n++);
+  expect(back[0].orgCard.skippedKeys).toEqual(new Set(["costa"]));
+  expect(back.map(s => s.id)).toEqual([10, 11]);
+});
+
 test("what's kept leaves out his voice and closes a card still waiting for you", () => {
   const said = [
     {id: 4, mine: true, text: "Add Netflix"},

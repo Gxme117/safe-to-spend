@@ -12,6 +12,7 @@ import hellos from "./frankHellos.json";
 import recorded from "./frankVoice.json";
 import waits from "./frankWaitHellos.json";
 import waitRecorded from "./frankWaitVoice.json";
+import film from "./frankVideo.json";
 import {lipTrack, vowelShapes, type Shape} from "./lipsync";
 import {hankenWidth} from "./textWidth";
 import {BLINK, ON_TWOS, type Beat, type Look} from "./timEyes";
@@ -32,6 +33,11 @@ export type Clip = {text: string; ms: number; words: Span[]; loud?: string};
 // assets/<who>-voice/).
 export const FRANK_VOICE = recorded as Record<string, Clip>;
 export const TIM_VOICE = timRecorded as Record<string, Clip>;
+// Frank's openings that are also a video (assets/frank-video/, animated from the recording with Seedance), by voiceKey: the
+// words' times in the video's own sound (frankVideo.json), and no `loud`, since his mouth is the video's. Light mode only.
+export const FILM_VOICE: Record<string, Clip> = {...FRANK_VOICE, ...(film as Record<string, Clip>)};
+// The opening that's animated: with "Animation" chosen in Settings, he always opens with it.
+export const FILM_OPENING = 2;
 // Where he looks from a moment in what he says, ms into it (a blink too, if it's with one).
 type Mark = {at: number; look: Look; blink?: boolean};
 

@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
-import Svg, {Circle, Path, Rect} from "react-native-svg";
+import Svg, {Circle, G, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "wave" | "stop" | "speaker" | "incognito" | "camera" | "photo" | "file" | "out";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "wave" | "stop" | "speaker" | "incognito" | "camera" | "photo" | "file" | "out" | "broom";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -33,6 +33,14 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
       {name === "stop" && <Rect x={7} y={7} width={10} height={10} rx={2.5} {...p} strokeWidth={1.5} fill={color} />}
       {/* a temporary chat: a hat over round glasses */}
       {name === "incognito" && <><Path d="M2.5 11h19M5.5 11l1.8-5.6a1 1 0 0 1 1.3-.6L12 6l3.4-1.2a1 1 0 0 1 1.3.6L18.5 11" {...p} /><Circle cx={7.5} cy={16.5} r={3} {...p} /><Circle cx={16.5} cy={16.5} r={3} {...p} /><Path d="M10.5 16.2c1-.6 2-.6 3 0" {...p} /></>}
+      {/* Smart Sort: a broom tidying up, with the AI sparkle in the bottom right. The broom is drawn upright (handle, head, two
+          bristle lines) and tipped 42° so the handle points up and right, then nudged to leave the corner free for the sparkle */}
+      {name === "broom" && <>
+        <G transform="translate(1 -0.8) rotate(42 12 12)">
+          <Path d="M12 2.5V9.5M9.5 9.5H14.5L17.5 21.5H6.5ZM10.6 14.5L10 21.5M13.4 14.5L14 21.5" {...p} strokeWidth={1.6} />
+        </G>
+        <Path d="M19 16C19.4 18.4 20.1 19.1 22.5 19.5 20.1 19.9 19.4 20.6 19 23 18.6 20.6 17.9 19.9 15.5 19.5 17.9 19.1 18.6 18.4 19 16z" {...p} strokeWidth={1.3} fill={color} />
+      </>}
       {name === "list" &&<Path d="M4 6h16M4 12h16M4 18h16" {...p} />}
       {/* recent chats, as in the ChatGPT app: two lines, the lower one shorter */}
       {name === "menu" && <Path d="M4 9h16M4 15h10" {...p} />}

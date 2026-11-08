@@ -1,6 +1,6 @@
 import {router} from "expo-router";
 import {useState} from "react";
-import {ScrollView, View} from "react-native";
+import {Alert, ScrollView, View} from "react-native";
 import {Choice} from "@/components/Form";
 import {AccountantCard, BankSettings, DataCard, YouCard} from "@/components/Profile";
 import {Button, Card, CardHead, Field, Input, PageTitle, Row, T} from "@/components/ui";
@@ -12,7 +12,7 @@ import {money, parseAmount} from "@/lib/money";
 import type {Ctx, Tx} from "@/lib/types";
 import {showCardTap} from "@/services/island";
 import {useCalc} from "@/store/useCalc";
-import {useMoney, type CardStyle, type FrankRoom, type ThemePref} from "@/store/useMoney";
+import {useMoney, type CardStyle, type FrankOpening, type FrankRoom, type ThemePref} from "@/store/useMoney";
 import {parseHex} from "@/theme/color";
 import {GLASS} from "@/theme/glass";
 import {palettes, radius, s} from "@/theme/tokens";
@@ -44,7 +44,7 @@ function SavingsCard({ctx}: {ctx: Ctx}) {
 
 export default function SettingsScreen() {
   const r = useCalc();
-  const theme = useMoney(st => st.theme), cardStyle = useMoney(st => st.cardStyle), frankRoom = useMoney(st => st.frankRoom);
+  const theme = useMoney(st => st.theme), cardStyle = useMoney(st => st.cardStyle), frankRoom = useMoney(st => st.frankRoom), frankOpening = useMoney(st => st.frankOpening);
   const [bal, setBal] = useState(r ? String(r.c.balance) : "");
   const [error, setError] = useState("");
   if (!r) return null;
@@ -107,6 +107,10 @@ export default function SettingsScreen() {
           <Choice<FrankRoom> options={[{key: "plain", label: "Plain"}, {key: "office", label: "Office"}]}
             value={frankRoom} onChange={v => useMoney.getState().setFrankRoom(v)} />
         </Field>
+        <Field label="Frank's opening" hint="In light mode. Animation is being tried out: one of his openings, fully animated.">
+          <Choice<FrankOpening> options={[{key: "picture", label: "Picture"}, {key: "animation", label: "Animation"}]}
+            value={frankOpening} onChange={v => useMoney.getState().setFrankOpening(v)} />
+        </Field>
         <AccentField />
       </Card>
 
@@ -115,6 +119,7 @@ export default function SettingsScreen() {
       <DataCard />
 
       {__DEV__ ? <IslandTry ctx={ctx} /> : null}
+      {__DEV__ ? <OrganiseTry /> : null}
     </ScrollView>
   );
 }
@@ -139,6 +144,70 @@ function IslandTry({ctx}: {ctx: Ctx}) {
   );
 }
 
+// Seed data: realistic UK payments across a range of categories, all needing organisation.
+const SEED_PAYMENTS: {note: string; amount: number; daysAgo: number}[] = [
+  {note: "TESCO STORES", amount: 42.17, daysAgo: 1},
+  {note: "TESCO STORES", amount: 11.84, daysAgo: 4},
+  {note: "SAINSBURYS", amount: 67.30, daysAgo: 7},
+  {note: "MCDONALDS", amount: 8.99, daysAgo: 2},
+  {note: "DELIVEROO", amount: 23.50, daysAgo: 5},
+  {note: "COSTA COFFEE", amount: 4.75, daysAgo: 3},
+  {note: "COSTA COFFEE", amount: 5.10, daysAgo: 10},
+  {note: "SPOTIFY", amount: 11.99, daysAgo: 8},
+  {note: "AMAZON.CO.UK", amount: 34.99, daysAgo: 6},
+  {note: "AMAZON.CO.UK", amount: 12.49, daysAgo: 12},
+  {note: "BOOTS", amount: 18.60, daysAgo: 9},
+  {note: "TFL TRAVEL", amount: 35.00, daysAgo: 2},
+  {note: "SHELL OIL", amount: 68.40, daysAgo: 11},
+  {note: "ODEON CINEMAS", amount: 22.00, daysAgo: 14},
+  {note: "PET SUPPLIES PLUS", amount: 29.99, daysAgo: 13},
+];
+
+/** Development only: run Frank's bulk classification on all needsCat payments and show the preview before applying. */
+function OrganiseTry() {
+  const seed = async () => {
+    const st = useMoney.getState();
+    const today = st.today;
+    const [y, m, d] = today.split("-").map(Number);
+    let added = 0;
+    for (const p of SEED_PAYMENTS) {
+      const date = new Date(y, m - 1, d - p.daysAgo);
+      const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      const tx: Omit<Tx, "id" | "created"> = {
+        type: "expense", amount: p.amount, cat: "other", note: p.note,
+        date: iso as Tx["date"], needsCat: true,
+      };
+      const ok = await st.addTx(tx);
+      if (ok) added++;
+    }
+    st.notify(`Added ${added} unorganised payments — ask Frank to organise them`);
+  };
+
+  const run = async () => {
+    const result = await useMoney.getState().buildOrganisation();
+    if (result === null) { useMoney.getState().notify("Nothing to organise right now"); return; }
+    if (typeof result === "string") { useMoney.getState().notify(result); return; }
+    const {preview, apply} = result;
+    Alert.alert(
+      "Organise payments",
+      `${preview.high} high confidence · ${preview.medium} medium · ${preview.low} couldn't tell${preview.more > 0 ? ` · ${preview.more} more` : ""}`,
+      [
+        {text: "Cancel", style: "cancel"},
+        {text: `Organise ${preview.high + preview.medium}`, onPress: () => void apply(new Set())},
+      ],
+    );
+  };
+  return (
+    <Card>
+      <CardHead title="Organisation (development)" />
+      <Button label="Show the Smart Sort card (no AI)" onPress={() => router.push("/org-demo")} />
+      <Button label="Seed 15 unorganised payments" onPress={() => void seed()} />
+      <Button kind="ghost" label="Play Smart Organisation screen (no AI)" onPress={() => router.navigate({pathname: "/tim", params: {who: "frank", org: String(Date.now())}})} />
+      <Button kind="ghost" label="Organise needsCat payments" onPress={() => void run()} />
+    </Card>
+  );
+}
+
 /** Your own accent colour, as a hex code. The swatch shows it as you type; the default is the app's mint. */
 function AccentField() {
   const {c} = useTheme();
@@ -158,7 +227,7 @@ function AccentField() {
       <Field label="Accent colour" hint="The colour of your daily number's card. A hex code, like #C3EADA.">
         <View style={{flexDirection: "row", alignItems: "center", gap: s[3]}}>
           <View accessible accessibilityRole="image" accessibilityLabel={hex ? `Preview, ${hex}` : "No preview yet"}
-            style={{width: 44, height: 44, borderRadius: radius.control, borderWidth: 1, borderColor: c.line, backgroundColor: hex ?? c.surface}} />
+            style={{width: 44, height: 44, borderRadius: radius.control, borderCurve: "continuous", borderWidth: 1, borderColor: c.line, backgroundColor: hex ?? c.surface}} />
           <View style={{flex: 1}}>
             <Input prefix="#" value={text.replace(/^#/, "")} onChangeText={v => { setText(v); setError(""); }} autoCapitalize="characters" autoCorrect={false}
               maxLength={7} returnKeyType="done" onSubmitEditing={apply} accessibilityLabel="Accent colour hex code" />

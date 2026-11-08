@@ -64,6 +64,7 @@ export default function RootLayout() {
           <Stack.Screen name="everyday" options={modal("Everyday")} />
           <Stack.Screen name="today" options={modal("Today's number")} />
           <Stack.Screen name="link-bank" options={modal("Add an account")} />
+          <Stack.Screen name="org-demo" options={modal("Smart Sort card")} />
         </Stack.Protected>
         {/* from setup too: the first question can be answered by the bank */}
         <Stack.Screen name="connect-bank" options={modal("Connect Monzo")} />

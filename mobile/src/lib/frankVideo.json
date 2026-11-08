@@ -1,0 +1,76 @@
+{
+ "h2": {
+  "text": "[strong New York accent, low and tired] Frank. Accountant. [sighs] Unfortunately. I've checked your numbers twice. They add up... [dryly] unlike most things. [quietly] Go on, then.",
+  "ms": 10040,
+  "words": [
+   {
+    "start": 160,
+    "end": 560
+   },
+   {
+    "start": 1040,
+    "end": 1680
+   },
+   {
+    "start": 3173,
+    "end": 3440
+   },
+   {
+    "start": 4080,
+    "end": 4240
+   },
+   {
+    "start": 4360,
+    "end": 4480
+   },
+   {
+    "start": 4520,
+    "end": 4560
+   },
+   {
+    "start": 4640,
+    "end": 4960
+   },
+   {
+    "start": 5040,
+    "end": 5520
+   },
+   {
+    "start": 6085,
+    "end": 6135
+   },
+   {
+    "start": 6186,
+    "end": 6288
+   },
+   {
+    "start": 6339,
+    "end": 6441
+   },
+   {
+    "start": 7521,
+    "end": 7616
+   },
+   {
+    "start": 7656,
+    "end": 7777
+   },
+   {
+    "start": 7817,
+    "end": 7978
+   },
+   {
+    "start": 9273,
+    "end": 9304
+   },
+   {
+    "start": 9383,
+    "end": 9461
+   },
+   {
+    "start": 9539,
+    "end": 9774
+   }
+  ]
+ }
+}

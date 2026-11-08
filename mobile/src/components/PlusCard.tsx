@@ -27,16 +27,16 @@ export function Attachments({items, onRemove, tone, ink}: {items: readonly Shown
     <View style={{flexDirection: "row", flexWrap: "wrap", justifyContent: onRemove ? "flex-start" : "flex-end", gap: 8}}>
       {items.map((a, i) => (
         <View key={i} accessibilityLabel={a.kind === "image" ? "Photo" : a.name}>
-          {a.thumb ? <Image source={{uri: a.thumb}} style={{width: THUMB, height: THUMB, borderRadius: 12, backgroundColor: tone.mine}} />
+          {a.thumb ? <Image source={{uri: a.thumb}} style={{width: THUMB, height: THUMB, borderRadius: 12, borderCurve: "continuous", backgroundColor: tone.mine}} />
             : (
-              <View style={{height: THUMB, maxWidth: 200, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: onRemove ? 28 : 12, borderRadius: 12, backgroundColor: tone.mine}}>
+              <View style={{height: THUMB, maxWidth: 200, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: onRemove ? 28 : 12, borderRadius: 12, borderCurve: "continuous", backgroundColor: tone.mine}}>
                 <Icon name="file" color={ink} size={20} />
                 <Text numberOfLines={1} style={{flexShrink: 1, fontFamily: hanken.medium, fontSize: 13, color: ink}}>{a.name}</Text>
               </View>
             )}
           {onRemove ? (
             <Pressable onPress={() => onRemove(i)} accessibilityRole="button" accessibilityLabel={`Remove ${a.kind === "image" ? "photo" : a.name}`} hitSlop={8}
-              style={{position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: tone.send, alignItems: "center", justifyContent: "center"}}>
+              style={{position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 10, borderCurve: "continuous", backgroundColor: tone.send, alignItems: "center", justifyContent: "center"}}>
               <Icon name="close" color={tone.sendInk} size={12} />
             </Pressable>
           ) : null}
@@ -83,7 +83,7 @@ export function PlusCard({open, onClose, name, model, onModel, onCamera, onPhoto
     onPanResponderRelease: (_e, g) => { if (g.dy > CLOSE_DRAG) onClose(); },
   }), [onClose]);
 
-  const row = ({pressed}: {pressed: boolean}) => ({flexDirection: "row" as const, alignItems: "center" as const, gap: 16, minHeight: 64, paddingHorizontal: 8, borderRadius: 20, opacity: pressed ? .7 : 1});
+  const row = ({pressed}: {pressed: boolean}) => ({flexDirection: "row" as const, alignItems: "center" as const, gap: 16, minHeight: 64, paddingHorizontal: 8, borderRadius: 20, borderCurve: "continuous" as const, opacity: pressed ? .7 : 1});
   const tile = (icon: "camera" | "photo" | "file", label: string, onPress: () => void) => (
     <Pressable key={label} testID={`plus-${icon}`} onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={row}>
       <Bubble fill={tone.mine}>
@@ -101,7 +101,7 @@ export function PlusCard({open, onClose, name, model, onModel, onCamera, onPhoto
       <Reanimated.View testID="plus-card" {...swipe.panHandlers}
         style={[{position: "absolute", left, bottom, minWidth: 240, transformOrigin: `${plusX - left}px 100%`}, grow]}>
         <Card {...GLASS ? {glassEffectStyle: "regular" as const} : {}}
-          style={[{padding: CARD_PAD, borderRadius: 28}, GLASS ? null : {backgroundColor: tone.box, borderWidth: 1, borderColor: tone.edge}]}>
+          style={[{padding: CARD_PAD, borderRadius: 28, borderCurve: "continuous"}, GLASS ? null : {backgroundColor: tone.box, borderWidth: 1, borderColor: tone.edge}]}>
         {tile("camera", "Camera", onCamera)}
         {tile("photo", "Photos", onPhotos)}
         {tile("file", "Files", onFiles)}
@@ -124,7 +124,7 @@ export function PlusCard({open, onClose, name, model, onModel, onCamera, onPhoto
             const on = m.key === model;
             return (
               <Pressable key={m.key} testID={`model-${m.key}`} onPress={() => { onModel(m.key); setPicking(false); }} accessibilityRole="radio" accessibilityState={{selected: on}}
-                style={({pressed}) => ({flexDirection: "row", alignItems: "center", minHeight: 52, paddingHorizontal: 8, borderRadius: 12, opacity: pressed ? .7 : 1})}>
+                style={({pressed}) => ({flexDirection: "row", alignItems: "center", minHeight: 52, paddingHorizontal: 8, borderRadius: 12, borderCurve: "continuous", opacity: pressed ? .7 : 1})}>
                 <View style={{flex: 1}}>
                   <Text style={{fontFamily: hanken.medium, fontSize: 17, color: ink}}>{m.name}</Text>
                   <Text style={{fontFamily: hanken.medium, fontSize: 13, color: muted}}>{m.note}</Text>

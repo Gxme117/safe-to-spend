@@ -53,7 +53,7 @@ export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete
         {/* the logo is said with the name, not on its own */}
         <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><Logo height={20} /></View>
       </View>
-      <View style={{marginTop: 16, height: 40, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: tone.track}}>
+      <View style={{marginTop: 16, height: 40, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderRadius: 20, borderCurve: "continuous", backgroundColor: tone.track}}>
         <Icon name="search" color={c.muted} size={18} />
         <TextInput value={query} onChangeText={onQuery} placeholder="Search chats" placeholderTextColor={c.muted} accessibilityLabel="Search chats"
           autoComplete="off" autoCorrect={false} returnKeyType="search" clearButtonMode="while-editing"
@@ -65,7 +65,7 @@ export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete
         <View style={{marginTop: 8}}>
           {PLACES.map(p => (
             <Pressable key={p.href} onPress={() => onGo(p.href)} accessibilityRole="link" accessibilityLabel={p.title}
-              style={{flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 12}}>
+              style={{flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 12, borderCurve: "continuous"}}>
               <View style={{width: DOT, alignItems: "center"}}><Icon name={p.icon} color={c.ink} size={22} /></View>
               <Text style={{flex: 1, fontFamily: hanken.medium, fontSize: 16, lineHeight: 21, color: c.ink}}>{p.title}</Text>
             </Pressable>
@@ -85,7 +85,7 @@ export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete
                 <Pressable key={r.id} onPress={() => onOpen(r.id)} onLongPress={() => askDelete(r)}
                   accessibilityRole="button" accessibilityLabel={`${r.title}, with ${NAME[r.who]}`} accessibilityHint="Opens the chat. Press and hold to delete it."
                   accessibilityState={{selected: on}}
-                  style={{flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: on ? tone.track : "transparent"}}>
+                  style={{flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 12, borderCurve: "continuous", backgroundColor: on ? tone.track : "transparent"}}>
                   <FaceDot who={r.who} face={faces[r.who]} bg={tone.track} />
                   <Text numberOfLines={1} style={{flex: 1, minWidth: 0, fontFamily: hanken.medium, fontSize: 16, lineHeight: 21, color: c.ink}}>{r.title}</Text>
                 </Pressable>
@@ -96,7 +96,7 @@ export function ChatsPanel({rows, now, openIds, query, onQuery, onOpen, onDelete
       </ScrollView>
       {/* a new chat, at the bottom left */}
       <Pressable onPress={onNew} accessibilityRole="button" accessibilityLabel="New chat" hitSlop={8}
-        style={{position: "absolute", left: 0, bottom, height: 44, paddingLeft: 16, paddingRight: 20, borderRadius: 22, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: tone.send}}>
+        style={{position: "absolute", left: 0, bottom, height: 44, paddingLeft: 16, paddingRight: 20, borderRadius: 22, borderCurve: "continuous", flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: tone.send}}>
         <Icon name="pencil" color={tone.sendInk} size={18} />
         <Text style={{fontFamily: hanken.semibold, fontSize: 16, color: tone.sendInk}}>Chat</Text>
       </Pressable>

@@ -126,7 +126,7 @@ function Line({name, uri, look, meta, amount, good, rule, badge, onPress, end}: 
 
 const styles = StyleSheet.create({
   // square along the top, where it's perforated, like a receipt torn off the roll
-  card: {borderRadius: radius.card, borderTopLeftRadius: 0, borderTopRightRadius: 0, paddingHorizontal: PAD, paddingTop: PAD, paddingBottom: s[2]},
+  card: {borderRadius: radius.card, borderCurve: "continuous", borderTopLeftRadius: 0, borderTopRightRadius: 0, paddingHorizontal: PAD, paddingTop: PAD, paddingBottom: s[2]},
   perforation: {position: "absolute", top: 0, left: 0},
   head: {flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: s[3], marginBottom: s[1]},
   add: {height: 32, paddingHorizontal: s[3], borderRadius: radius.pill, borderWidth: 1.5, justifyContent: "center"},

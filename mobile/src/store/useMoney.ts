@@ -5,7 +5,8 @@ import {backfill, deleteAllTx, deleteTx, fileBills, insertMany, insertTx, listSi
 import {getMerchantRules, removeMerchantRule, setMerchantRule} from "@/db/merchantRules";
 import {applyRun, pruneOldRuns, undoRun} from "@/db/organise";
 import {getCachedGuesses, saveCachedGuesses} from "@/db/classify";
-import {buildRun, eligible, orgReport, type Confidence, type OrgReport} from "@/lib/organise";
+import {buildPreviewExamples, buildRun, changeKey, eligible, orgReport, withEdits, type Confidence, type OrgReport} from "@/lib/organise";
+import type {OrgEdits, OrgPreviewWithExamples} from "@/lib/orgProposal";
 import {sanitizeGuesses, unresolvedPayees} from "@/lib/classify";
 import {classifyPayees} from "@/services/classify";
 import type {Note, Who} from "@/lib/ai/tools";
@@ -36,6 +37,8 @@ export type ThemePref = "system" | "light" | "dark";
 export type CardStyle = "colour" | "glass";
 /** Frank's background in dark mode: plain black, or his office with square lights hanging behind him. */
 export type FrankRoom = "plain" | "office";
+// Frank's opening in light mode: his picture (the default), or the animation being tried (h2 as a video, assets/frank-video)
+export type FrankOpening = "picture" | "animation";
 /** The Living tab: the ball pit, or the same bills and everyday amounts as a list. */
 export type LivingView = "pit" | "list";
 /** Who your accountant is on his tab: Tim, or Frank (another version from the Home S20 canvas, being tried out). */
@@ -57,6 +60,7 @@ interface MoneyStore {
   accent: string | null;      // your own accent colour (#RRGGBB), or null for the default
   cardStyle: CardStyle;
   frankRoom: FrankRoom;
+  frankOpening: FrankOpening;
   livingView: LivingView;
   accountant: Accountant;
   models: Record<Accountant, ModelKey>; // which Claude each thinks with (the "+" card on his tab, lib/ai/models.ts)
@@ -80,6 +84,7 @@ interface MoneyStore {
   setAccent(hex: string | null): void;
   setCardStyle(v: CardStyle): void;
   setFrankRoom(v: FrankRoom): void;
+  setFrankOpening(v: FrankOpening): void;
   setLivingView(v: LivingView): void;
   setAccountant(v: Accountant): void;
   setModel(who: Accountant, model: ModelKey): void;
@@ -139,7 +144,7 @@ interface MoneyStore {
    * Returns the preview so the caller can confirm before applying. Call `run.apply()` to write.
    * Returns null when there's nothing to organise, or a string error.
    */
-  buildOrganisation(): Promise<{preview: import("@/lib/organise").OrgPreview; apply: () => Promise<{report: OrgReport} | null>} | null | string>;
+  buildOrganisation(): Promise<{preview: OrgPreviewWithExamples; apply: (skippedKeys: Set<string>, edits?: OrgEdits) => Promise<{report: OrgReport} | null>} | null | string>;
   /** Undo a completed organisation run. Returns how many payments were restored, or null on failure. */
   undoOrganisation(runId: string): Promise<{restored: number; skipped: number} | null>;
   /** Link a bank through TrueLayer and read it once. null: you closed the login. */
@@ -244,7 +249,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   };
 
   return {
-    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", livingView: "pit", accountant: "tim", models: {tim: DEFAULT_MODEL, frank: DEFAULT_MODEL}, aiConsent: false, speaks: true, notes: [], merchantRules: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, organising: false, setupBank: null, setupFound: null,
+    state: null, txs: [], loaded: false, today: today(), theme: "system", accent: null, cardStyle: "colour", frankRoom: "plain", frankOpening: "picture", livingView: "pit", accountant: "tim", models: {tim: DEFAULT_MODEL, frank: DEFAULT_MODEL}, aiConsent: false, speaks: true, notes: [], merchantRules: [], scan: null, answers: {}, briefLog: NO_BRIEFS, toast: null, syncing: false, organising: false, setupBank: null, setupFound: null,
 
     async load() {
       const [txs, merchantRules] = await Promise.all([
@@ -259,6 +264,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
     setAccent(accent) { set({accent}); },
     setCardStyle(cardStyle) { set({cardStyle}); },
     setFrankRoom(frankRoom) { set({frankRoom}); },
+    setFrankOpening(frankOpening) { set({frankOpening}); },
     setLivingView(livingView) { set({livingView}); },
     setAccountant(accountant) { set({accountant}); },
     setModel(who, model) { set({models: {...get().models, [who]: model}}); },
@@ -552,19 +558,34 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
 
       const {run, preview} = buildRun(id, txs, ctx, merchantRules, guesses);
       if (!preview.high && !preview.medium) return null;
+      const examples = buildPreviewExamples(run, txs, state);
+      const previewWithExamples: OrgPreviewWithExamples = {...preview, examples};
       return {
-        preview,
-        apply: async () => {
+        preview: previewWithExamples,
+        apply: async (skippedKeys: Set<string>, edits?: OrgEdits) => {
           if (get().organising) return null;
           set({organising: true});
           try {
+            // Compute the txIds to exclude: medium-confidence changes whose payee key was skipped.
+            const txMap = new Map(txs.map(t => [t.id, t]));
+            const skippedTxIds = new Set<string>();
+            for (const c of run.changes) {
+              if (c.confidence !== "medium") continue;
+              const key = changeKey(c, txMap);
+              if (key && skippedKeys.has(key)) skippedTxIds.add(c.txId);
+            }
+            // A shop's payments the person put somewhere else: theirs is the category now (see withEdits)
+            const edited = withEdits(run, txs, edits);
             const at = Date.now();
-            await applyRun(run, at);
+            await applyRun(edited, at, skippedTxIds.size ? skippedTxIds : undefined);
             const refreshed = await listSince(addMonths(today(), -12));
             const rules = await getMerchantRules();
             set({txs: refreshed, merchantRules: rules, organising: false});
             await pruneOldRuns();
-            const count = preview.high + preview.medium;
+            // Build the report from the filtered run so counts reflect what was actually applied.
+            const appliedChanges = edited.changes.filter(c => !skippedTxIds.has(c.txId));
+            const filteredRun = {...edited, changes: appliedChanges};
+            const count = preview.high + (preview.medium - skippedTxIds.size);
             get().notify(`Sorted ${count} payment${count === 1 ? "" : "s"} · Undo`, true, async () => {
               const {restored, skipped} = await undoRun(run.id);
               const refreshed2 = await listSince(addMonths(today(), -12));
@@ -573,7 +594,7 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
               const msg = skipped > 0 ? `Put back ${restored} · ${skipped} you'd changed were left` : `Put back ${restored}`;
               get().notify(msg, false);
             });
-            const report = orgReport(ctx, run);
+            const report = orgReport(ctx, filteredRun);
             return {report};
           } catch {
             set({organising: false});
@@ -610,5 +631,5 @@ export const useMoney = create<MoneyStore>()(persist((set, get) => {
   version: 4,
   migrate: (saved, version) => migrateSaved(saved, version) as MoneyStore,
   storage: kv,
-  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, frankRoom: s.frankRoom, livingView: s.livingView, accountant: s.accountant, models: s.models, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes, scan: s.scan, answers: s.answers, briefLog: s.briefLog}),
+  partialize: s => ({state: s.state, theme: s.theme, accent: s.accent, cardStyle: s.cardStyle, frankRoom: s.frankRoom, frankOpening: s.frankOpening, livingView: s.livingView, accountant: s.accountant, models: s.models, aiConsent: s.aiConsent, speaks: s.speaks, notes: s.notes, scan: s.scan, answers: s.answers, briefLog: s.briefLog}),
 }));

@@ -122,5 +122,5 @@ export default function ExpectMoney() {
 
 const styles = StyleSheet.create({
   fill: {flex: 1, justifyContent: "center", paddingHorizontal: s[4]},
-  card: {borderRadius: radius.card, maxHeight: "100%", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.25)"},
+  card: {borderRadius: radius.card, borderCurve: "continuous", maxHeight: "100%", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.25)"},
 });

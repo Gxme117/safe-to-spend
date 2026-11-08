@@ -1,9 +1,18 @@
 // The card island (Live Activity, widgets/CardTap.tsx): started when a sync finds a new card payment. iOS only, and never
 // in the way: anything that goes wrong is logged and the app carries on. Native modules load only when it's shown, so the
 // store (and its tests) don't need them.
+import {requireOptionalNativeModule} from "expo";
 import {Platform} from "react-native";
 import {type CardTapProps, islandCaptions, islandFacts, lineOk} from "@/lib/cardTap";
 import type {Take} from "@/lib/timSpeech";
+
+// expo-widgets is a native module. Expo Go, and a development build made before it was added, haven't got it, and importing
+// it there throws while it loads: Metro reports that as a fatal error (the red screen) however the import is wrapped. So it's
+// only imported when the native side is there, and without it the island just doesn't exist.
+const hasWidgets = (): boolean => {
+  try { return !!requireOptionalNativeModule("ExpoWidgets"); } catch { return false; }
+};
+const widgets = () => hasWidgets() ? import("expo-widgets") : Promise.reject(new Error("this build has no widgets module"));
 
 // Frank's pictures for the island. Each is copied under a new name whenever it changes, since a copy already there is never
 // replaced (face v2: on white; v3: 160px. peek v2: white balanced)
@@ -15,7 +24,7 @@ const PICTURES = {
 /** One of Frank's pictures, copied once into the folder the island can read (it can't see the app's own files). "" if that fails. */
 async function pictureFile(which: keyof typeof PICTURES): Promise<string> {
   try {
-    const [{widgetsDirectory}, {Asset}, {File}] = await Promise.all([import("expo-widgets"), import("expo-asset"), import("expo-file-system")]);
+    const [{widgetsDirectory}, {Asset}, {File}] = await Promise.all([widgets(), import("expo-asset"), import("expo-file-system")]);
     if (!widgetsDirectory) return "";
     const out = new File(widgetsDirectory, PICTURES[which].name);
     if (!out.exists) {
@@ -37,7 +46,7 @@ const LASTS = 5 * 60e3;
 const STARTED = "island.startedAt";
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-const loadIsland = () => import("@/widgets/CardTap").then(m => m.default);
+const loadIsland = () => hasWidgets() ? import("@/widgets/CardTap").then(m => m.default) : Promise.reject(new Error("this build has no widgets module"));
 const loadStorage = () => import("expo-sqlite/kv-store").then(m => m.default);
 
 /** Shows the island for a payment: any one already up goes first, so there's only ever one. `speaks`: Frank may say a line
@@ -68,7 +77,7 @@ export async function endOldCardTap(): Promise<void> {
   try {
     const Storage = await loadStorage();
     const at = Number(Storage.getItemSync(STARTED));
-    if (!at || Date.now() - at < LASTS) { void settle(); return; }
+    if (!at || Date.now() - at < LASTS) { settle().catch(() => {}); return; }
     stopSpeaking();
     voice = null;
     const CardTap = await loadIsland();
@@ -177,9 +186,9 @@ async function settle(): Promise<void> {
 
 /** Listens for the island's play button for as long as the app's running. Returns the way to stop listening. */
 export function listenToIsland(): () => void {
-  if (Platform.OS !== "ios") return () => {};
+  if (Platform.OS !== "ios" || !hasWidgets()) return () => {};
   let sub: {remove(): void} | undefined, gone = false;
-  import("expo-widgets").then(({addUserInteractionListener}) => {
+  widgets().then(({addUserInteractionListener}) => {
     if (gone) return;
     sub = addUserInteractionListener(e => { if (e.source === "CardTap" && e.target === "frank-say") void speakOnIsland(); });
   }).catch(e => console.warn("The island's play button isn't listened for:", e instanceof Error ? e.message : e));

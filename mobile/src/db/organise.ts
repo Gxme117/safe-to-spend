@@ -16,14 +16,16 @@ interface ChangeRow {
 /**
  * Write an org run and its high/medium changes to the DB, then file the payments.
  * Low-confidence changes are never written (they don't touch the tx table).
+ * skippedTxIds: txIds of medium-confidence payments the user chose to skip; they are excluded from apply.
  * All writes are in one transaction — a crash leaves nothing half-applied.
  */
-export async function applyRun(run: OrgRun, at: number): Promise<void> {
+export async function applyRun(run: OrgRun, at: number, skippedTxIds?: Set<string>): Promise<void> {
   const d = await db();
-  const toApply = run.changes.filter(c => c.confidence !== "low");
-  const auto = run.changes.filter(c => c.confidence === "high").length;
-  const provisional = run.changes.filter(c => c.confidence === "medium").length;
-  const left = run.changes.filter(c => c.confidence === "low").length;
+  const toApply = run.changes.filter(c => c.confidence !== "low" && !skippedTxIds?.has(c.txId));
+  const auto = toApply.filter(c => c.confidence === "high").length;
+  const provisional = toApply.filter(c => c.confidence === "medium").length;
+  const skippedCount = skippedTxIds?.size ?? 0;
+  const left = run.changes.filter(c => c.confidence === "low").length + skippedCount;
 
   await d.withTransactionAsync(async () => {
     // 1. Write the run header

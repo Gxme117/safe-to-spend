@@ -651,7 +651,7 @@ const styles = StyleSheet.create({
   bank: {position: "absolute", left: 0, right: 0, top: 0},
   bankFace: {backgroundColor: BANK_BG, boxShadow: "0 6px 16px rgba(0,0,0,0.18)"},
   otherFace: {boxShadow: "0 6px 16px rgba(0,0,0,0.18)"},
-  card: {aspectRatio: 1.586, borderRadius: radius.bankCard, paddingTop: s[4], paddingLeft: s[5], paddingRight: MARK_INSET, paddingBottom: s[5], justifyContent: "space-between"},
+  card: {aspectRatio: 1.586, borderRadius: radius.bankCard, borderCurve: "continuous", paddingTop: s[4], paddingLeft: s[5], paddingRight: MARK_INSET, paddingBottom: s[5], justifyContent: "space-between"},
   // a card's balance and name, sharing a baseline
   markRow: {flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: s[3]},
   // clear of the tilted cards' lowest corner
@@ -662,7 +662,7 @@ const styles = StyleSheet.create({
   mug: {position: "absolute", left: MUG_AT.x - MUG / 2, top: MUG_AT.y - MUG / 2, zIndex: 5},
   addAccount: {flexDirection: "row", alignItems: "center", gap: s[2], height: ADD_H, paddingHorizontal: s[4], borderRadius: radius.pill, borderWidth: 1.5, borderStyle: "dashed"},
   // the balance and name sit lower and further out on Today's cards than on the wallet's, as drawn
-  hanging: {position: "absolute", aspectRatio: 1.586, borderRadius: radius.bankCard, boxShadow: "0 2px 4px rgba(0,0,0,0.10), 0 14px 28px rgba(0,0,0,0.18)"},
+  hanging: {position: "absolute", aspectRatio: 1.586, borderRadius: radius.bankCard, borderCurve: "continuous", boxShadow: "0 2px 4px rgba(0,0,0,0.10), 0 14px 28px rgba(0,0,0,0.18)"},
   // the whole card is the tap, its balance and name at the bottom
   hangingTap: {flex: 1, justifyContent: "flex-end", paddingLeft: 21, paddingRight: MARK_INSET, paddingBottom: 11},
 });

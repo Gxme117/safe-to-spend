@@ -2,7 +2,7 @@
 import {matchMerchantRule, normalizePayee} from "./categoryChange";
 import {nameHint, resolve, resolveSubCat} from "./categories";
 import {spendCats} from "./payments";
-import type {Ctx, IsoDate, MerchantRule, Tx} from "./types";
+import type {AppState, Ctx, IsoDate, MerchantRule, Tx} from "./types";
 
 export type Confidence = "high" | "medium" | "low";
 export type ClassifySource = "rule" | "hint" | "ai";
@@ -26,6 +26,26 @@ export interface OrgRun {
   more: number;          // eligible txs beyond the per-run cap
 }
 
+/** A change's shop, the way the preview card keys it: its saved-rule payee, else the payment's own name, normalised. */
+export const changeKey = (c: OrgChange, txs: Map<string, Tx>): string => {
+  const t = txs.get(c.txId);
+  return c.rulePayee ?? (t ? normalizePayee(t.note) : "");
+};
+
+/**
+ * The run with a shop's payments put where the person said (Edit on the preview card, before Confirm). Theirs is the category
+ * now, so those changes count as sure (and a rule for the shop, if it gets one, teaches their choice). Low ones, which are left
+ * alone, and every shop not edited are untouched.
+ */
+export function withEdits(run: OrgRun, txs: Tx[], edits?: Record<string, {cat: string; sub?: string}>): OrgRun {
+  if (!edits || !Object.keys(edits).length) return run;
+  const byId = new Map(txs.map(t => [t.id, t]));
+  return {...run, changes: run.changes.map(c => {
+    const e = c.confidence === "low" ? undefined : edits[changeKey(c, byId)];
+    return e ? {...c, toCat: e.cat, toSub: e.sub, confidence: "high" as const} : c;
+  })};
+}
+
 export interface OrgPreview {
   runId: string;
   high: number;
@@ -45,6 +65,18 @@ export interface OrgRow {
   why: string;
 }
 
+/** One merchant group surfaced in the preview card — high or medium confidence only. */
+export interface OrgExample {
+  key: string;         // normalised payee key (used for skip tracking)
+  note: string;        // representative tx note, truncated to 28 chars
+  toCatId: string;
+  toCatName: string;
+  toSubId?: string;
+  toSubName?: string;
+  confidence: Confidence;
+  count: number;       // number of payments from this merchant in the run
+}
+
 export interface OrgReport {
   runId: string;
   at: number;
@@ -57,6 +89,7 @@ export interface OrgReport {
   byCat: {cat: string; name: string; count: number; total: number; subs: {sub: string; name: string; count: number; total: number}[]}[];
   check: OrgRow[];    // provisional, biggest first
   unclear: OrgRow[];  // low / unresolvable, up to 10
+  rows: string[];     // every payment sorted by this run (high + medium), newest first; the card reads each one's live filing
 }
 
 const MAX_ELIGIBLE = 500;
@@ -141,7 +174,9 @@ export function buildRun(
       }
     }
 
-    // 2. Name hint (regex patterns in categories.ts) → medium confidence; store rulePayee for future rule
+    // 2. Name hint (patterns in categories.ts: "COSTA" is coffee, "SHELL" is fuel) → sorted, the same as a rule. Frank sorts what
+    // he can read and the person sees it before it's saved (and can edit any of it), so "needs review" is kept for what he
+    // really can't tell. A shop that's a rule-worthy name teaches him it; a processor like PayPal or Amazon doesn't.
     // resolve() maps catalog ids (e.g. "eating") to the user's matching category, handling renames
     const hint = nameHint(representative.note);
     if (hint) {
@@ -150,7 +185,7 @@ export function buildRun(
       if (cat && cats.find(c => c.id === cat.id)) {
         const rulePayee = !isAmbiguous(norm) ? norm : undefined;
         for (const tx of group) {
-          changes.push({txId: tx.id, fromCat: tx.cat, fromSub: tx.subCat, fromNeeds: !!tx.needsCat, toCat: cat.id, confidence: "medium", source: "hint", ...(rulePayee ? {rulePayee} : {})});
+          changes.push({txId: tx.id, fromCat: tx.cat, fromSub: tx.subCat, fromNeeds: !!tx.needsCat, toCat: cat.id, confidence: "high", source: "hint", ...(rulePayee ? {rulePayee} : {})});
         }
         continue;
       }
@@ -185,6 +220,55 @@ export function buildRun(
     run: {id, changes, more},
     preview: {runId: id, high, medium, low, total: toProcess.length, more},
   };
+}
+
+/**
+ * Every shop the run would sort, for the preview card: one entry per normalised payee key, with how many payments it covers.
+ * The ones he's unsure of come first (they're what the person may want to look at), then the sure ones. Nothing is left out:
+ * the card pages through them.
+ * txs must be the same slice used to build the run.
+ */
+export function buildPreviewExamples(run: OrgRun, txs: Tx[], state: AppState): OrgExample[] {
+  const cats = spendCats(state);
+  const txMap = new Map(txs.map(t => [t.id, t]));
+
+  // Group changes by normalised payee key; keep first representative tx per key.
+  const highGroups = new Map<string, {change: OrgChange; count: number; rep: Tx}>();
+  const mediumGroups = new Map<string, {change: OrgChange; count: number; rep: Tx}>();
+
+  for (const change of run.changes) {
+    if (change.confidence !== "high" && change.confidence !== "medium") continue;
+    const tx = txMap.get(change.txId);
+    if (!tx) continue;
+    const key = normalizePayee(tx.note) || change.txId;
+    const target = change.confidence === "high" ? highGroups : mediumGroups;
+    const existing = target.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      target.set(key, {change, count: 1, rep: tx});
+    }
+  }
+
+  const toExample = (key: string, {change, count, rep}: {change: OrgChange; count: number; rep: Tx}): OrgExample => {
+    const cat = cats.find(c => c.id === change.toCat);
+    const sub = change.toSub ? resolveSubCat(state.categories, change.toCat, change.toSub) : undefined;
+    const note = rep.note.length > 28 ? rep.note.slice(0, 27) + "…" : rep.note;
+    return {
+      key,
+      note,
+      toCatId: change.toCat,
+      toCatName: cat?.name ?? change.toCat,
+      ...(sub ? {toSubId: sub.id, toSubName: sub.name} : {}),
+      confidence: change.confidence,
+      count,
+    };
+  };
+
+  const highExamples = [...highGroups.entries()].map(([k, v]) => toExample(k, v));
+  const mediumExamples = [...mediumGroups.entries()].map(([k, v]) => toExample(k, v));
+
+  return [...mediumExamples, ...highExamples];
 }
 
 /** Build the Organisation Report from the run's changes and the current txs (after the run is applied). Pure. */
@@ -259,5 +343,10 @@ export function orgReport(ctx: Ctx, run: OrgRun): OrgReport {
     byCat,
     check,
     unclear,
+    rows: applied
+      .map(c => txMap.get(c.txId))
+      .filter((t): t is Tx => !!t)
+      .sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.created - a.created)
+      .map(t => t.id),
   };
 }
