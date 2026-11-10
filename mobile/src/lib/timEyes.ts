@@ -43,6 +43,21 @@ export function frankBeats(rand: () => number = Math.random): Beat[] {
   return beats;
 }
 
+/** Frank while he searches your payments (Smart Sort): head down in his laptop, typing, never glancing up, but blinking as
+ *  he always does, every 3–5s and now and then twice, 500ms apart (the double is a beat of its own, hands left as they were).
+ *  Runs for `total` ms, long enough to outlast any search; when it's over he's back to his round. */
+export function frankSearchBeats(total = 180000, rand: () => number = Math.random): Beat[] {
+  const beats: Beat[] = [];
+  let left = total, double = false;
+  while (left > 0) {
+    double = !double && rand() < .2;
+    const ms = double ? 500 : between(rand, 3000, 5000);
+    beats.push({look: "down", ms, blink: true, ...double ? {} : {typing: true}});
+    left -= ms;
+  }
+  return beats;
+}
+
 /** How far a hand is lifted off the keys: down, a little, or more (scripts/frank_hands.py's pieces). */
 export type Lift = 0 | 1 | 2;
 export type HandsPose = {left: Lift; right: Lift; ms: number};

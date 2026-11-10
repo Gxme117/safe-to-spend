@@ -158,7 +158,7 @@ test("a temporary chat is said under him for as long as it lasts, not in a toast
   await show(3);
   expect(screen.queryByTestId("temp-note")).toBeNull();
   await fireEvent.press(screen.getByTestId("temporary-chat"));
-  expect(screen.getByText("Temporary chat · Not kept, nothing noted")).toBeOnTheScreen();
+  expect(screen.getByText("Temporary chat")).toBeOnTheScreen();
   expect(useMoney.getState().toast).toBeNull();
   await fireEvent.press(screen.getByTestId("temporary-chat"));
   expect(screen.queryByTestId("temp-note")).toBeNull();

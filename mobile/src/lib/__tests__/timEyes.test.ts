@@ -1,4 +1,4 @@
-import {frankBeats, lidFor, MAX_EYE_CONTACT, nextBeats, ON_TWOS, typingPoses, type Beat} from "@/lib/timEyes";
+import {frankBeats, frankSearchBeats, lidFor, MAX_EYE_CONTACT, nextBeats, ON_TWOS, typingPoses, type Beat} from "@/lib/timEyes";
 
 // a seeded random, so each run sees the same Tim
 function seeded(seed: number) {
@@ -94,6 +94,21 @@ test("Frank looks at you a while, blinking now and then, then goes back to his l
       if (b.ms < 1500) expect(b.ms === 500 && atYou[j - 1]?.ms !== 500).toBe(true);
     });
   }
+});
+
+test("searching, Frank stays head down typing but still blinks every few seconds, now and then twice", () => {
+  const beats = frankSearchBeats(180000, seeded(3));
+  expect(beats.reduce((s, b) => s + b.ms, 0)).toBeGreaterThanOrEqual(180000);
+  expect(beats.every(b => b.look === "down" && b.blink)).toBe(true);
+  // a long beat is 3-5s of typing; a double blink is a 500ms beat after one, never two in a row
+  beats.forEach((b, i) => {
+    if (b.ms === 500) { expect(b.typing).toBeUndefined(); expect(beats[i - 1]?.ms).not.toBe(500); }
+    else { expect(b.typing).toBe(true); expect(b.ms).toBeGreaterThanOrEqual(3000); expect(b.ms).toBeLessThanOrEqual(5000); }
+  });
+  expect(beats.some(b => b.ms === 500)).toBe(true);
+  const ms = beats.reduce((s, b) => s + b.ms, 0);
+  expect(ms / beats.length).toBeGreaterThan(2500);
+  expect(ms / beats.length).toBeLessThan(5000);
 });
 
 test("Frank blinks every few seconds while he's looking at you, as in his frame", () => {

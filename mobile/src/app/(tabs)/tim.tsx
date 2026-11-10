@@ -49,7 +49,7 @@ import type {OrgReport} from "@/lib/organise";
 import {uid} from "@/lib/defaults";
 import {calmly, micRefused, micState, MIC_BUTTON, transcriptOf, withHeard} from "@/lib/dictation";
 import {pieceFor} from "@/lib/lipsync";
-import {BLINK, frankBeats, lidFor, nextBeats, ON_TWOS, typingPoses, type Beat, type Lift, type Look, type Mood} from "@/lib/timEyes";
+import {BLINK, frankBeats, frankSearchBeats, lidFor, nextBeats, ON_TWOS, typingPoses, type Beat, type Lift, type Look, type Mood} from "@/lib/timEyes";
 import {answerFrames, beatsFrom, beatsOf, bubbleFits, CAPTION, FILM_OPENING, FILM_VOICE, FRANK_BOX, frankFrames, linesOf, roomOf, still, TIM_BOX, timFrames, waitFrames, wordsFit, type Mouth, type SpeechFrame, type Take} from "@/lib/timSpeech";
 import {AccountantFail, say as sayAloud, send, shop, type AccountantError} from "@/services/accountant";
 import {FRANK_WAIT_CLIPS} from "../../../assets/frankWait-voice";
@@ -134,14 +134,14 @@ function Round({fill, tint, children}: {fill: string; tint?: string; children: R
     : <View style={[round, {backgroundColor: fill}]}>{children}</View>;
 }
 /** A temporary chat is a mode, so it's said where he is for as long as it lasts, one quiet line (not a toast that goes):
- *  the incognito icon with what it means. `short` for beside his bubble, where the room is narrow. */
-function TempNote({color, short, reduced, style}: {color: string; short?: boolean; reduced: boolean; style?: ComponentProps<typeof View>["style"]}) {
+ *  the incognito icon and "Temporary chat". */
+function TempNote({color, reduced, style}: {color: string; reduced: boolean; style?: ComponentProps<typeof View>["style"]}) {
   return (
     <Reanimated.View testID="temp-note" entering={reduced ? undefined : FadeIn.duration(160)} exiting={reduced ? undefined : FadeOut.duration(120)}
       style={[{flexDirection: "row", alignItems: "center", gap: 6}, style]}>
       <Icon name="incognito" color={color} size={14} />
       <Text numberOfLines={1} style={{flexShrink: 1, fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color}}>
-        {short ? "Not kept, nothing noted" : "Temporary chat · Not kept, nothing noted"}
+        Temporary chat
       </Text>
     </Reanimated.View>
   );
@@ -528,9 +528,9 @@ function MouthPieces({width, who, kit, mouth}: {width: number; who: Accountant; 
 const ENTER = {damping: 11, stiffness: 380, mass: .8, velocity: 5}, PUNCH = .1, COVER_MS = 140, FIRST_SHOP_MS = 500, POP_OUT_MS = 520, IRIS_CLOSE = .62;
 // what the page's Frank is doing, for the Frank of the Smart Organisation screen to take over from
 type EyesNow = {look: Look; hands: Record<Side, Lift>};
-// Frank while he searches: head down in his laptop, typing, never glancing up (a blink as he settles). Long enough to outlast any
-// search; when it's over he's back to looking at you.
-const FRANK_DEEP: Beat[] = Array.from({length: 40}, (_, i) => ({look: "down" as const, ms: 4500, typing: true, ...i === 0 ? {blink: true} : {}}));
+// Frank while he searches: head down in his laptop, typing, never glancing up, blinking every few seconds as he does. Long enough
+// to outlast any search; when it's over he's back to looking at you.
+const FRANK_DEEP: Beat[] = frankSearchBeats();
 // Where the shops he looks at float: round his head, in the order they come (left, right, then the two above), as
 // pt from the middle of his head (cx, the px across his picture) and the top of his hair (px down it).
 const HEAD: Record<Accountant, {cx: number; top: number}> = {tim: {cx: 422, top: 120}, frank: {cx: 433, top: 185}};
@@ -682,12 +682,13 @@ function OrgScreen({open, done, who, art, src, alt, office, bg, ink, muted, fill
   return (
     <Reanimated.View testID="org-screen" style={[StyleSheet.absoluteFill, {zIndex: 20}, root]} pointerEvents={mounted ? "auto" : "none"}
       accessibilityViewIsModal={mounted} accessibilityElementsHidden={!mounted} importantForAccessibility={mounted ? "auto" : "no-hide-descendants"}
-      accessibilityLabel="Smart Organisation">
+      accessibilityLabel="Smart Sort">
       <Reanimated.View style={[StyleSheet.absoluteFill, {backgroundColor: bg}, veil]} {...hidden} />
       <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, searching]}>
-        <Reanimated.Text style={[{position: "absolute", left: 32, right: 32, top: insets.top + 16, textAlign: "center", fontFamily: hanken.semibold, fontSize: 17, lineHeight: 22, color: ink}, words]}>
-          Smart Organisation
-        </Reanimated.Text>
+        <Reanimated.View style={[{position: "absolute", left: 32, right: 32, top: insets.top + 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8}, words]}>
+          <Icon name="broom" color={ink} size={20} />
+          <Text style={{fontFamily: hanken.semibold, fontSize: 17, lineHeight: 22, color: ink}}>Smart Sort</Text>
+        </Reanimated.View>
       </Reanimated.View>
       <Reanimated.View style={[{position: "absolute", overflow: "hidden"}, clip]}>
         <Reanimated.View style={[{width, height: pic, transformOrigin: "left top"}, face]}>
@@ -1450,7 +1451,7 @@ function Tim() {
               <Reanimated.View style={[{flex: 1, minWidth: 0, alignSelf: "center", gap: 2}, after]}>
                 <Text style={{fontFamily: hanken.semibold, fontSize: 18, lineHeight: 23, letterSpacing: -.18, color: c.ink}}>{name}</Text>
                 {temp
-                  ? <TempNote short color={c.muted} reduced={reduced} />
+                  ? <TempNote color={c.muted} reduced={reduced} />
                   : <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>Tap him for a new chat</Text>}
               </Reanimated.View>
             )}
