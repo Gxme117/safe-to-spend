@@ -25,6 +25,7 @@ jest.mock("react-native-reanimated", () => ({
   __esModule: true, default: {View: jest.requireActual("react-native").View, Text: jest.requireActual("react-native").Text}, useAnimatedStyle: (f: () => object) => f(),
   useSharedValue: <T,>(v: T) => jest.requireActual("react").useRef({value: v}).current, withTiming: <T,>(v: T) => v, withSpring: <T,>(v: T) => v, withSequence: <T,>(...v: T[]) => v[v.length - 1],
   Easing: {in: (f: unknown) => f, out: (f: unknown) => f, inOut: (f: unknown) => f, cubic: (x: number) => x, quad: (x: number) => x},
+  FadeIn: {duration: () => undefined}, FadeOut: {duration: () => undefined},
 }));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
 jest.mock("expo-router", () => ({router: {push: jest.fn()}, useLocalSearchParams: () => ({}), useFocusEffect: (f: () => void | (() => void)) => jest.requireActual("react").useEffect(f, [f])}));
@@ -152,6 +153,17 @@ const ask = async (text: string, name = "Tim") => {
   await fireEvent.changeText(screen.getByLabelText(`Ask ${name} a question`), text);
   await fireEvent.press(screen.getByRole("button", {name: "Send"}));
 };
+
+test("a temporary chat is said under him for as long as it lasts, not in a toast that goes", async () => {
+  await show(3);
+  expect(screen.queryByTestId("temp-note")).toBeNull();
+  await fireEvent.press(screen.getByTestId("temporary-chat"));
+  expect(screen.getByText("Temporary chat · Not kept, nothing noted")).toBeOnTheScreen();
+  expect(useMoney.getState().toast).toBeNull();
+  await fireEvent.press(screen.getByTestId("temporary-chat"));
+  expect(screen.queryByTestId("temp-note")).toBeNull();
+  expect(useMoney.getState().toast).toBeNull();
+});
 
 test("only what's needed: him, the box to ask him, and what he can do (no name)", async () => {
   await show(3);

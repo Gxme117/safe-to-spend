@@ -9,7 +9,7 @@ import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, Scr
 import {canDictate, mic, micLang, useMicEvent} from "@/services/dictation";
 import {useKeyboardHeight} from "@/services/keyboard";
 import {useVideoPlayer, VideoView} from "@/services/video";
-import Reanimated, {Easing, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming} from "react-native-reanimated";
+import Reanimated, {Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming} from "react-native-reanimated";
 import Svg, {Path} from "react-native-svg";
 import {MerchantLogo} from "@/components/TxRow";
 import {bubblesAt, holdMs, searchStops, STEP_MS, type Stop} from "@/lib/orgSearch";
@@ -132,6 +132,19 @@ function Round({fill, tint, children}: {fill: string; tint?: string; children: R
   return GLASS
     ? <GlassView glassEffectStyle="regular" isInteractive tintColor={tint} style={round}>{children}</GlassView>
     : <View style={[round, {backgroundColor: fill}]}>{children}</View>;
+}
+/** A temporary chat is a mode, so it's said where he is for as long as it lasts, one quiet line (not a toast that goes):
+ *  the incognito icon with what it means. `short` for beside his bubble, where the room is narrow. */
+function TempNote({color, short, reduced, style}: {color: string; short?: boolean; reduced: boolean; style?: ComponentProps<typeof View>["style"]}) {
+  return (
+    <Reanimated.View testID="temp-note" entering={reduced ? undefined : FadeIn.duration(160)} exiting={reduced ? undefined : FadeOut.duration(120)}
+      style={[{flexDirection: "row", alignItems: "center", gap: 6}, style]}>
+      <Icon name="incognito" color={color} size={14} />
+      <Text numberOfLines={1} style={{flexShrink: 1, fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color}}>
+        {short ? "Not kept, nothing noted" : "Temporary chat · Not kept, nothing noted"}
+      </Text>
+    </Reanimated.View>
+  );
 }
 // told to him on each question in a temporary chat, since his notes aren't given to him and remember saves nothing
 const TEMP_CHAT = "This is a temporary chat: the person turned on not keeping it. Nothing from it is kept, you can't see your notes from earlier conversations, and remember saves nothing, so don't offer to note anything.";
@@ -1120,7 +1133,8 @@ function Tim() {
   const toggleTemp = () => {
     Keyboard.dismiss();
     setTempChat(!tempRef.current);
-    useMoney.getState().notify(tempRef.current ? "Temporary chat: it won't be kept, and nothing's noted" : "Temporary chat off");
+    // said under him while it's on (TempNote), so no toast; the screen reader is told, as the toast was
+    AccessibilityInfo.announceForAccessibility(tempRef.current ? "Temporary chat on. Not kept, and nothing's noted." : "Temporary chat off.");
   };
   // an old chat back on screen, with whoever it was with, ready to carry on
   const openChat = async (id: string) => {
@@ -1435,7 +1449,9 @@ function Tim() {
             ) : (
               <Reanimated.View style={[{flex: 1, minWidth: 0, alignSelf: "center", gap: 2}, after]}>
                 <Text style={{fontFamily: hanken.semibold, fontSize: 18, lineHeight: 23, letterSpacing: -.18, color: c.ink}}>{name}</Text>
-                <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>Tap him for a new chat</Text>
+                {temp
+                  ? <TempNote short color={c.muted} reduced={reduced} />
+                  : <Text style={{fontFamily: hanken.medium, fontSize: 13, lineHeight: 18, color: c.muted}}>Tap him for a new chat</Text>}
               </Reanimated.View>
             )}
           </View>
@@ -1482,6 +1498,12 @@ function Tim() {
           {small && <Pressable onPress={grow} style={{position: "absolute", left: 0, top: 0, right: 0, bottom: 0}}
             accessibilityRole="button" accessibilityLabel={`New chat with ${name}`} />}
         </Reanimated.View>
+        {/* a temporary chat, said just under him on the page's own colour (his picture has faded out by then) */}
+        {temp && !small && (
+          <View pointerEvents="none" style={{position: "absolute", left: 32, right: 32, top: DROP + pic + 4, alignItems: "center"}}>
+            <TempNote color={c.muted} reduced={reduced} />
+          </View>
+        )}
       </Reanimated.View>
 
       {/* the conversation, one message after another: yours on the right in a filled grey bubble, his on the left as plain
