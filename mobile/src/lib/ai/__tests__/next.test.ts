@@ -1,4 +1,4 @@
-import {nextOf, STARTERS} from "../next";
+import {nextOf} from "../next";
 
 const WORDS = "You've £42 left today.";
 
@@ -18,9 +18,4 @@ test("a £ figure, a long one or a repeat is dropped; at most 3", () => {
   const long = "Could you go through every single bill I have and tell me which ones I could cut?";
   expect(nextOf(`<next>Can I spend £50? | ${long} | Why? | Why? | What's due? | Am I okay? | Next week?</next>`).next)
     .toEqual(["Why?", "What's due?", "Am I okay?"]);
-});
-
-test("starters are a few short questions", () => {
-  expect(STARTERS.length).toBeGreaterThanOrEqual(2);
-  for (const s of STARTERS) expect(nextOf(`<next>${s}</next>`).next).toEqual([s]);
 });

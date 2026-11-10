@@ -9,6 +9,9 @@ import {useTheme} from "@/theme/useTheme";
 // the tab bar as drawn (the minimal design): taller than the system's, its icons and labels where the design has them
 const BAR = 56, ICON = 22, LABEL = 11;
 
+// the app opens on the accountant's tab (Frank, or Tim if that's who you last picked), not Today
+export const unstable_settings = {initialRouteName: "tim"};
+
 export default function TabsLayout() {
   const {c, dark} = useTheme();
   const {top, bottom} = useSafeAreaInsets();

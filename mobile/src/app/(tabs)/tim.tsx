@@ -4,8 +4,8 @@ import * as Haptics from "expo-haptics";
 import {LinearGradient} from "expo-linear-gradient";
 import {router, useFocusEffect, useLocalSearchParams} from "expo-router";
 import {openBrowserAsync} from "expo-web-browser";
-import {useCallback, useEffect, useMemo, useRef, useState} from "react";
-import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type HostInstance, type ImageSourcePropType, type ScrollViewInstance} from "react-native";
+import {useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type MutableRefObject} from "react";
+import {AccessibilityInfo, Dimensions, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type HostInstance, type ImageSourcePropType, type ScrollViewInstance, type TextInputInstance} from "react-native";
 import {canDictate, mic, micLang, useMicEvent} from "@/services/dictation";
 import {useKeyboardHeight} from "@/services/keyboard";
 import {useVideoPlayer, VideoView} from "@/services/video";
@@ -13,6 +13,7 @@ import Reanimated, {Easing, useAnimatedStyle, useSharedValue, withDelay, withRep
 import Svg, {Path} from "react-native-svg";
 import {MerchantLogo} from "@/components/TxRow";
 import {bubblesAt, holdMs, searchStops, STEP_MS, type Stop} from "@/lib/orgSearch";
+import {entryAt, type EntryGeo, type OrgOrigin} from "@/lib/orgEntry";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useChrome} from "@/store/chrome";
 import {useReducedMotion} from "@/components/BigMoney";
@@ -39,7 +40,6 @@ import {isNewView, researchView, type OldResearchView, type ResearchView, type T
 import {yesNo} from "@/lib/ai/yesNo";
 import {converse, type Answer, type Deps, type Ended, type Transcript} from "@/lib/ai/converse";
 import {briefingAsk, briefingDue, briefingFacts, logBrief} from "@/lib/briefing";
-import {STARTERS} from "@/lib/ai/next";
 import type {Visual} from "@/lib/ai/visual";
 import type {Source} from "@/lib/ai/web";
 import {roundOf, stopwatch, type Stopwatch} from "@/lib/ai/timings";
@@ -63,7 +63,7 @@ import {HomeLook, useTheme} from "@/theme/useTheme";
 
 // Tim, your accountant (the "Accountant-Tim" frame, drawn at 440pt wide): his picture across the top, fading into the page,
 // what he says beside his head, and a box to ask him anything about your money (no name). Suggestions to tap and send
-// (lib/ai/next.ts): a few starters above the box on an empty chat, and under his latest answer what you might ask next.
+// (lib/ai/next.ts): under his latest answer, what you might ask next. On Frank's empty chat, a stack of what he can do sits above the box.
 // Claude does his thinking (lib/ai/converse.ts): it looks up what a question needs with the app's own engine, run here, and
 // every £ in the answer is checked against what it looked up. The line under an answer says what it was checked against.
 // His eyes follow what you're doing: idle, typing (the box has focus or text) or thinking (until his answer lands).
@@ -503,11 +503,18 @@ function MouthPieces({width, who, kit, mouth}: {width: number; who: Accountant; 
   </>;
 }
 
-// "Smart Organisation": while he looks through your payments he pops forward into a screen of his own, springing up from
-// where he was (his bubble, or his place on the page) with a bounce. `open` drives it; it unmounts once it has shrunk back.
+// "Smart Organisation": while he looks through your payments he comes forward into a screen of his own, from where he was
+// (his bubble, or his place on the page), in one quick springy move (lib/orgEntry.ts): the screen's background fades in
+// under him over COVER_MS while he is still exactly where he was, so he is the same Frank all the way, his eyes and mouth
+// carried over. `open` drives it; it unmounts once it has shrunk back.
 // Going out is an iris-out, as the old cartoons end: a circle closes in on his face (the picture stays put), then the small circle
 // slips into the bubble. IRIS_CLOSE is the share of the time spent closing in.
-const POP = {damping: 12, stiffness: 150, mass: 1}, POP_OUT_MS = 520, IRIS_CLOSE = .62;
+// ENTER: a jolt (it starts already moving) and a bouncy settle (past the spot by about a third, back, settled by about .6s). On top
+// of it he lunges at you: PUNCH is how much bigger he gets at the peak (a quick swell, then a wobbly spring back). The
+// background fades in over COVER_MS.
+const ENTER = {damping: 11, stiffness: 380, mass: .8, velocity: 5}, PUNCH = .1, COVER_MS = 140, FIRST_SHOP_MS = 500, POP_OUT_MS = 520, IRIS_CLOSE = .62;
+// what the page's Frank is doing, for the Frank of the Smart Organisation screen to take over from
+type EyesNow = {look: Look; hands: Record<Side, Lift>};
 // Frank while he searches: head down in his laptop, typing, never glancing up (a blink as he settles). Long enough to outlast any
 // search; when it's over he's back to looking at you.
 const FRANK_DEEP: Beat[] = Array.from({length: 40}, (_, i) => ({look: "down" as const, ms: 4500, typing: true, ...i === 0 ? {blink: true} : {}}));
@@ -538,31 +545,42 @@ function OrgBubble({stop, x, y, inn, slot, fill, reduced}: {stop: Stop; x: numbe
 // The black card that comes out of the Dynamic Island when he's done: it starts as the island itself (126×37, 11pt down,
 // where it sits on phones that have one) and springs out to a card with a tick and what he did.
 const ISLAND = {w: 126, h: 37, top: 11}, DONE_CARD = {w: 236, h: 104};
-function OrgScreen({open, done, who, art, src, alt, office, bg, ink, muted, fill, stops, count, small, bubbleTop, width, mood, reduced}: {
+function OrgScreen({open, done, who, art, src, alt, office, bg, ink, muted, fill, stops, count, origin, mouth0, eyes0, bubbleTop, width, mood, reduced}: {
   open: boolean; done: boolean; who: Accountant; art: (typeof ART)[Accountant]["light"]; src: ImageSourcePropType; alt: string; office?: ImageSourcePropType;
-  bg: string; ink: string; muted: string; fill: string; stops: Stop[]; count: number; small: boolean; bubbleTop: number; width: number; mood: Mood; reduced: boolean;
+  bg: string; ink: string; muted: string; fill: string; stops: Stop[]; count: number; bubbleTop: number; width: number; mood: Mood; reduced: boolean;
+  // where he comes from (his place on the page, or his bubble), the mouth he had then, what his eyes were doing, and the
+  // page's own Frank's fade (1 while this one is standing in for him)
+  origin: OrgOrigin; mouth0: Mouth; eyes0: EyesNow;
 }) {
   const insets = useSafeAreaInsets();
   // stays mounted while it shrinks back
-  const [leaving, setLeaving] = useState(false), [was, setWas] = useState(open), [shown, setShown] = useState(0);
-  if (was !== open) { setWas(open); setLeaving(!open && !reduced); if (open) setShown(0); }
+  const [leaving, setLeaving] = useState(false), [was, setWas] = useState(open), [shown, setShown] = useState(0), [mouth, setMouth] = useState<Mouth>("X");
+  if (was !== open) { setWas(open); setLeaving(!open && !reduced); if (open) { setShown(0); setMouth(mouth0); } }
+  // the mouth he had is held for a pose, then he's at rest
+  useEffect(() => {
+    if (!open || mouth === "X") return;
+    const t = setTimeout(() => setMouth("X"), ON_TWOS);
+    return () => clearTimeout(t);
+  }, [open, mouth]);
   // once he's landed, a new shop every so often, so it's clear he's going through them
   useEffect(() => {
     if (!open) return;
     let every: ReturnType<typeof setInterval> | undefined;
-    const first = setTimeout(() => { setShown(1); every = setInterval(() => setShown(s => s + 1), STEP_MS); }, 500);
+    const first = setTimeout(() => { setShown(1); every = setInterval(() => setShown(s => s + 1), STEP_MS); }, FIRST_SHOP_MS);
     return () => { clearTimeout(first); clearInterval(every); };
   }, [open]);
   const mounted = open || leaving;
-  const from = {small, top: bubbleTop};
-  const enter = useSharedValue(0);
-  // 1: he goes to (and, from his bubble, comes from) the bubble. In from his place on the page he pops in place, but he
-  // always goes out into the bubble: the chat is where the results are.
-  const toBubble = useSharedValue(small ? 1 : 0);
+  const enter = useSharedValue(0), punch = useSharedValue(0);
+  // the screen's background (it fades in under him) and whether the screen has been set up for this time (it is not drawn before)
+  const cover = useSharedValue(0), ready = useSharedValue(0);
+  // 1: he comes from his bubble. From his place on the page he comes from exactly there. He always goes out into the bubble:
+  // the chat is where the results are.
+  const toBubble = useSharedValue(origin === "bubble" ? 1 : 0);
   const pic = width * PIC / W, k = width / SRC_W, {scale: bs, x: bx, y: by} = BUBBLE[who], fit = bs / k;
   // in the middle of the screen (a touch above it, for the line under him), not up where he sits on his tab
   const {height} = useWindowDimensions();
   const at0 = Math.max(DROP, Math.round((height - pic) / 2 - 64));
+  const geo: EntryGeo = {width, pic, drop: DROP, at0, bubbleTop, bubble: BUBBLE_D, bs, bx, by, fit};
   const iris = useSharedValue(0); // 1 while he's going out
   // the iris: closes on the middle of his face (in the picture's own points), from a circle that covers the whole picture down to
   // the size the bubble shows of it (fcx, fcy, from the top of the picture; big, small)
@@ -587,19 +605,24 @@ function OrgScreen({open, done, who, art, src, alt, office, bg, ink, muted, fill
   });
   useEffect(() => {
     if (open) {
+      // all of it lands together: the page's own Frank steps aside as this one is drawn, exactly where he was
       iris.value = 0;
-      toBubble.value = small ? 1 : 0;
-      enter.value = reduced ? 1 : withSpring(1, POP);
+      toBubble.value = origin === "bubble" ? 1 : 0;
+      enter.value = reduced ? 1 : withSpring(1, ENTER);
+      punch.value = reduced ? 0 : withSequence(withTiming(1, {duration: 80, easing: Easing.out(Easing.quad)}), withSpring(0, {damping: 7, stiffness: 240, mass: .8}));
+      cover.value = reduced ? 1 : withTiming(1, {duration: COVER_MS, easing: Easing.out(Easing.quad)});
+      ready.value = 1;
       return;
     }
     iris.value = 1;
     toBubble.value = 1;
+    punch.value = 0;
     enter.value = reduced ? 0 : withTiming(0, {duration: POP_OUT_MS, easing: Easing.inOut(Easing.quad)});
-    const t = setTimeout(() => setLeaving(false), POP_OUT_MS + 20);
+    const t = setTimeout(() => { setLeaving(false); ready.value = 0; cover.value = 0; }, POP_OUT_MS + 20);
     return () => clearTimeout(t);
-    // `small` is read only as he comes in
+    // `origin` is read only as he comes in
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, reduced, enter, toBubble]);
+  }, [open, reduced, enter, punch, toBubble, cover, ready]);
   // the finish: 0 is the island's own size, 1 the card; the tick pops once it's out
   const finish = useSharedValue(0), tick = useSharedValue(0);
   useEffect(() => {
@@ -620,30 +643,34 @@ function OrgScreen({open, done, who, art, src, alt, office, bg, ink, muted, fill
   const cardWords = useAnimatedStyle(() => ({opacity: Math.max(0, Math.min(1, (finish.value - .5) / .4))}));
   const tickPop = useAnimatedStyle(() => ({transform: [{scale: tick.value}]}));
   const searching = useAnimatedStyle(() => ({opacity: 1 - Math.min(1, finish.value * 3)})); // the search goes as the card comes
-  const page = useAnimatedStyle(() => ({opacity: Math.min(1, enter.value * 12)})); // the page goes only as the circle lands
+  // the whole screen: not drawn until it has been set up for this time, and, going out, gone only as the circle lands
+  const root = useAnimatedStyle(() => ({opacity: ready.value ? (iris.value === 1 ? Math.min(1, enter.value * 12) : 1) : 0}));
+  // the page's colour behind him, fading in over the page while he is still where he was (the chat goes under it)
+  const veil = useAnimatedStyle(() => ({opacity: cover.value}));
   const clip = useAnimatedStyle(() => {
-    const e = enter.value;
-    if (toBubble.value === 0) return {left: 0, top: at0, width, height: pic, borderRadius: 0, transform: [{scale: .86 + .14 * e}]};
     if (iris.value === 1) {
-      const c = irisAt(Math.min(1, Math.max(0, 1 - e)));
+      const c = irisAt(Math.min(1, Math.max(0, 1 - enter.value)));
       return {left: c.left, top: c.top, width: c.size, height: c.size, borderRadius: c.size / 2, transform: [{scale: 1}]};
     }
-    const p = 1 - e, at = (a: number, b: number) => a + (b - a) * p;
-    return {left: at(0, 32), top: at(at0, from.top), width: at(width, BUBBLE_D), height: at(pic, BUBBLE_D), borderRadius: Math.max(0, at(0, BUBBLE_D / 2)), transform: [{scale: 1}]};
+    const c = entryAt(enter.value, toBubble.value ? "bubble" : "rest", geo);
+    return {left: c.left, top: c.top, width: c.width, height: c.height, borderRadius: c.radius, transform: [{scale: 1 + PUNCH * punch.value}]};
   });
   const face = useAnimatedStyle(() => {
-    if (toBubble.value && iris.value === 1) {
+    if (iris.value === 1) {
       const c = irisAt(Math.min(1, Math.max(0, 1 - enter.value)));
       return {transform: [{translateX: c.x}, {translateY: c.y}, {scale: c.scale}]};
     }
-    const p = toBubble.value ? 1 - enter.value : 0, at = (a: number, b: number) => a + (b - a) * p;
-    return {transform: [{translateX: at(0, -bx * bs)}, {translateY: at(0, -by * bs)}, {scale: at(1, fit)}]};
+    const c = entryAt(enter.value, toBubble.value ? "bubble" : "rest", geo);
+    return {transform: [{translateX: c.x}, {translateY: c.y}, {scale: c.scale}]};
   });
   const words = useAnimatedStyle(() => ({opacity: Math.max(0, Math.min(1, (enter.value - .5) / .4)), transform: [{translateY: (1 - Math.min(1, enter.value)) * 8}]}));
-  if (!mounted) return null;
+  // The screen is always there, undrawn (and out of the way of touches and the screen reader) until it's wanted, with his picture
+  // already loaded: made new each time, his picture took a few frames to show, and the page's own Frank had gone by then.
   return (
-    <Reanimated.View testID="org-screen" style={[StyleSheet.absoluteFill, {backgroundColor: bg, zIndex: 20}, page]}
-      accessibilityViewIsModal accessibilityLabel="Smart Organisation">
+    <Reanimated.View testID="org-screen" style={[StyleSheet.absoluteFill, {zIndex: 20}, root]} pointerEvents={mounted ? "auto" : "none"}
+      accessibilityViewIsModal={mounted} accessibilityElementsHidden={!mounted} importantForAccessibility={mounted ? "auto" : "no-hide-descendants"}
+      accessibilityLabel="Smart Organisation">
+      <Reanimated.View style={[StyleSheet.absoluteFill, {backgroundColor: bg}, veil]} {...hidden} />
       <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, searching]}>
         <Reanimated.Text style={[{position: "absolute", left: 32, right: 32, top: insets.top + 16, textAlign: "center", fontFamily: hanken.semibold, fontSize: 17, lineHeight: 22, color: ink}, words]}>
           Smart Organisation
@@ -653,14 +680,14 @@ function OrgScreen({open, done, who, art, src, alt, office, bg, ink, muted, fill
         <Reanimated.View style={[{width, height: pic, transformOrigin: "left top"}, face]}>
           <Image source={src} style={{width, height: pic}} resizeMode="cover" accessibilityLabel={alt} />
           {office != null && <Image source={office} style={{position: "absolute", left: 0, top: 0, width, height: pic}} resizeMode="cover" {...hidden} />}
-          <Eyes key={`org-eyes-${who}`} width={width} kit={art.eyes} mood={done ? "idle" : mood} script={who === "frank" && !done ? FRANK_DEEP : undefined} />
-          <MouthPieces key={`org-mouth-${who}`} width={width} who={who} kit={art.mouth} mouth="X" />
+          {mounted && <Eyes key={`org-eyes-${who}`} width={width} kit={art.eyes} mood={done ? "idle" : mood} script={who === "frank" && !done ? FRANK_DEEP : undefined} seed={eyes0} />}
+          {mounted && <MouthPieces key={`org-mouth-${who}`} width={width} who={who} kit={art.mouth} mouth={mouth} />}
           <LinearGradient colors={[bg, bg + "00"]} style={{position: "absolute", left: 0, right: 0, top: 0, height: FADE}} pointerEvents="none" />
           <LinearGradient colors={[bg + "00", bg]} style={{position: "absolute", left: 0, right: 0, bottom: 0, height: FADE}} pointerEvents="none" />
         </Reanimated.View>
       </Reanimated.View>
       <Reanimated.View {...hidden} pointerEvents="none" style={[{position: "absolute", borderWidth: 1.5, borderColor: ink}, outline]} />
-      {bubblesAt(stops, shown).map(p => (
+      {mounted && bubblesAt(stops, shown).map(p => (
         <OrgBubble key={p.i} stop={p.stop} slot={p.slot} inn={p.inn && !done && open} fill={fill} reduced={reduced}
           x={HEAD[who].cx * k + SLOTS[p.slot].dx} y={at0 + HEAD[who].top * k + SLOTS[p.slot].dy} />
       ))}
@@ -688,11 +715,13 @@ function OrgScreen({open, done, who, art, src, alt, office, bg, ink, muted, fill
 
 // kit: whose eyes (his pieces, and how they move; Frank's hands too, as they go with where he looks). script: beats to play
 // first (his hello), before going on with his mood's
-function Eyes({width, kit, mood, script}: {width: number; kit: EyeKit; mood: Mood; script?: Beat[]}) {
+// shareRef: where to keep what he's doing, for the Smart Organisation screen's Frank to take over from (seed, on that one)
+function Eyes({width, kit, mood, script, shareRef, seed}: {width: number; kit: EyeKit; mood: Mood; script?: Beat[]; shareRef?: MutableRefObject<EyesNow>; seed?: EyesNow}) {
   const reduced = useReducedMotion();
-  const [look, setLook] = useState<Look>("you");
+  const [look, setLook] = useState<Look>(seed?.look ?? "you");
   const [blink, setBlink] = useState(0);
-  const [hands, setHands] = useState<Record<Side, Lift>>({left: 0, right: 0});
+  const [hands, setHands] = useState<Record<Side, Lift>>(seed?.hands ?? {left: 0, right: 0});
+  useEffect(() => { if (shareRef) shareRef.current = {look, hands}; }, [shareRef, look, hands]);
   useFocusEffect(useCallback(() => {
     if (reduced) return;
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -748,6 +777,7 @@ function Tim() {
   const isTim = who === "tim";
   const [q, setQ] = useState("");
   const [boxFocused, setBoxFocused] = useState(false);
+  const input = useRef<TextInputInstance>(null);
   const [thread, setThread] = useState<Said[]>([]);
   // who's a bubble: each from your Send until you tap him back
   const [smallFor, setSmallFor] = useState<Record<Accountant, boolean>>({tim: false, frank: false});
@@ -780,7 +810,33 @@ function Tim() {
   // he's looking through your payments to organise them: the Smart Organisation screen is up
   const [lookingThrough, setLookingThrough] = useState(false);
   const orgSince = useRef(0); // when it came up (0: it isn't), so it stays long enough to be seen
-  const openOrg = () => { if (!orgSince.current) orgSince.current = Date.now(); setLookingThrough(true); };
+  // Where he comes from as it comes up: his place on the page, or his bubble (a question already sent), the mouth he had and what
+  // his eyes were doing. Read from what's on screen now (the refs), not from this render: the tool that opens it runs long after
+  // the question went.
+  const [orgFrom, setOrgFrom] = useState<{origin: OrgOrigin; mouth: Mouth; eyes: EyesNow}>({origin: "rest", mouth: "X", eyes: {look: "you", hands: {left: 0, right: 0}}});
+  const smallNow = useRef(false), mouthNow = useRef<Mouth>("X");
+  const eyesNow = useRef<EyesNow>({look: "you", hands: {left: 0, right: 0}});
+  const hideReal = useSharedValue(0); // 1 while the Smart Organisation screen's Frank stands in for the page's
+  // (going out, it's back at once, under the circle that's closing in, so it's there when the circle lands)
+  useEffect(() => { hideReal.value = lookingThrough ? 1 : 0; }, [lookingThrough, hideReal]);
+  // Opened from his place on the page, the page's own chrome (the rows, the box, the tab bar) is left alone for as long as the
+  // screen's background takes to fade in over it, so nothing jumps under it as it does.
+  const [settling, setSettling] = useState(false);
+  const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const openOrg = () => {
+    if (!orgSince.current) {
+      orgSince.current = Date.now();
+      const origin: OrgOrigin = smallNow.current ? "bubble" : "rest";
+      setOrgFrom({origin, mouth: origin === "rest" ? mouthNow.current : "X", eyes: eyesNow.current});
+      if (origin === "rest" && !reduced) {
+        setSettling(true);
+        clearTimeout(settle.current);
+        settle.current = setTimeout(() => setSettling(false), COVER_MS + 60);
+      }
+    }
+    setLookingThrough(true);
+  };
+  useEffect(() => () => clearTimeout(settle.current), []);
   const orgHold = useRef(holdMs(0)); // at least this long, a beat per shop he looks at
   // when he's done and it's been up long enough: the card out of the island, held a moment, then the screen goes. Once at a
   // time (the tool ending and the question ending both ask); the returned function cancels it.
@@ -989,7 +1045,9 @@ function Tim() {
   // while a conversation's going, no tab bar, for the room (the other tabs are in the recent chats panel); back with a
   // new chat, or when you leave the tab
   const setBare = useChrome(st => st.setBare);
-  useFocusEffect(useCallback(() => { setBare(small || lookingThrough); return () => setBare(false); }, [small, lookingThrough, setBare]));
+  useFocusEffect(useCallback(() => { setBare((small || lookingThrough) && !settling); return () => setBare(false); }, [small, lookingThrough, settling, setBare]));
+  useEffect(() => { smallNow.current = small; }, [small]);
+  useEffect(() => { mouthNow.current = speech.mouth; }, [speech.mouth]);
   // asked something, or Frank's briefing: his bubble and his name at the top
   const asked = small && thread.some(s => s.who === who);
   const shrunk = useSharedValue(small ? 1 : 0), was = useRef(who);
@@ -1108,6 +1166,7 @@ function Tim() {
   const roomFade = useAnimatedStyle(() => ({opacity: 1 - shrunk.value})); // the room around him goes as he shrinks
   const space = useAnimatedStyle(() => ({minHeight: DROP + pic + (bubbleTop + BUBBLE_D - DROP - pic) * shrunk.value}));
   const after = useAnimatedStyle(() => ({opacity: Math.max(0, shrunk.value - .8) / .2})); // the words and his hair, as he lands
+  const standInFade = useAnimatedStyle(() => ({opacity: 1 - hideReal.value})); // the Smart Organisation screen's Frank stands in for him
 
   // He says the line of his answer out loud from his bubble, his words beside it as he says them. ElevenLabs records it
   // once (the accountant function's /say); the take stays with his answer, so a tap on the answer plays it again for nothing.
@@ -1288,10 +1347,10 @@ function Tim() {
   const icon = button === "send" && !working && !sendable ? "wave" : MIC_BUTTON[button].icon;
   // read out what he's doing, and what he says when he's done
   const last = thread[thread.length - 1];
-  // suggestions: starters on an empty chat while the box is empty (not while the "+" menu is out); after that, under his
-  // latest answer, while he isn't working
+  // what you might ask next, under his latest answer, while he isn't working
   const latest = thread.filter(s => s.who === who).at(-1);
-  const starters = !talked && !q && !dict.listening && !working && !plus;
+  // on an empty chat while the box is empty (not while the "+" menu is out): what each accountant can do, a stack above the box
+  const showFeatures = (!talked && !q && !dict.listening && !working && !plus) || settling;
   const chip = (text: string, onTap: (text: string) => void = ask) => (
     <Pressable key={text} onPress={() => onTap(text)} accessibilityRole="button" accessibilityHint={`Asks ${name}`}
       style={{paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, borderCurve: "continuous", borderWidth: 1, borderColor: edge, backgroundColor: box}}>
@@ -1315,6 +1374,29 @@ function Tim() {
   const organiseChip = (text: string) => {
     if (useMoney.getState().aiConsent && useMoney.getState().state) openOrg();
     ask(text);
+  };
+  // what each accountant can do, on the empty chat: Frank's are his bookkeeping and shopping, Tim's are planning. A row that
+  // needs your numbers (a goal, a what-if, a price) starts the sentence in the box for you to finish; the others ask straight away.
+  type Feature = {key: "sort" | "shop" | "bills" | "save" | "ahead" | "ifs"; icon: ComponentProps<typeof Icon>["name"]; title: string; note?: string};
+  const FEATURES: Feature[] = isTim ? [
+    {key: "save", icon: "piggy", title: "Smart Save"},
+    {key: "ahead", icon: "eye", title: "Look Ahead"},
+    {key: "ifs", icon: "question", title: "What If"},
+  ] : [
+    {key: "shop", icon: "bag", title: "Shopping"},
+    {key: "bills", icon: "month", title: "Find my bills"},
+    {key: "sort", icon: "broom", title: "Smart Sort", note: needsCatCount > 0 ? `${needsCatCount} to sort` : undefined},
+  ];
+  const startFeature = (key: Feature["key"]) => {
+    if (key === "sort") {
+      if (needsCatCount > 0) organiseChip(`Smart Sort my ${needsCatCount} unsorted payment${needsCatCount === 1 ? "" : "s"}`);
+      else ask("Smart Sort my payments");
+    } else if (key === "bills") ask("Have I missed any regular payments that should be bills?");
+    else if (key === "ahead") ask("Will I make it to my next payday, and what would change that?");
+    else {
+      setQ(key === "shop" ? "Can I afford " : key === "save" ? "I want to save £ for " : "What if I ");
+      input.current?.focus();
+    }
   };
   useEffect(() => { if (last && !last.mine) AccessibilityInfo.announceForAccessibility(`${PEOPLE[last.who].name} says: ${last.text}`); }, [last]);
 
@@ -1365,7 +1447,7 @@ function Tim() {
             <LinearGradient colors={[bg + "00", bg]} style={{position: "absolute", left: 0, right: 0, top: TOP_ROOM + HAIR[0], height: HAIR[1] - HAIR[0]}} />
           </Reanimated.View>
         )}
-        <Reanimated.View style={[{position: "absolute", overflow: "hidden"}, clip]}>
+        <Reanimated.View style={[{position: "absolute", overflow: "hidden"}, clip, standInFade]}>
           <Reanimated.View style={[{width, height: pic, transformOrigin: "left top"}, face]}>
             <Image source={src} testID={`${who}-picture`} style={{width, height: pic}} resizeMode="cover" accessibilityLabel={alt} />
             {/* the room around him, over his picture and under everything that moves (he's cut out of it) */}
@@ -1378,7 +1460,7 @@ function Tim() {
             {!small && <Pressable onPress={speech.replay} style={{position: "absolute", left: 0, top: 0, right: 0, bottom: 0}}
               accessibilityRole="button" accessibilityLabel={`Hear ${name} say who he is`} />}
             {/* Frank goes on with his own work, whatever you're doing, but looks at you while he talks */}
-            <Eyes key={`eyes-${who}`} width={width} kit={art.eyes} mood={isTim ? mood : "idle"} script={isTim && mood !== "idle" ? undefined : speech.script} />
+            <Eyes key={`eyes-${who}`} width={width} kit={art.eyes} mood={isTim ? mood : "idle"} script={isTim && mood !== "idle" ? undefined : speech.script} shareRef={eyesNow} />
             <MouthPieces key={`mouth-${who}`} width={width} who={who} kit={art.mouth} mouth={speech.mouth} />
             {/* his opening as a video, over all of him (the picture's own size and place, its background the page's) from when
                 its sound starts; kept mounted so it doesn't flash. When it ends it fades slowly into his picture (FILM_FADE);
@@ -1508,7 +1590,7 @@ function Tim() {
         colour behind it, so the conversation scrolls under it; at rest it only covers his picture's empty top, above his hair. */}
     <View style={{position: "absolute", left: 0, right: 0, top: 0, paddingTop: insets.top, paddingBottom: 4, alignItems: "center", backgroundColor: bg}}>
       {/* Liquid Glass where the phone has it, as the round buttons either side are */}
-      <Track accessibilityRole="radiogroup" accessibilityLabel="Your accountant" {...GLASS ? {glassEffectStyle: "regular" as const} : {}}
+      <Track accessibilityRole="radiogroup" accessibilityLabel="Your accountant" {...GLASS ? {glassEffectStyle: "regular" as const, tintColor: box} : {}}
         style={{flexDirection: "row", padding: 2, borderRadius: 999, ...GLASS ? {} : {backgroundColor: tone.track}}}>
         {(Object.keys(PEOPLE) as Accountant[]).map(a => {
           const on = a === who;
@@ -1524,25 +1606,30 @@ function Tim() {
       <Pressable testID="recent-chats" onPress={toggleDrawer}
         accessibilityRole="button" accessibilityLabel="Recent chats" accessibilityState={{expanded: drawer}} hitSlop={12}
         style={{position: "absolute", left: 16, top: insets.top - 4, width: 48, height: 48}}>
-        <Round fill={tone.track}><Icon name="menu" color={c.ink} size={26} /></Round>
+        <Round fill={tone.track} tint={box}><Icon name="menu" color={c.ink} size={26} /></Round>
       </Pressable>
       {/* a temporary chat, on the right: on, it's filled in ink */}
       <Pressable testID="temporary-chat" onPress={toggleTemp}
         accessibilityRole="switch" accessibilityLabel="Temporary chat" accessibilityHint="Not kept, and nothing's noted" accessibilityState={{checked: temp}} hitSlop={12}
         style={{position: "absolute", right: 16, top: insets.top - 4, width: 48, height: 48}}>
-        <Round fill={temp ? c.ink : tone.track} tint={temp ? c.ink : undefined}><Icon name="incognito" color={temp ? bg : c.ink} size={24} /></Round>
+        <Round fill={temp ? c.ink : tone.track} tint={temp ? c.ink : box}><Icon name="incognito" color={temp ? bg : c.ink} size={24} /></Round>
       </Pressable>
     </View>
 
     {/* the question box, at the bottom as in the OpenAI app; it grows as you write (return makes a new line), Send sends */}
     <Reanimated.View onLayout={e => setFootH(e.nativeEvent.layout.height)} style={[{paddingHorizontal: 32, paddingTop: 8, paddingBottom: 12 + foot, backgroundColor: bg}, lift]}>
-      {/* on an empty chat, a few questions to start with, one tap to ask */}
-      {starters ? (
-        <ScrollView testID="starters" horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
-          style={{marginHorizontal: -32, marginBottom: 8}} contentContainerStyle={{paddingHorizontal: 32, gap: 8}}>
-          {!isTim && needsCatCount > 0 && chip(`Organise my ${needsCatCount} unsorted payment${needsCatCount === 1 ? "" : "s"}`, organiseChip)}
-          {STARTERS.map(s => chip(s))}
-        </ScrollView>
+      {/* on an empty chat, what Frank can do: three rows stacked just above the box, one tap each */}
+      {showFeatures ? (
+        <View testID="features" style={{gap: 8, marginBottom: 8}}>
+          {FEATURES.map(f => (
+            <Pressable key={f.key} onPress={() => startFeature(f.key)} accessibilityRole="button" accessibilityLabel={f.note ? `${f.title}, ${f.note}` : f.title}
+              style={{flexDirection: "row", alignItems: "center", gap: 12, height: 48, paddingHorizontal: 16}}>
+              <Icon name={f.icon} color={c.ink} size={22} />
+              <Text style={{flex: 1, fontFamily: hanken.medium, fontSize: 16, lineHeight: 22, color: c.ink}}>{f.title}</Text>
+              {f.note ? <Text style={{fontFamily: hanken.medium, fontSize: 14, lineHeight: 20, color: c.muted}}>{f.note}</Text> : null}
+            </Pressable>
+          ))}
+        </View>
       ) : null}
       {/* Liquid Glass where the phone has it, as the top buttons are, tinted in the box's colour so it reads solid on
           the flat page (untinted, with nothing behind it to frost, it looked faded); else the box in its own colour */}
@@ -1560,7 +1647,7 @@ function Tim() {
           style={{width: 38, height: 38, borderRadius: 19, borderCurve: "continuous", alignItems: "center", justifyContent: "center"}}>
           <Icon name="plus" color={c.ink} size={28} />
         </Pressable>
-        <TextInput value={q} onChangeText={setQ} placeholder={dict.listening ? "Listening…" : `Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
+        <TextInput ref={input} value={q} onChangeText={setQ} placeholder={dict.listening ? "Listening…" : `Ask ${name} anything…`} placeholderTextColor={c.muted} accessibilityLabel={`Ask ${name} a question`}
           multiline autoComplete="off" onFocus={() => setBoxFocused(true)} onBlur={() => setBoxFocused(false)}
           style={{flex: 1, minWidth: 0, maxHeight: BOX_LINE * BOX_LINES + 16, fontFamily: hanken.medium, fontSize: 17, lineHeight: BOX_LINE, color: c.ink, paddingTop: 8, paddingBottom: 8}} />
         {/* the microphone, plain, beside the round button as in the OpenAI app: speak into the box, words or not.
@@ -1605,7 +1692,8 @@ function Tim() {
       tone={tone} ink={c.ink} muted={c.muted} reduced={reduced} bottom={footH - barY + 8} left={32} plusX={PLUS_X} plusY={12 + foot + 6 + 38 / 2} />
     <OrgScreen open={lookingThrough} done={orgDone} who={who} art={art} src={src} alt={alt} office={office} bg={bg} ink={c.ink} muted={c.muted}
       fill={box} stops={orgStops} count={needsCatCount}
-      small={small} bubbleTop={bubbleTop} width={width} mood="thinking" reduced={reduced} />
+      origin={orgFrom.origin} mouth0={orgFrom.mouth} eyes0={orgFrom.eyes}
+      bubbleTop={bubbleTop} width={width} mood="thinking" reduced={reduced} />
     <CategorySheet txId={editing} onClose={() => setEditing(null)} onMoved={line => { outcomes.current[editingBy.current].push(line); }} />
     <CategoryPick target={picking?.t ?? null} state={orgCtx?.state ?? null} onClose={() => setPicking(null)}
       onPick={(key, cat, sub) => { const id = picking?.id; if (id !== undefined) setThread(th => th.map(m => m.id === id && m.orgCard ? {...m, orgCard: {...m.orgCard, edits: {...m.orgCard.edits, [key]: {cat, ...(sub ? {sub} : {})}}}} : m)); }} />

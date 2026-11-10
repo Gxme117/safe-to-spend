@@ -22,8 +22,8 @@ jest.mock("expo-constants", () => ({
 // the box rides the keyboard on the UI thread; under test there's no keyboard, so it stays put
 jest.mock("react-native-keyboard-controller", () => jest.requireActual("react-native-keyboard-controller/jest"));
 jest.mock("react-native-reanimated", () => ({
-  __esModule: true, default: {View: jest.requireActual("react-native").View}, useAnimatedStyle: (f: () => object) => f(),
-  useSharedValue: <T,>(v: T) => jest.requireActual("react").useRef({value: v}).current, withTiming: <T,>(v: T) => v,
+  __esModule: true, default: {View: jest.requireActual("react-native").View, Text: jest.requireActual("react-native").Text}, useAnimatedStyle: (f: () => object) => f(),
+  useSharedValue: <T,>(v: T) => jest.requireActual("react").useRef({value: v}).current, withTiming: <T,>(v: T) => v, withSpring: <T,>(v: T) => v, withSequence: <T,>(...v: T[]) => v[v.length - 1],
   Easing: {in: (f: unknown) => f, out: (f: unknown) => f, inOut: (f: unknown) => f, cubic: (x: number) => x, quad: (x: number) => x},
 }));
 jest.mock("expo-sqlite/kv-store", () => ({__esModule: true, default: {getItemSync: () => null, setItemSync: () => {}, removeItemSync: () => true}}));
@@ -153,12 +153,14 @@ const ask = async (text: string, name = "Tim") => {
   await fireEvent.press(screen.getByRole("button", {name: "Send"}));
 };
 
-test("only what's needed: him, the box to ask him, and a few questions to start with (no name)", async () => {
+test("only what's needed: him, the box to ask him, and what he can do (no name)", async () => {
   await show(3);
   expect(screen.getByLabelText("Ask Tim a question")).toBeOnTheScreen();
   expect(screen.queryByRole("header")).toBeNull();
   expect(screen.queryByText(/knows/)).toBeNull();
-  expect(screen.getByTestId("starters")).toBeOnTheScreen();
+  expect(screen.getByTestId("features")).toBeOnTheScreen();
+  for (const title of ["Smart Save", "Look Ahead", "What If"]) expect(screen.getByRole("button", {name: title})).toBeOnTheScreen();
+  expect(screen.queryByRole("button", {name: "Smart Sort"})).toBeNull();
   // he always smiles: at rest, his mouth is the smile
   expect(screen.getByTestId("tim-smile", {includeHiddenElements: true})).toBeTruthy();
 });
@@ -521,16 +523,35 @@ test("a follow-up carries on the same conversation", async () => {
   expect(second[2].content[1].text).toBe("And if I wait till payday?");
 });
 
-test("a starter is asked with one tap, and they go once the chat's begun or you type", async () => {
-  sendMock.mockResolvedValueOnce(says("£42 today."));
+test("Frank's empty chat has a stack of what he can do: Smart Sort and Find my bills ask, Shopping starts your question; they go once you type or the chat's begun", async () => {
+  sendMock.mockResolvedValueOnce(says("Nothing to sort."));
   await show();
-  await fireEvent.changeText(screen.getByLabelText("Ask Tim a question"), "Can I");
-  expect(screen.queryByTestId("starters")).toBeNull();
-  await fireEvent.changeText(screen.getByLabelText("Ask Tim a question"), "");
-  await fireEvent.press(screen.getByRole("button", {name: "What can I spend today?"}));
-  expect(screen.getByLabelText("You asked: What can I spend today?")).toBeOnTheScreen();
-  expect(sendMock.mock.calls[0][1][0].content[1].text).toBe("What can I spend today?");
-  expect(screen.queryByTestId("starters")).toBeNull();
+  await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
+  expect(screen.getByTestId("features")).toBeOnTheScreen();
+  for (const title of ["Smart Sort", "Shopping", "Find my bills"]) expect(screen.getByRole("button", {name: title})).toBeOnTheScreen();
+  // Shopping needs a product: it starts the question in the box, and the stack steps aside for the typing
+  await fireEvent.press(screen.getByRole("button", {name: "Shopping"}));
+  expect(screen.getByLabelText("Ask Frank a question").props.value).toBe("Can I afford ");
+  expect(screen.queryByTestId("features")).toBeNull();
+  await fireEvent.changeText(screen.getByLabelText("Ask Frank a question"), "");
+  // with nothing unsorted, Smart Sort just asks
+  await fireEvent.press(screen.getByRole("button", {name: "Smart Sort"}));
+  expect(screen.getByLabelText("You asked: Smart Sort my payments")).toBeOnTheScreen();
+  expect(sendMock.mock.calls[0][1][0].content[1].text).toBe("Smart Sort my payments");
+  expect(screen.queryByTestId("features")).toBeNull();
+});
+
+test("Smart Sort with payments to sort comes up as a screen from where Frank is: the rows and box stay put while its background fades in over them, then go", async () => {
+  sendMock.mockResolvedValueOnce(says("Done."));
+  await show(3);
+  await act(() => { useMoney.setState(st => ({txs: st.txs.map(t => ({...t, needsCat: true}))})); });
+  await fireEvent.press(screen.getByRole("radio", {name: "Frank"}));
+  await fireEvent.press(screen.getByRole("button", {name: /^Smart Sort/}));
+  expect(screen.getByTestId("org-screen")).toBeOnTheScreen();
+  // the screen is modal, so what's under it counts as hidden to the test, but it's still there
+  expect(screen.getByTestId("features", {includeHiddenElements: true})).toBeOnTheScreen();
+  await act(() => jest.advanceTimersByTime(400));
+  expect(screen.queryByTestId("features", {includeHiddenElements: true})).toBeNull();
 });
 
 test("under his latest answer, what you might ask next: one tap asks it, and only the latest has them", async () => {
@@ -1088,10 +1109,11 @@ describe("dark mode", () => {
     await dark();
     await ask("How am I doing?");
     await screen.findByLabelText("Tim says: Doing fine."); // one question at a time: his answer's in before Frank is asked
-    expect(images().filter(s => s === "tim.jpg")).toHaveLength(1);
+    // (the Smart Organisation screen keeps its own copy of his picture ready, undrawn, so it's there the moment it's wanted)
+    expect(images().filter(s => s === "tim.jpg")).toHaveLength(1 + 1);
     await toFrank();
     await ask("How am I doing?", "Frank");
-    expect(images().filter(s => s === "frank-dark.jpg")).toHaveLength(2); // his picture in the bubble, and his hair over it
+    expect(images().filter(s => s === "frank-dark.jpg")).toHaveLength(2 + 1); // his picture in the bubble, and his hair over it
   });
 });
 

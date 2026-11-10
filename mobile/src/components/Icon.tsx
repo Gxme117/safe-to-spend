@@ -1,7 +1,7 @@
 import type {ColorValue} from "react-native";
 import Svg, {Circle, G, Path, Rect} from "react-native-svg";
 
-type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "wave" | "stop" | "speaker" | "incognito" | "camera" | "photo" | "file" | "out" | "broom";
+type Name = "day" | "month" | "settings" | "plus" | "back" | "forward" | "account" | "eye" | "eye-off" | "refresh" | "check" | "close" | "clock" | "home" | "sliders" | "pit" | "list" | "menu" | "search" | "pencil" | "glasses" | "up" | "mic" | "wave" | "stop" | "speaker" | "incognito" | "camera" | "photo" | "file" | "out" | "broom" | "bag" | "piggy" | "question";
 
 /** A few plain line icons, drawn here so there's no icon font to load. */
 export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; size?: number}) {
@@ -41,6 +41,9 @@ export function Icon({name, color, size = 24}: {name: Name; color: ColorValue; s
         </G>
         <Path d="M19 16C19.4 18.4 20.1 19.1 22.5 19.5 20.1 19.9 19.4 20.6 19 23 18.6 20.6 17.9 19.9 15.5 19.5 17.9 19.1 18.6 18.4 19 16z" {...p} strokeWidth={1.3} fill={color} />
       </>}
+      {name === "bag" && <><Path d="M5.5 8h13l1 12.5h-15z" {...p} /><Path d="M9 8V6.5a3 3 0 0 1 6 0V8" {...p} /></>}
+      {name === "piggy" && <><Path d="M7 7.5H15C18.3 7.5 20.5 9.8 20.5 12.5C20.5 15 18.8 16.5 16.5 16.8V19.5H14.5V17.2H10V19.5H8V17.2C5.4 16.6 3.5 14.8 3.5 12.5C3.5 9.5 5 7.5 7 7.5Z" {...p} /><Path d="M20.5 10.5H22V14H20.5M14.5 7.5L15.5 4.8L17.8 6.8M9 9.8H12.5M3.5 11.5C2 11 1.5 9.8 2.3 9" {...p} /><Circle cx={17} cy={11} r={0.9} fill={color} /></>}
+      {name === "question" && <><Circle cx={12} cy={12} r={9} {...p} /><Path d="M9.2 9.4a2.9 2.9 0 1 1 4.1 2.6c-.8.4-1.3 1-1.3 1.9v.5" {...p} /><Circle cx={12} cy={17.2} r={0.9} fill={color} /></>}
       {name === "list" &&<Path d="M4 6h16M4 12h16M4 18h16" {...p} />}
       {/* recent chats, as in the ChatGPT app: two lines, the lower one shorter */}
       {name === "menu" && <Path d="M4 9h16M4 15h10" {...p} />}
